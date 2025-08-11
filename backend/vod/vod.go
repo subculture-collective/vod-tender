@@ -1,18 +1,26 @@
 package vod
 
 import (
+	"context"
 	"database/sql"
-	"fmt"
+	"log/slog"
 	"time"
 )
 
-func StartVODProcessingJob(db *sql.DB) {
+func StartVODProcessingJob(ctx context.Context, db *sql.DB) {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
 	for {
-		ProcessUnprocessedVODs(db)
-		time.Sleep(1 * time.Hour)
+		select {
+		case <-ctx.Done():
+			slog.Info("vod processing job stopped")
+			return
+		case <-ticker.C:
+			ProcessUnprocessedVODs(db)
+		}
 	}
 }
 
 func ProcessUnprocessedVODs(db *sql.DB) {
-	fmt.Println("Processing unprocessed VODs (not yet implemented)")
+	slog.Info("processing unprocessed VODs (not yet implemented)")
 }

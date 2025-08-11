@@ -1,0 +1,103 @@
+import { useEffect, useState } from 'react';
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+
+export interface Vod {
+    id: string;
+    title: string;
+    date: string;
+    processed: boolean;
+    youtube_url?: string | null;
+}
+
+interface VodListProps {
+    onVodSelect?: (vodId: string) => void;
+}
+
+export default function VodList({ onVodSelect }: VodListProps) {
+    const [vods, setVods] = useState<Vod[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        setLoading(true);
+        fetch(`${API_BASE_URL}/vods`)
+            .then((res) => {
+                if (!res.ok) throw new Error('Failed to fetch VODs');
+                return res.json();
+            })
+            .then(setVods)
+            .catch((e) => setError(e.message))
+            .finally(() => setLoading(false));
+    }, []);
+
+    if (loading) return <div className='p-4'>Loading VODs...</div>;
+    if (error) return <div className='p-4 text-red-500'>{error}</div>;
+
+    return (
+        <div className='p-4'>
+            <h2 className='text-xl font-bold mb-4'>Twitch VODs</h2>
+            <div className='overflow-x-auto'>
+                <table className='min-w-full border border-gray-200 bg-white shadow-sm'>
+                    <thead>
+                        <tr className='bg-gray-100'>
+                            <th className='px-4 py-2 text-left'>Title</th>
+                            <th className='px-4 py-2 text-left'>Date</th>
+                            <th className='px-4 py-2 text-left'>Status</th>
+                            <th className='px-4 py-2 text-left'>YouTube</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {vods.map((vod) => (
+                            <tr
+                                key={vod.id}
+                                className={
+                                    'border-t hover:bg-indigo-50 cursor-pointer' +
+                                    (onVodSelect ? ' transition' : '')
+                                }
+                                onClick={
+                                    onVodSelect
+                                        ? () => onVodSelect(vod.id)
+                                        : undefined
+                                }
+                            >
+                                <td className='px-4 py-2 font-medium'>
+                                    {vod.title}
+                                </td>
+                                <td className='px-4 py-2'>
+                                    {new Date(vod.date).toLocaleString()}
+                                </td>
+                                <td className='px-4 py-2'>
+                                    {vod.processed ? (
+                                        <span className='text-green-600'>
+                                            Processed
+                                        </span>
+                                    ) : (
+                                        <span className='text-yellow-600'>
+                                            Pending
+                                        </span>
+                                    )}
+                                </td>
+                                <td className='px-4 py-2'>
+                                    {vod.youtube_url ? (
+                                        <a
+                                            href={vod.youtube_url}
+                                            className='text-blue-600 underline'
+                                            target='_blank'
+                                            rel='noopener noreferrer'
+                                            onClick={(e) => e.stopPropagation()}
+                                        >
+                                            YouTube
+                                        </a>
+                                    ) : (
+                                        <span className='text-gray-400'>—</span>
+                                    )}
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+}

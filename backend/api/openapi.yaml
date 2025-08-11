@@ -1,0 +1,183 @@
+openapi: 3.1.0
+info:
+    title: vod-tender API
+    version: 0.1.0
+servers:
+    - url: http://localhost:8080
+paths:
+    /healthz:
+        get:
+            summary: Health check
+            responses:
+                '200': { description: OK }
+    /vods:
+        get:
+            summary: List VODs
+            parameters:
+                - in: query
+                  name: limit
+                  schema:
+                      { type: integer, minimum: 1, maximum: 200, default: 50 }
+                - in: query
+                  name: offset
+                  schema: { type: integer, minimum: 0, default: 0 }
+            responses:
+                '200':
+                    description: A list of VODs
+                    content:
+                        application/json:
+                            schema:
+                                type: array
+                                items:
+                                    $ref: '#/components/schemas/VODListItem'
+    /vods/{id}:
+        get:
+            summary: VOD detail
+            parameters:
+                - in: path
+                  name: id
+                  required: true
+                  schema: { type: string }
+            responses:
+                '200':
+                    description: VOD detail
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/VODDetail'
+                '404': { description: Not found }
+    /vods/{id}/progress:
+        get:
+            summary: VOD download/upload progress
+            parameters:
+                - in: path
+                  name: id
+                  required: true
+                  schema: { type: string }
+            responses:
+                '200':
+                    description: Progress
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Progress'
+                '404': { description: Not found }
+    /vods/{id}/reprocess:
+        post:
+            summary: Reset a VOD to be re-processed
+            parameters:
+                - in: path
+                  name: id
+                  required: true
+                  schema: { type: string }
+            responses:
+                '204': { description: Reset }
+                '404': { description: Not found }
+    /vods/{id}/cancel:
+        post:
+            summary: Cancel an in-flight download for a VOD
+            parameters:
+                - in: path
+                  name: id
+                  required: true
+                  schema: { type: string }
+            responses:
+                '202': { description: Cancelled }
+                '204': { description: No active download }
+    /vods/{id}/chat:
+        get:
+            summary: Fetch chat messages for a time window
+            parameters:
+                - in: path
+                  name: id
+                  required: true
+                  schema: { type: string }
+                - in: query
+                  name: from
+                  schema: { type: number, format: double, default: 0 }
+                - in: query
+                  name: to
+                  schema: { type: number, format: double }
+                - in: query
+                  name: limit
+                  schema: { type: integer, default: 1000 }
+            responses:
+                '200':
+                    description: Chat messages
+                    content:
+                        application/json:
+                            schema:
+                                type: array
+                                items:
+                                    $ref: '#/components/schemas/ChatMessage'
+    /vods/{id}/chat/stream:
+        get:
+            summary: SSE streaming chat replay
+            parameters:
+                - in: path
+                  name: id
+                  required: true
+                  schema: { type: string }
+                - in: query
+                  name: from
+                  schema: { type: number, format: double, default: 0 }
+                - in: query
+                  name: speed
+                  schema: { type: number, format: double, default: 1.0 }
+            responses:
+                '200': { description: Stream started }
+    /vods/{id}/segments:
+        get:
+            summary: Placeholder for future segmentation API
+            parameters:
+                - in: path
+                  name: id
+                  required: true
+                  schema: { type: string }
+            responses:
+                '501': { description: Not implemented }
+components:
+    schemas:
+        VODListItem:
+            type: object
+            properties:
+                id: { type: string }
+                title: { type: string }
+                date: { type: string, format: date-time }
+                processed: { type: boolean }
+                youtube_url: { type: string, nullable: true }
+        VODDetail:
+            allOf:
+                - $ref: '#/components/schemas/VODListItem'
+                - type: object
+                  properties:
+                      duration_seconds: { type: integer, nullable: true }
+                      downloaded_path: { type: string, nullable: true }
+                      download_state: { type: string, nullable: true }
+                      download_retries: { type: integer, nullable: true }
+                      download_total: { type: integer, nullable: true }
+                      progress_updated_at:
+                          { type: string, format: date-time, nullable: true }
+        Progress:
+            type: object
+            properties:
+                vod_id: { type: string }
+                state: { type: string, nullable: true }
+                percent: { type: number, format: double, nullable: true }
+                retries: { type: integer }
+                total_bytes: { type: integer, nullable: true }
+                downloaded_path: { type: string, nullable: true }
+                processed: { type: boolean }
+                youtube_url: { type: string, nullable: true }
+                progress_updated_at:
+                    { type: string, format: date-time, nullable: true }
+        ChatMessage:
+            type: object
+            properties:
+                username: { type: string }
+                message: { type: string }
+                abs_timestamp: { type: string, format: date-time }
+                rel_timestamp: { type: number, format: double }
+                badges: { type: string, nullable: true }
+                emotes: { type: string, nullable: true }
+                color: { type: string, nullable: true }

@@ -38,8 +38,11 @@ func StartTwitchChatRecorder(ctx context.Context, db *sql.DB, vodID string, vodS
 			}
 		}
 		color := msg.User.Color
-		if _, err := db.Exec(`INSERT INTO chat_messages (vod_id, username, message, abs_timestamp, rel_timestamp, badges, emotes, color) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			vodID, msg.User.Name, msg.Message, absTime, relTime, badges, emotes, color); err != nil {
+		replyToID := msg.ReplyParentMsgID
+		replyToUsername := msg.ReplyParentUserName
+		replyToMessage := msg.ReplyParentMsgBody
+		if _, err := db.Exec(`INSERT INTO chat_messages (vod_id, username, message, abs_timestamp, rel_timestamp, badges, emotes, color, reply_to_id, reply_to_username, reply_to_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			vodID, msg.User.Name, msg.Message, absTime, relTime, badges, emotes, color, replyToID, replyToUsername, replyToMessage); err != nil {
 			slog.Error("failed to insert chat message", slog.Any("err", err))
 		}
 	})

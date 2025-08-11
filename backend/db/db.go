@@ -46,6 +46,9 @@ func Migrate(db *sql.DB) error {
 			badges TEXT,
 			emotes TEXT,
 			color TEXT,
+			reply_to_id TEXT,
+			reply_to_username TEXT,
+			reply_to_message TEXT,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY(vod_id) REFERENCES vods(twitch_vod_id)
 		);
@@ -58,6 +61,9 @@ func Migrate(db *sql.DB) error {
 		return err
 	}
 	// Attempt to add new columns for existing databases. Ignore failures.
+	_, _ = db.Exec(`ALTER TABLE chat_messages ADD COLUMN reply_to_id TEXT`)
+	_, _ = db.Exec(`ALTER TABLE chat_messages ADD COLUMN reply_to_username TEXT`)
+	_, _ = db.Exec(`ALTER TABLE chat_messages ADD COLUMN reply_to_message TEXT`)
 	_, _ = db.Exec(`ALTER TABLE vods ADD COLUMN download_state TEXT`)
 	_, _ = db.Exec(`ALTER TABLE vods ADD COLUMN download_retries INTEGER DEFAULT 0`)
 	_, _ = db.Exec(`ALTER TABLE vods ADD COLUMN download_bytes INTEGER DEFAULT 0`)

@@ -1,13 +1,17 @@
 package main
 
 import (
-	"log"
+	"context"
+	"log/slog"
 	"os"
-	"time"
+	"os/signal"
+	"syscall"
 
 	"github.com/joho/godotenv"
 	"github.com/onnwee/vod-tender/backend/chat"
+	"github.com/onnwee/vod-tender/backend/config"
 	"github.com/onnwee/vod-tender/backend/db"
+	"github.com/onnwee/vod-tender/backend/server"
 	"github.com/onnwee/vod-tender/backend/vod"
 )
 
@@ -15,35 +19,51 @@ func main() {
 	// Load .env file if present
 	_ = godotenv.Load("backend/.env")
 
+	// Config
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("config load failed", slog.Any("err", err))
+		os.Exit(1)
+	}
+
+	// DB
 	database, err := db.Connect()
 	if err != nil {
-		log.Fatalf("failed to open db: %v", err)
+		slog.Error("failed to open db", slog.Any("err", err))
+		os.Exit(1)
 	}
 	defer database.Close()
 	if err := db.Migrate(database); err != nil {
-		log.Fatalf("failed to migrate db: %v", err)
+		slog.Error("failed to migrate db", slog.Any("err", err))
+		os.Exit(1)
 	}
 
-	// Example: get VOD ID and start time from environment variables
-	vodID := os.Getenv("TWITCH_VOD_ID")
-	vodStartStr := os.Getenv("TWITCH_VOD_START") // RFC3339 format
-	var vodStart time.Time
-	if vodStartStr != "" {
-		t, err := time.Parse(time.RFC3339, vodStartStr)
-		if err != nil {
-			log.Fatalf("Invalid VOD start time: %v", err)
-		}
-		vodStart = t
+	// Root context with graceful shutdown
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	// Start services
+	// Chat recorder is optional; only start if creds are present
+	if err := cfg.ValidateChatReady(); err == nil {
+		go chat.StartTwitchChatRecorder(ctx, database, cfg.TwitchVODID, cfg.TwitchVODStart)
 	} else {
-		vodStart = time.Now().UTC()
+		slog.Info("chat recorder disabled (missing twitch creds)")
 	}
-	if vodID == "" {
-		vodID = "demo-vod-id"
+	go vod.StartVODProcessingJob(ctx, database)
+
+	// HTTP server (health endpoint)
+	addr := os.Getenv("HTTP_ADDR")
+	if addr == "" {
+		addr = ":8080"
 	}
+	go func() {
+		if err := server.Start(ctx, database, addr); err != nil {
+			slog.Error("http server exited with error", slog.Any("err", err))
+		}
+	}()
 
-	go chat.StartTwitchChatRecorder(database, vodID, vodStart)
-	go vod.StartVODProcessingJob(database)
-
-	select {}
+	// Block until shutdown signal
+	<-ctx.Done()
+	slog.Info("shutting down")
 }
 

@@ -1,25 +1,27 @@
 package chat
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 
-	"github.com/gempir/go-twitch-irc/v4"
+	twitch "github.com/gempir/go-twitch-irc/v4"
 )
 
 // StartTwitchChatRecorder records chat for a given VOD, with VOD ID and VOD start time for replay accuracy.
-func StartTwitchChatRecorder(db *sql.DB, vodID string, vodStart time.Time) {
+func StartTwitchChatRecorder(ctx context.Context, db *sql.DB, vodID string, vodStart time.Time) {
 	channel := os.Getenv("TWITCH_CHANNEL")
 	username := os.Getenv("TWITCH_BOT_USERNAME")
 	oauth := os.Getenv("TWITCH_OAUTH_TOKEN")
 	if channel == "" || username == "" || oauth == "" {
-		log.Println("Twitch credentials not set, skipping chat recorder")
+		slog.Info("twitch creds not set; skipping chat recorder")
 		return
 	}
 	client := twitch.NewClient(username, oauth)
+
 	client.OnPrivateMessage(func(msg twitch.PrivateMessage) {
 		absTime := time.Now().UTC()
 		relTime := absTime.Sub(vodStart).Seconds()
@@ -36,15 +38,23 @@ func StartTwitchChatRecorder(db *sql.DB, vodID string, vodStart time.Time) {
 			}
 		}
 		color := msg.User.Color
-		_, err := db.Exec(`INSERT INTO chat_messages (vod_id, username, message, abs_timestamp, rel_timestamp, badges, emotes, color) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			vodID, msg.User.Name, msg.Message, absTime, relTime, badges, emotes, color)
-		if err != nil {
-			log.Printf("failed to insert chat message: %v", err)
+		if _, err := db.Exec(`INSERT INTO chat_messages (vod_id, username, message, abs_timestamp, rel_timestamp, badges, emotes, color) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			vodID, msg.User.Name, msg.Message, absTime, relTime, badges, emotes, color); err != nil {
+			slog.Error("failed to insert chat message", slog.Any("err", err))
 		}
 	})
+
+	// Handle context cancellation by closing the client
+	done := make(chan struct{})
+	go func() {
+		<-ctx.Done()
+		client.Disconnect()
+		close(done)
+	}()
+
 	client.Join(channel)
-	err := client.Connect()
-	if err != nil {
-		log.Printf("Twitch chat connect error: %v", err)
+	if err := client.Connect(); err != nil {
+		slog.Error("twitch chat connect error", slog.Any("err", err))
 	}
+	<-done
 }

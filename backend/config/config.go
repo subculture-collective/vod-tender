@@ -11,6 +11,8 @@ type Config struct {
     TwitchChannel     string
     TwitchBotUsername string
     TwitchOAuthToken  string
+    TwitchClientID    string
+    TwitchClientSecret string
 
     // VOD
     TwitchVODID    string
@@ -18,6 +20,9 @@ type Config struct {
 
     // Database
     DBDsn string
+
+    // Storage
+    DataDir string
 }
 
 // Load reads environment variables and applies defaults. It doesn't fail if Twitch creds are missing;
@@ -28,6 +33,8 @@ func Load() (*Config, error) {
     cfg.TwitchChannel = os.Getenv("TWITCH_CHANNEL")
     cfg.TwitchBotUsername = os.Getenv("TWITCH_BOT_USERNAME")
     cfg.TwitchOAuthToken = os.Getenv("TWITCH_OAUTH_TOKEN")
+    cfg.TwitchClientID = os.Getenv("TWITCH_CLIENT_ID")
+    cfg.TwitchClientSecret = os.Getenv("TWITCH_CLIENT_SECRET")
 
     // VOD
     cfg.TwitchVODID = os.Getenv("TWITCH_VOD_ID")
@@ -49,6 +56,12 @@ func Load() (*Config, error) {
     cfg.DBDsn = os.Getenv("DB_DSN")
     if cfg.DBDsn == "" {
         cfg.DBDsn = "vodtender.db"
+    }
+
+    // Storage
+    cfg.DataDir = os.Getenv("DATA_DIR")
+    if cfg.DataDir == "" {
+        cfg.DataDir = "data"
     }
 
     return cfg, nil

@@ -1,33 +1,57 @@
 services:
-  backend:
-    container_name: vod-backend
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    ports:
-      - "8080:8080"
-    env_file:
-      - ./backend/.env
-    volumes:
-      - ./vodtender.db:/app/vodtender.db
-    environment:
-      - HTTP_ADDR=:8080
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-    restart: unless-stopped
+    postgres:
+        image: postgres:16-alpine
+        container_name: vod-postgres
+        environment:
+            POSTGRES_USER: vod
+            POSTGRES_PASSWORD: vod
+            POSTGRES_DB: vod
+        ports:
+            - '5432:5432' # optional external access
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U vod']
+            interval: 10s
+            timeout: 5s
+            retries: 5
+            start_period: 10s
+        volumes:
+            - pgdata:/var/lib/postgresql/data
+        restart: unless-stopped
 
-  frontend:
-    container_name: vod-frontend
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    ports:
-      - "3000:80"
-    depends_on:
-      backend:
-        condition: service_healthy
-    restart: unless-stopped
+    backend:
+        container_name: vod-backend
+        build:
+            context: ./backend
+            dockerfile: Dockerfile
+        ports:
+            - '8080:8080'
+        env_file:
+            - ./backend/.env
+        environment:
+            - HTTP_ADDR=:8080
+            - DB_DSN=postgres://vod:vod@postgres:5432/vod?sslmode=disable
+        depends_on:
+            postgres:
+                condition: service_healthy
+        healthcheck:
+            test: ['CMD', 'curl', '-f', 'http://localhost:8080/healthz']
+            interval: 30s
+            timeout: 5s
+            retries: 3
+            start_period: 10s
+        restart: unless-stopped
+
+    frontend:
+        container_name: vod-frontend
+        build:
+            context: ./frontend
+            dockerfile: Dockerfile
+        ports:
+            - '3000:80'
+        depends_on:
+            backend:
+                condition: service_healthy
+        restart: unless-stopped
+
+volumes:
+    pgdata: {}

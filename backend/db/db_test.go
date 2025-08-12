@@ -2,19 +2,17 @@ package db
 
 import (
 	"database/sql"
+	"os"
 	"testing"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func TestMigrate(t *testing.T) {
-    database, err := sql.Open("sqlite3", ":memory:")
-    if err != nil {
-        t.Fatalf("open db: %v", err)
-    }
-    defer database.Close()
-
-    if err := Migrate(database); err != nil {
-        t.Fatalf("migrate: %v", err)
-    }
+    dsn := os.Getenv("TEST_PG_DSN")
+    if dsn == "" { t.Skip("TEST_PG_DSN not set; skipping postgres migration test") }
+    db, err := sql.Open("pgx", dsn)
+    if err != nil { t.Fatalf("open: %v", err) }
+    defer db.Close()
+    if err := Migrate(db); err != nil { t.Fatalf("migrate: %v", err) }
 }

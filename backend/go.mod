@@ -7,12 +7,18 @@ toolchain go1.24.5
 require (
 	github.com/gempir/go-twitch-irc/v4 v4.2.0
 	github.com/google/uuid v1.6.0
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
+	github.com/jackc/pgx/v5 v5.7.5
+	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/joho/godotenv v1.5.1
-	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/prometheus/client_golang v1.20.4
 	golang.org/x/oauth2 v0.30.0
+	golang.org/x/sync v0.16.0 // indirect
 	google.golang.org/api v0.246.0
 )
+
+require github.com/mattn/go-sqlite3 v1.14.31
 
 require (
 	cloud.google.com/go/auth v0.16.3 // indirect

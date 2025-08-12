@@ -1,0 +1,11 @@
+# Root dockerignore
+**/.git
+**/.idea
+**/.vscode
+**/.DS_Store
+backend/vodtender.db
+**/node_modules
+**/dist
+*.log
+.env*
+.gitignore

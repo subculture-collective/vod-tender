@@ -13,6 +13,8 @@ type Config struct {
     TwitchOAuthToken  string
     TwitchClientID    string
     TwitchClientSecret string
+    TwitchRedirectURI  string
+    TwitchScopes       string
 
     // VOD
     TwitchVODID    string
@@ -23,6 +25,12 @@ type Config struct {
 
     // Storage
     DataDir string
+
+    // YouTube OAuth
+    YTClientID     string
+    YTClientSecret string
+    YTRedirectURI  string
+    YTScopes       string
 }
 
 // Load reads environment variables and applies defaults. It doesn't fail if Twitch creds are missing;
@@ -35,6 +43,12 @@ func Load() (*Config, error) {
     cfg.TwitchOAuthToken = os.Getenv("TWITCH_OAUTH_TOKEN")
     cfg.TwitchClientID = os.Getenv("TWITCH_CLIENT_ID")
     cfg.TwitchClientSecret = os.Getenv("TWITCH_CLIENT_SECRET")
+    cfg.TwitchRedirectURI = os.Getenv("TWITCH_REDIRECT_URI")
+    cfg.TwitchScopes = os.Getenv("TWITCH_SCOPES")
+    if cfg.TwitchScopes == "" {
+        // default scopes for chat bot
+        cfg.TwitchScopes = "chat:read chat:edit"
+    }
 
     // VOD
     cfg.TwitchVODID = os.Getenv("TWITCH_VOD_ID")
@@ -62,6 +76,15 @@ func Load() (*Config, error) {
     cfg.DataDir = os.Getenv("DATA_DIR")
     if cfg.DataDir == "" {
         cfg.DataDir = "data"
+    }
+
+    // YouTube
+    cfg.YTClientID = os.Getenv("YT_CLIENT_ID")
+    cfg.YTClientSecret = os.Getenv("YT_CLIENT_SECRET")
+    cfg.YTRedirectURI = os.Getenv("YT_REDIRECT_URI")
+    cfg.YTScopes = os.Getenv("YT_SCOPES")
+    if cfg.YTScopes == "" {
+        cfg.YTScopes = "https://www.googleapis.com/auth/youtube.upload"
     }
 
     return cfg, nil

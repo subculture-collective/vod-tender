@@ -1,9 +1,20 @@
 # Use an official Golang image as the build stage
-FROM golang:1.22 as builder
+FROM golang:1.24 as builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libc6-dev \
+    libsqlite3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
-COPY backend/ ./backend/
+COPY . .
 WORKDIR /app/backend
-RUN go mod tidy && go build -o /app/vod-tender-backend
+# Make sure we download all dependencies and build with proper CGO for sqlite3
+RUN CGO_ENABLED=1 go mod download && \
+    go mod tidy && \
+    go build -o /app/vod-tender-backend .
 
 # Use a minimal base image for running
 FROM ubuntu:24.04

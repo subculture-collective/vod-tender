@@ -31,6 +31,8 @@ Environment variables (place in `backend/.env` for local dev):
 - TWITCH_VOD_START (RFC3339; optional; default now)
 - DB_DSN (optional; default vodtender.db)
 - DATA_DIR (optional; default data)
+- LOG_LEVEL (optional; default info)
+- LOG_FORMAT (optional; text|json; default text)
 
 Chat recorder starts only when Twitch creds are present.
 
@@ -75,3 +77,10 @@ npx openapi-typescript backend/api/openapi.yaml -o web/src/api/types.ts
 ```
 
 Simple CORS is enabled for dev (Access-Control-Allow-Origin: \*). For production, tighten CORS settings.
+
+### Monitoring
+
+- Health: `GET /healthz` (200 OK or 503)
+- Status: `GET /status` (queue counts, circuit state, moving averages, last processing run)
+- Metrics: `GET /metrics` (Prometheus format: download/upload counters, durations, queue depth, circuit gauge)
+- Logs: default human text; switch to JSON with `LOG_FORMAT=json` for ingestion.

@@ -5,13 +5,20 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
+	"time"
+
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 
 	"github.com/joho/godotenv"
 	"github.com/onnwee/vod-tender/backend/chat"
 	"github.com/onnwee/vod-tender/backend/config"
 	"github.com/onnwee/vod-tender/backend/db"
+	"github.com/onnwee/vod-tender/backend/oauth"
 	"github.com/onnwee/vod-tender/backend/server"
+	"github.com/onnwee/vod-tender/backend/twitchapi"
 	"github.com/onnwee/vod-tender/backend/vod"
 )
 
@@ -24,6 +31,18 @@ func main() {
 	if err != nil {
 		slog.Error("config load failed", slog.Any("err", err))
 		os.Exit(1)
+	}
+
+	// Fetch an app access token (NOT for chat) if client id/secret provided.
+	if cfg.TwitchClientID != "" && cfg.TwitchClientSecret != "" {
+		ctx2, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		if tok, err := (&twitchapi.TokenSource{ClientID: cfg.TwitchClientID, ClientSecret: cfg.TwitchClientSecret}).Get(ctx2); err != nil {
+			slog.Warn("twitch app token fetch failed", slog.Any("err", err))
+		} else if len(tok) > 6 {
+			masked := "***" + tok[len(tok)-6:]
+			slog.Info("twitch app token acquired", slog.String("tail", masked))
+		}
+		cancel()
 	}
 
 	// DB
@@ -43,13 +62,32 @@ func main() {
 	defer stop()
 
 	// Start services
-	// Chat recorder is optional; only start if creds are present
-	if err := cfg.ValidateChatReady(); err == nil {
+	// Chat recorder: direct start or auto mode
+	if os.Getenv("CHAT_AUTO_START") == "1" {
+		go chat.StartAutoChatRecorder(ctx, database)
+	} else if err := cfg.ValidateChatReady(); err == nil {
 		go chat.StartTwitchChatRecorder(ctx, database, cfg.TwitchVODID, cfg.TwitchVODStart)
 	} else {
-		slog.Info("chat recorder disabled (missing twitch creds)")
+		slog.Info("chat recorder disabled (missing twitch creds or auto not enabled)")
 	}
 	go vod.StartVODProcessingJob(ctx, database)
+	go vod.StartVODCatalogBackfillJob(ctx, database)
+
+	// Centralized OAuth token refreshers
+	oauth.StartRefresher(ctx, database, "twitch", 5*time.Minute, 15*time.Minute, func(rctx context.Context, refreshToken string) (string, string, time.Time, string, error) {
+		res, err := twitchapi.RefreshToken(rctx, cfg.TwitchClientID, cfg.TwitchClientSecret, refreshToken)
+		if err != nil { return "", "", time.Time{}, "", err }
+		return res.AccessToken, res.RefreshToken, twitchapi.ComputeExpiry(res.ExpiresIn), strings.Join(res.Scope, " "), nil
+	})
+	oauth.StartRefresher(ctx, database, "youtube", 10*time.Minute, 20*time.Minute, func(rctx context.Context, refreshToken string) (string, string, time.Time, string, error) {
+		cfg2, _ := config.Load()
+		ts := &oauth2.Token{RefreshToken: refreshToken}
+		if cfg2.YTClientID == "" { return "", "", time.Time{}, "", context.Canceled }
+		oc := &oauth2.Config{ClientID: cfg2.YTClientID, ClientSecret: cfg2.YTClientSecret, Endpoint: google.Endpoint, RedirectURL: cfg2.YTRedirectURI}
+		newTok, err := oc.TokenSource(rctx, ts).Token()
+		if err != nil { return "", "", time.Time{}, "", err }
+		return newTok.AccessToken, newTok.RefreshToken, newTok.Expiry, "", nil
+	})
 
 	// HTTP server (health endpoint)
 	addr := os.Getenv("HTTP_ADDR")

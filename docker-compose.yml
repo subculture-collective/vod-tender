@@ -1,22 +1,33 @@
-
 services:
   backend:
+    container_name: vod-backend
     build:
       context: ./backend
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
+    env_file:
+      - ./backend/.env
     volumes:
       - ./vodtender.db:/app/vodtender.db
     environment:
-      - PORT=8080
+      - HTTP_ADDR=:8080
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
   frontend:
+    container_name: vod-frontend
     build:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
-    environment:
-      - PORT=3000
+      - "3000:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    restart: unless-stopped

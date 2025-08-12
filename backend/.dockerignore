@@ -1,0 +1,12 @@
+# Backend dockerignore
+**/.git
+**/.idea
+**/.vscode
+**/.DS_Store
+/dist
+/node_modules
+/frontend
+/docker-compose.yml
+*.log
+vodtender.db
+.env

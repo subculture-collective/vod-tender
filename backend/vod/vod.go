@@ -3,10 +3,9 @@ package vod
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,217 +15,59 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
-	"google.golang.org/api/option"
-	youtube "google.golang.org/api/youtube/v3"
+	"github.com/onnwee/vod-tender/backend/twitchapi"
 )
 
+// Core VOD model (DB schema lives in migrations elsewhere)
 type VOD struct {
-	ID        string
-	Title     string
-	Date      time.Time
-	Duration  int
+	ID       string
+	Title    string
+	Date     time.Time
+	Duration int
 }
 
+// download cancellation registry
 var (
 	activeMu      = &sync.Mutex{}
 	activeCancels = map[string]context.CancelFunc{}
 )
 
-// CancelDownload cancels an in-flight download for a given VOD id if present.
 func CancelDownload(id string) bool {
-	activeMu.Lock()
-	defer activeMu.Unlock()
-	if c, ok := activeCancels[id]; ok {
-		c()
-		delete(activeCancels, id)
-		return true
-	}
+	activeMu.Lock(); defer activeMu.Unlock()
+	if c, ok := activeCancels[id]; ok { c(); delete(activeCancels, id); return true }
 	return false
 }
 
-// StartVODProcessingJob sequentially discovers, downloads, and uploads VODs.
-func StartVODProcessingJob(ctx context.Context, db *sql.DB) {
-	ticker := time.NewTicker(1 * time.Hour)
-	defer ticker.Stop()
-	for {
-		if err := processOnce(ctx, db); err != nil {
-			slog.Error("vod process cycle error", slog.Any("err", err))
-		}
-		select {
-		case <-ctx.Done():
-			slog.Info("vod processing job stopped")
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
-func processOnce(ctx context.Context, db *sql.DB) error {
-	// Ensure data dir exists
-	dataDir := os.Getenv("DATA_DIR")
-	if dataDir == "" {
-		dataDir = "data"
-	}
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
-		return fmt.Errorf("mkdir data dir: %w", err)
-	}
-
-	// Discover new VODs and upsert into DB
-	vods, err := fetchChannelVODs(ctx)
-	if err != nil {
-		return err
-	}
-	for _, v := range vods {
-		_, _ = db.Exec(`INSERT OR IGNORE INTO vods (twitch_vod_id, title, date, duration_seconds, created_at)
-						VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`, v.ID, v.Title, v.Date, v.Duration)
-	}
-
-	// Pick one unprocessed VOD
-	row := db.QueryRow(`SELECT twitch_vod_id, title, date FROM vods WHERE processed = 0 ORDER BY date ASC LIMIT 1`)
-	var id, title string
-	var date time.Time
-	if err := row.Scan(&id, &title, &date); err != nil {
-		if err == sql.ErrNoRows {
-			slog.Info("no unprocessed vods")
-			return nil
-		}
-		return err
-	}
-
-	// Download
-	filePath, err := downloadVOD(ctx, db, id, dataDir)
-	if err != nil {
-		slog.Error("download failed", slog.String("vod_id", id), slog.Any("err", err))
-		_, _ = db.Exec(`UPDATE vods SET processing_error=?, updated_at=CURRENT_TIMESTAMP WHERE twitch_vod_id=?`, err.Error(), id)
-		return nil
-	}
-	_, _ = db.Exec(`UPDATE vods SET downloaded_path=?, updated_at=CURRENT_TIMESTAMP WHERE twitch_vod_id=?`, filePath, id)
-
-	// Upload
-	ytURL, err := uploadToYouTube(ctx, filePath, title, date)
-	if err != nil {
-		slog.Error("upload failed", slog.String("vod_id", id), slog.Any("err", err))
-		_, _ = db.Exec(`UPDATE vods SET processing_error=?, updated_at=CURRENT_TIMESTAMP WHERE twitch_vod_id=?`, err.Error(), id)
-		return nil
-	}
-
-	// Mark processed
-	_, _ = db.Exec(`UPDATE vods SET youtube_url=?, processed=1, updated_at=CURRENT_TIMESTAMP WHERE twitch_vod_id=?`, ytURL, id)
-	slog.Info("processed vod", slog.String("vod_id", id), slog.String("youtube_url", ytURL))
-	return nil
-}
-
-// fetchChannelVODs uses Twitch Helix to list recent VODs for the channel from env TWITCH_CHANNEL.
-func fetchChannelVODs(ctx context.Context) ([]VOD, error) {
-	clientID := os.Getenv("TWITCH_CLIENT_ID")
-	clientSecret := os.Getenv("TWITCH_CLIENT_SECRET")
+// FetchChannelVODs lists recent archive VODs using Twitch Helix (simple unpaged variant).
+// (Historical / paged listing lives in catalog.go)
+func FetchChannelVODs(ctx context.Context) ([]VOD, error) {
 	channel := os.Getenv("TWITCH_CHANNEL")
-	if clientID == "" || clientSecret == "" || channel == "" {
-		// Not configured; no discovery
-		return nil, nil
-	}
-	// Get app access token
-	tokReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, "https://id.twitch.tv/oauth2/token", nil)
-	q := tokReq.URL.Query()
-	q.Set("client_id", clientID)
-	q.Set("client_secret", clientSecret)
-	q.Set("grant_type", "client_credentials")
-	tokReq.URL.RawQuery = q.Encode()
-	tokResp, err := http.DefaultClient.Do(tokReq)
-	if err != nil {
-		return nil, fmt.Errorf("token: %w", err)
-	}
-	defer tokResp.Body.Close()
-	var tok struct{ AccessToken string `json:"access_token"` }
-	if err := json.NewDecoder(tokResp.Body).Decode(&tok); err != nil {
-		return nil, fmt.Errorf("decode token: %w", err)
-	}
-
-	// Get channel ID
-	usersReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.twitch.tv/helix/users", nil)
-	uq := usersReq.URL.Query()
-	uq.Set("login", channel)
-	usersReq.URL.RawQuery = uq.Encode()
-	usersReq.Header.Set("Client-Id", clientID)
-	usersReq.Header.Set("Authorization", "Bearer "+tok.AccessToken)
-	usersResp, err := http.DefaultClient.Do(usersReq)
-	if err != nil {
-		return nil, fmt.Errorf("users: %w", err)
-	}
-	defer usersResp.Body.Close()
-	var users struct{ Data []struct{ ID string } `json:"data"` }
-	if err := json.NewDecoder(usersResp.Body).Decode(&users); err != nil || len(users.Data) == 0 {
-		return nil, fmt.Errorf("users decode: %w", err)
-	}
-	userID := users.Data[0].ID
-
-	// Get videos (VODs)
-	vidsReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.twitch.tv/helix/videos", nil)
-	vq := vidsReq.URL.Query()
-	vq.Set("user_id", userID)
-	vq.Set("type", "archive")
-	vq.Set("first", "20")
-	vidsReq.URL.RawQuery = vq.Encode()
-	vidsReq.Header.Set("Client-Id", clientID)
-	vidsReq.Header.Set("Authorization", "Bearer "+tok.AccessToken)
-	vidsResp, err := http.DefaultClient.Do(vidsReq)
-	if err != nil {
-		return nil, fmt.Errorf("videos: %w", err)
-	}
-	defer vidsResp.Body.Close()
-	var vids struct {
-		Data []struct {
-			ID        string    `json:"id"`
-			Title     string    `json:"title"`
-			CreatedAt time.Time `json:"created_at"`
-			Duration  string    `json:"duration"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(vidsResp.Body).Decode(&vids); err != nil {
-		return nil, fmt.Errorf("videos decode: %w", err)
-	}
-	var out []VOD
-	for _, v := range vids.Data {
-		out = append(out, VOD{
-			ID:       v.ID,
-			Title:    v.Title,
-			Date:     v.CreatedAt,
-			Duration: parseTwitchDuration(v.Duration),
-		})
+	if channel == "" { return nil, nil }
+	hc := &twitchapi.HelixClient{AppTokenSource: &twitchapi.TokenSource{ClientID: os.Getenv("TWITCH_CLIENT_ID"), ClientSecret: os.Getenv("TWITCH_CLIENT_SECRET")}, ClientID: os.Getenv("TWITCH_CLIENT_ID")}
+	uid, err := hc.GetUserID(ctx, channel)
+	if err != nil { return nil, err }
+	videos, _, err := hc.ListVideos(ctx, uid, "", 20)
+	if err != nil { return nil, err }
+	out := make([]VOD, 0, len(videos))
+	for _, v := range videos {
+		created, _ := time.Parse(time.RFC3339, v.CreatedAt)
+		out = append(out, VOD{ID: v.ID, Title: v.Title, Date: created, Duration: parseTwitchDuration(v.Duration)})
 	}
 	return out, nil
 }
 
-func parseTwitchDuration(s string) int {
-	// Twitch duration format like "3h15m42s"
-	var total int
-	cur := ""
-	for _, r := range s {
-		if r >= '0' && r <= '9' {
-			cur += string(r)
-			continue
-		}
-		if cur == "" {
-			continue
-		}
-		n := 0
-		for _, d := range cur {
-			n = n*10 + int(d-'0')
-		}
-		switch r {
-		case 'h':
-			total += n * 3600
-		case 'm':
-			total += n * 60
-		case 's':
-			total += n
-		}
-		cur = ""
+// DiscoverAndUpsert inserts newly discovered VODs (idempotent via INSERT OR IGNORE)
+func DiscoverAndUpsert(ctx context.Context, db *sql.DB) error {
+	vods, err := FetchChannelVODs(ctx)
+	if err != nil { return err }
+	for _, v := range vods {
+		_, _ = db.Exec(`INSERT OR IGNORE INTO vods (twitch_vod_id, title, date, duration_seconds, created_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`, v.ID, v.Title, v.Date, v.Duration)
 	}
-	return total
+	return nil
 }
+// (historical catalog logic moved to catalog.go)
+
+// (catalog backfill + duration parsing moved to catalog.go)
 
 // downloadVOD uses yt-dlp to download a Twitch VOD by id.
 func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, error) {
@@ -251,12 +92,18 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 		args = append([]string{"--external-downloader", "aria2c", "--downloader-args", "aria2c:-x16 -s16 -k1M --file-allocation=none"}, args...)
 	}
 
-	// Retry loop with classification
+	// Retry loop with exponential backoff + jitter and configurable attempts
+	maxAttempts := 5
+	if s := os.Getenv("DOWNLOAD_MAX_ATTEMPTS"); s != "" { if n, err := strconv.Atoi(s); err == nil && n > 0 { maxAttempts = n } }
+	baseBackoff := 2 * time.Second
+	if s := os.Getenv("DOWNLOAD_BACKOFF_BASE"); s != "" { if d, err := time.ParseDuration(s); err == nil && d > 0 { baseBackoff = d } }
 	var lastErr error
-	for attempt := 0; attempt < 5; attempt++ {
+	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 {
-			backoff := time.Duration(1<<attempt) * time.Second
-			slog.Warn("retrying download", slog.String("vod_id", id), slog.Any("attempt", attempt), slog.Any("backoff", backoff))
+			backoff := baseBackoff * time.Duration(1<<attempt)
+			jitter := time.Duration(rand.Int63n(int64(baseBackoff))) // up to baseBackoff extra
+			backoff += jitter
+			slog.Warn("retrying download", slog.String("vod_id", id), slog.Int("attempt", attempt), slog.Duration("backoff", backoff))
 			select {
 			case <-ctx.Done():
 				return "", ctx.Err()
@@ -361,95 +208,43 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 	return "", lastErr
 }
 
-// uploadToYouTube is a placeholder that simulates upload and returns a fake URL.
-// Replace with YouTube Data API upload.
-func uploadToYouTube(ctx context.Context, path, title string, date time.Time) (string, error) {
-	// Construct title and description
-	datePrefix := date.Format("2006-01-02")
-	finalTitle := strings.TrimSpace(fmt.Sprintf("%s %s", datePrefix, title))
-	description := fmt.Sprintf("Uploaded from Twitch VOD on %s", date.Format(time.RFC3339))
+// uploadToYouTube uploads the given video file using stored OAuth token.
+// (moved uploadToYouTube implementation to processing.go)
 
-	// OAuth2: expects GOOGLE_CLIENT_ID/SECRET and a saved token in YT_TOKEN_JSON or file YT_TOKEN_FILE.
-	// Prefer application default credentials if available.
-	var httpClient *http.Client
+// Circuit breaker helpers
+func updateCircuitOnFailure(ctx context.Context, db *sql.DB) {
+	threshold := 0
+	if s := os.Getenv("CIRCUIT_FAILURE_THRESHOLD"); s != "" { if n, err := strconv.Atoi(s); err == nil { threshold = n } }
+	if threshold <= 0 { return }
+	var fails int
+	row := db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key='circuit_failures'`)
+	var val string
+	_ = row.Scan(&val)
+	if val != "" { _ = func() error { n, e := strconv.Atoi(val); if e==nil { fails = n }; return nil }() }
+	fails++
+	_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_failures',?,CURRENT_TIMESTAMP)
+		ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP`, fmt.Sprintf("%d", fails))
+	if fails >= threshold {
+		// open circuit
+		cool := 5 * time.Minute
+		if s := os.Getenv("CIRCUIT_OPEN_COOLDOWN"); s != "" { if d, err := time.ParseDuration(s); err == nil { cool = d } }
+		until := time.Now().Add(cool).UTC().Format(time.RFC3339)
+		_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_state','open',CURRENT_TIMESTAMP)
+			ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP`)
+		_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_open_until',?,CURRENT_TIMESTAMP)
+			ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP`, until)
+		slog.Warn("circuit opened", slog.Int("failures", fails), slog.String("until", until))
+	}
+}
 
-	// 1) Try ADC first (e.g., GCP, local gcloud auth)
-	if adc, err := google.FindDefaultCredentials(ctx, youtube.YoutubeUploadScope); err == nil {
-		httpClient = oauth2.NewClient(ctx, adc.TokenSource)
-	}
-
-	// 2) Try explicit client secret JSON from env var YT_CREDENTIALS_JSON or file YT_CREDENTIALS_FILE
-	if httpClient == nil {
-		var credsData []byte
-		if p := os.Getenv("YT_CREDENTIALS_FILE"); p != "" {
-			b, err := os.ReadFile(p)
-			if err == nil {
-				credsData = b
-			}
-		}
-		if len(credsData) == 0 {
-			if s := os.Getenv("YT_CREDENTIALS_JSON"); s != "" {
-				credsData = []byte(s)
-			}
-		}
-		if len(credsData) > 0 {
-			cfg, err := google.ConfigFromJSON(credsData, youtube.YoutubeUploadScope)
-			if err != nil {
-				return "", fmt.Errorf("parse youtube creds: %w", err)
-			}
-			// Token source from file or env
-			var tok *oauth2.Token
-			if p := os.Getenv("YT_TOKEN_FILE"); p != "" {
-				if b, err := os.ReadFile(p); err == nil {
-					if err := json.Unmarshal(b, &tok); err != nil {
-						return "", fmt.Errorf("token json: %w", err)
-					}
-				}
-			}
-			if tok == nil {
-				if s := os.Getenv("YT_TOKEN_JSON"); s != "" {
-					if err := json.Unmarshal([]byte(s), &tok); err != nil {
-						return "", fmt.Errorf("token env json: %w", err)
-					}
-				}
-			}
-			if tok == nil {
-				return "", fmt.Errorf("missing YT_TOKEN_JSON or YT_TOKEN_FILE for YouTube OAuth token")
-			}
-			httpClient = cfg.Client(ctx, tok)
-		}
-	}
-
-	if httpClient == nil {
-		return "", fmt.Errorf("no YouTube credentials available; set ADC or YT_CREDENTIALS_JSON and YT_TOKEN_JSON")
-	}
-
-	svc, err := youtube.NewService(ctx, option.WithHTTPClient(httpClient))
-	if err != nil {
-		return "", fmt.Errorf("youtube service: %w", err)
-	}
-
-	f, err := os.Open(path)
-	if err != nil {
-		return "", fmt.Errorf("open file: %w", err)
-	}
-	defer f.Close()
-
-	snippet := &youtube.VideoSnippet{
-		Title:       finalTitle,
-		Description: description,
-	}
-	status := &youtube.VideoStatus{PrivacyStatus: "private"}
-	vid := &youtube.Video{Snippet: snippet, Status: status}
-
-	call := svc.Videos.Insert([]string{"snippet", "status"}, vid)
-	call = call.Media(f)
-	res, err := call.Do()
-	if err != nil {
-		return "", fmt.Errorf("youtube upload: %w", err)
-	}
-	if res.Id == "" {
-		return "", fmt.Errorf("youtube upload: empty video id")
-	}
-	return "https://www.youtube.com/watch?v=" + res.Id, nil
+func resetCircuit(ctx context.Context, db *sql.DB) {
+	// success path: if half-open or open we close; reset failures
+	var state string
+	_ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key='circuit_state'`).Scan(&state)
+	if state == "closed" && os.Getenv("CIRCUIT_FAILURE_THRESHOLD") == "" { return }
+	_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_failures','0',CURRENT_TIMESTAMP)
+		ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP`)
+	_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_state','closed',CURRENT_TIMESTAMP)
+		ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP`)
+	_, _ = db.ExecContext(ctx, `DELETE FROM kv WHERE key IN ('circuit_open_until')`)
 }

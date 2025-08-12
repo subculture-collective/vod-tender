@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -10,12 +12,104 @@ import (
 	"strings"
 	"time"
 
+	"github.com/onnwee/vod-tender/backend/config"
+	"github.com/onnwee/vod-tender/backend/twitchapi"
 	vodpkg "github.com/onnwee/vod-tender/backend/vod"
+	"github.com/onnwee/vod-tender/backend/youtubeapi"
 )
+
+// oauthTokenStore adapts the DB to youtubeapi.TokenStore interface
+type oauthTokenStore struct { db *sql.DB }
+func (o *oauthTokenStore) UpsertOAuthToken(ctx context.Context, provider string, accessToken string, refreshToken string, expiry time.Time, raw string) error {
+    _, err := o.db.ExecContext(ctx, `INSERT INTO oauth_tokens(provider, access_token, refresh_token, expires_at, scope, updated_at) VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)
+        ON CONFLICT(provider) DO UPDATE SET access_token=excluded.access_token, refresh_token=excluded.refresh_token, expires_at=excluded.expires_at, updated_at=CURRENT_TIMESTAMP`, provider, accessToken, refreshToken, expiry, "")
+    return err
+}
+func (o *oauthTokenStore) GetOAuthToken(ctx context.Context, provider string) (accessToken string, refreshToken string, expiry time.Time, raw string, err error) {
+    row := o.db.QueryRowContext(ctx, `SELECT access_token, refresh_token, expires_at FROM oauth_tokens WHERE provider=?`, provider)
+    err = row.Scan(&accessToken, &refreshToken, &expiry)
+    if err == sql.ErrNoRows { return "", "", time.Time{}, "", nil }
+    return
+}
 
 // NewMux returns the HTTP handler with all routes.
 func NewMux(db *sql.DB) http.Handler {
     mux := http.NewServeMux()
+
+    // Simple in-memory state map for demo (not production-scale)
+    stateStore := make(map[string]time.Time)
+
+    // Twitch OAuth start (redirect user to Twitch)
+    mux.HandleFunc("/auth/twitch/start", func(w http.ResponseWriter, r *http.Request) {
+        cfg, _ := config.Load() // ignore error; minimal usage
+        if cfg.TwitchClientID == "" || cfg.TwitchRedirectURI == "" {
+            http.Error(w, "oauth not configured (need TWITCH_CLIENT_ID + TWITCH_REDIRECT_URI)", http.StatusBadRequest)
+            return
+        }
+        // generate state
+        b := make([]byte, 16)
+        if _, err := rand.Read(b); err != nil { http.Error(w, "state gen error", 500); return }
+        st := hex.EncodeToString(b)
+        stateStore[st] = time.Now().Add(10 * time.Minute)
+        authURL, err := twitchapi.BuildAuthorizeURL(cfg.TwitchClientID, cfg.TwitchRedirectURI, cfg.TwitchScopes, st)
+        if err != nil { http.Error(w, err.Error(), 500); return }
+        http.Redirect(w, r, authURL, http.StatusFound)
+    })
+
+    // Twitch OAuth callback (redirect_uri must point here). Expects code & state.
+    mux.HandleFunc("/auth/twitch/callback", func(w http.ResponseWriter, r *http.Request) {
+        cfg, _ := config.Load()
+        code := r.URL.Query().Get("code")
+        st := r.URL.Query().Get("state")
+        if code == "" || st == "" { http.Error(w, "missing code/state", 400); return }
+        // validate state
+        exp, ok := stateStore[st]
+        if !ok || time.Now().After(exp) { http.Error(w, "invalid state", 400); return }
+        delete(stateStore, st)
+        ctx := r.Context()
+        res, err := twitchapi.ExchangeAuthCode(ctx, cfg.TwitchClientID, cfg.TwitchClientSecret, code, cfg.TwitchRedirectURI)
+        if err != nil { http.Error(w, err.Error(), 500); return }
+        // persist tokens
+        _, err = db.Exec(`INSERT INTO oauth_tokens (provider, access_token, refresh_token, expires_at, scope, updated_at) VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)
+            ON CONFLICT(provider) DO UPDATE SET access_token=excluded.access_token, refresh_token=excluded.refresh_token, expires_at=excluded.expires_at, scope=excluded.scope, updated_at=CURRENT_TIMESTAMP`,
+            "twitch", res.AccessToken, res.RefreshToken, twitchapi.ComputeExpiry(res.ExpiresIn), strings.Join(res.Scope, " "))
+        if err != nil { http.Error(w, err.Error(), 500); return }
+        w.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(w).Encode(map[string]any{"status":"ok","scopes":res.Scope,"expires_in":res.ExpiresIn})
+    })
+
+    // YouTube OAuth start
+    mux.HandleFunc("/auth/youtube/start", func(w http.ResponseWriter, r *http.Request) {
+        cfg, _ := config.Load()
+        if cfg.YTClientID == "" || cfg.YTRedirectURI == "" { http.Error(w, "youtube oauth not configured", 400); return }
+        // generate state
+        b := make([]byte, 16)
+        if _, err := rand.Read(b); err != nil { http.Error(w, "state gen error", 500); return }
+        st := hex.EncodeToString(b)
+        stateStore[st] = time.Now().Add(10 * time.Minute)
+        // Build auth URL manually (reuse youtubeapi oauth config)
+        ts := &oauthTokenStore{db: db}
+        yts := youtubeapi.New(cfg, ts)
+        authURL := yts.AuthCodeURL(st)
+        http.Redirect(w, r, authURL, http.StatusFound)
+    })
+
+    // YouTube OAuth callback
+    mux.HandleFunc("/auth/youtube/callback", func(w http.ResponseWriter, r *http.Request) {
+        cfg, _ := config.Load()
+        code := r.URL.Query().Get("code")
+        st := r.URL.Query().Get("state")
+        if code == "" || st == "" { http.Error(w, "missing code/state", 400); return }
+        exp, ok := stateStore[st]
+        if !ok || time.Now().After(exp) { http.Error(w, "invalid state", 400); return }
+        delete(stateStore, st)
+        ts := &oauthTokenStore{db: db}
+        yts := youtubeapi.New(cfg, ts)
+        tok, err := yts.Exchange(r.Context(), code)
+        if err != nil { http.Error(w, err.Error(), 500); return }
+        w.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(w).Encode(map[string]any{"status":"ok","expiry":tok.Expiry,"access_token_present": tok.AccessToken != "","refresh_token_present": tok.RefreshToken != ""})
+    })
 
     // Health
     mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -64,6 +158,80 @@ func NewMux(db *sql.DB) http.Handler {
         }
         w.Header().Set("Content-Type", "application/json")
         _ = json.NewEncoder(w).Encode(list)
+    })
+
+    // Manual trigger: discover new VODs (no processing) - admin helper
+    mux.HandleFunc("/admin/vod/scan", func(w http.ResponseWriter, r *http.Request) {
+        if r.Method != http.MethodPost && r.Method != http.MethodGet {
+            http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+            return
+        }
+        ctx := r.Context()
+        if err := vodpkg.DiscoverAndUpsert(ctx, db); err != nil {
+            http.Error(w, err.Error(), 500)
+            return
+        }
+        w.Header().Set("Content-Type", "application/json")
+        _ = json.NewEncoder(w).Encode(map[string]any{"status": "ok"})
+    })
+
+    // Manual catalog backfill: /admin/vod/catalog?max=500&max_age_days=30
+    mux.HandleFunc("/admin/vod/catalog", func(w http.ResponseWriter, r *http.Request) {
+        if r.Method != http.MethodPost && r.Method != http.MethodGet {
+            http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+            return
+        }
+        q := r.URL.Query()
+        max := 0
+        if s := q.Get("max"); s != "" { if n, err := strconv.Atoi(s); err == nil && n > 0 { max = n } }
+        var maxAge time.Duration
+        if s := q.Get("max_age_days"); s != "" { if n, err := strconv.Atoi(s); err == nil && n > 0 { maxAge = time.Duration(n) * 24 * time.Hour } }
+        if err := vodpkg.BackfillCatalog(r.Context(), db, max, maxAge); err != nil {
+            http.Error(w, err.Error(), 500)
+            return
+        }
+        w.Header().Set("Content-Type", "application/json")
+        _ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "max": max})
+    })
+
+    // Monitoring summary endpoint
+    mux.HandleFunc("/admin/monitor", func(w http.ResponseWriter, r *http.Request) {
+        if r.Method != http.MethodGet { http.Error(w, "method not allowed", http.StatusMethodNotAllowed); return }
+        ctx := r.Context()
+        // Fetch job timestamps
+        keys := []string{"job_vod_process_last","job_vod_discovery_last","job_vod_backfill_last","job_vod_catalog_last"}
+        stats := map[string]any{}
+        for _, k := range keys {
+            var val string
+            row := db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key=?`, k)
+            _ = row.Scan(&val)
+            if val != "" { stats[k] = val }
+        }
+        // Circuit breaker
+        var cState, cUntil, cFails string
+        _ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key='circuit_state'`).Scan(&cState)
+        _ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key='circuit_open_until'`).Scan(&cUntil)
+        _ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key='circuit_failures'`).Scan(&cFails)
+        if cState != "" { stats["circuit_state"] = cState }
+        if cUntil != "" { stats["circuit_open_until"] = cUntil }
+        if cFails != "" { stats["circuit_failures"] = cFails }
+
+        // Queue counts
+        var pending, errored, processed int
+        _ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM vods WHERE processed=0`).Scan(&pending)
+        _ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM vods WHERE processed=0 AND processing_error IS NOT NULL AND processing_error!=''`).Scan(&errored)
+        _ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM vods WHERE processed=1`).Scan(&processed)
+        stats["vods_pending"] = pending
+        stats["vods_errored"] = errored
+        stats["vods_processed"] = processed
+        // Oldest unprocessed
+        var oldestID string
+        var oldestDate time.Time
+        row := db.QueryRowContext(ctx, `SELECT twitch_vod_id, date FROM vods WHERE processed=0 ORDER BY date ASC LIMIT 1`)
+        _ = row.Scan(&oldestID, &oldestDate)
+        if oldestID != "" { stats["oldest_pending"] = map[string]any{"id": oldestID, "date": oldestDate} }
+        w.Header().Set("Content-Type", "application/json")
+        _ = json.NewEncoder(w).Encode(stats)
     })
 
     // Chat JSON and SSE under /vods/{id}/chat and /vods/{id}/chat/stream

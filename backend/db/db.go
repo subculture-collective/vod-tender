@@ -18,6 +18,7 @@ func Connect() (*sql.DB, error) {
 }
 
 func Migrate(db *sql.DB) error {
+	// Phase 1: ensure core tables & basic indexes (exclude composite index that references possibly-missing column).
 	_, err := db.Exec(`
 		PRAGMA foreign_keys = ON;
 		CREATE TABLE IF NOT EXISTS vods (
@@ -55,10 +56,9 @@ func Migrate(db *sql.DB) error {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY(vod_id) REFERENCES vods(twitch_vod_id)
 		);
-	CREATE INDEX IF NOT EXISTS idx_vods_twitch_vod_id ON vods(twitch_vod_id);
-	CREATE INDEX IF NOT EXISTS idx_vods_processed ON vods(processed);
-	CREATE INDEX IF NOT EXISTS idx_vods_date ON vods(date);
-	CREATE INDEX IF NOT EXISTS idx_vods_proc_pri_date ON vods(processed, priority, date);
+		CREATE INDEX IF NOT EXISTS idx_vods_twitch_vod_id ON vods(twitch_vod_id);
+		CREATE INDEX IF NOT EXISTS idx_vods_processed ON vods(processed);
+		CREATE INDEX IF NOT EXISTS idx_vods_date ON vods(date);
 		CREATE INDEX IF NOT EXISTS idx_chat_vod_rel ON chat_messages(vod_id, rel_timestamp);
 		CREATE INDEX IF NOT EXISTS idx_chat_vod_abs ON chat_messages(vod_id, abs_timestamp);
 		CREATE TABLE IF NOT EXISTS oauth_tokens (
@@ -88,6 +88,9 @@ func Migrate(db *sql.DB) error {
 	_, _ = db.Exec(`ALTER TABLE vods ADD COLUMN download_total INTEGER DEFAULT 0`)
 	_, _ = db.Exec(`ALTER TABLE vods ADD COLUMN progress_updated_at DATETIME`)
 	_, _ = db.Exec(`ALTER TABLE vods ADD COLUMN priority INTEGER DEFAULT 0`)
+
+	// Phase 2: create composite index (processed, priority, date) after ensuring 'priority' column exists.
+	_, _ = db.Exec(`CREATE INDEX IF NOT EXISTS idx_vods_proc_pri_date ON vods(processed, priority, date)`)
 	return nil
 }
 

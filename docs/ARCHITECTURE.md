@@ -144,7 +144,7 @@ Recommended future tests:
 
 ### Future Enhancements (Roadmap Ideas)
 
-- Structured JSON logging with request/job IDs.
+- Request/job correlation IDs (extend structured JSON logging).
 - Prometheus metrics (download throughput, queue depth, breaker state).
 - Pluggable storage backends (Postgres, object storage for large media).
 - Partial video clipping & highlight extraction before upload.
@@ -155,6 +155,37 @@ Recommended future tests:
 ---
 
 For configuration details see `CONFIG.md`. For operational guidance see `OPERATIONS.md`.
+
+### Observability Additions
+
+Current implementation includes:
+
+- Structured logging via `slog` with selectable format (`LOG_FORMAT=text|json`) and level (`LOG_LEVEL`). Components emit logs with `component` field (e.g., `vod_process`, `vod_download`). Timing fields (`download_ms`, `upload_ms`, `total_ms`) and queue depth snapshots allow quick ad‑hoc analysis.
+- Exponential moving averages (EMA) maintained in the `kv` store for download, upload, and total processing durations (`avg_download_ms`, `avg_upload_ms`, `avg_total_ms`). The smoothing factor favors recent runs while retaining historical trend (simple alpha decay; see implementation in `vod/processing.go`).
+- `/status` endpoint returns concise JSON: queue counts (pending, errored, processed), circuit breaker fields, moving averages, and last processing timestamp (`job_vod_process_last`). Intended for lightweight dashboards or CLI `curl` checks.
+- `/metrics` endpoint exposes Prometheus metrics (downloads/uploads counts, durations, queue depth, circuit open gauge).
+- `/admin/monitor` provides a broader set of job timestamps; may be deprecated once metrics exporter exists.
+
+Correlation IDs:
+
+- HTTP middleware assigns / reuses `X-Correlation-ID` (uuid) – injected into request context & surfaced in logs (`corr` field) across downstream processing & download logs for end-to-end traceability.
+
+Example `/status` response:
+
+```json
+{
+  "pending": 2,
+  "errored": 1,
+  "processed": 57,
+  "circuit_state": "closed",
+  "avg_download_ms": "4200",
+  "avg_upload_ms": "1800",
+  "avg_total_ms": "6700",
+  "last_process_run": "2025-08-12T11:23:45Z"
+}
+```
+
+Planned next step: surface these values via metrics (Prometheus) and introduce correlation IDs for tracing a VOD through discovery → download → upload.
 
 ### Diagrams (Mermaid)
 

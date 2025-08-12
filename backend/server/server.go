@@ -12,7 +12,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
 	"github.com/onnwee/vod-tender/backend/config"
+	"github.com/onnwee/vod-tender/backend/telemetry"
 	"github.com/onnwee/vod-tender/backend/twitchapi"
 	vodpkg "github.com/onnwee/vod-tender/backend/vod"
 	"github.com/onnwee/vod-tender/backend/youtubeapi"
@@ -35,6 +39,9 @@ func (o *oauthTokenStore) GetOAuthToken(ctx context.Context, provider string) (a
 // NewMux returns the HTTP handler with all routes.
 func NewMux(db *sql.DB) http.Handler {
     mux := http.NewServeMux()
+
+    // Metrics endpoint
+    mux.Handle("/metrics", promhttp.Handler())
 
     // Simple in-memory state map for demo (not production-scale)
     stateStore := make(map[string]time.Time)
@@ -120,6 +127,42 @@ func NewMux(db *sql.DB) http.Handler {
         w.Header().Set("Content-Type", "text/plain; charset=utf-8")
         w.WriteHeader(http.StatusOK)
         _, _ = w.Write([]byte("ok"))
+    })
+
+    // Lightweight status summary (JSON)
+    mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+        if r.Method != http.MethodGet { http.Error(w, "method not allowed", http.StatusMethodNotAllowed); return }
+        ctx := r.Context()
+        resp := map[string]any{}
+        // Queue depth & counts
+        var pending, errored, processed int
+        _ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM vods WHERE processed=0`).Scan(&pending)
+        _ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM vods WHERE processed=0 AND processing_error IS NOT NULL AND processing_error!=''`).Scan(&errored)
+        _ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM vods WHERE processed=1`).Scan(&processed)
+        resp["pending"] = pending
+        resp["errored"] = errored
+        resp["processed"] = processed
+        // Circuit breaker
+        var cState, cFails, cUntil string
+        _ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key='circuit_state'`).Scan(&cState)
+        _ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key='circuit_failures'`).Scan(&cFails)
+        _ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key='circuit_open_until'`).Scan(&cUntil)
+        if cState != "" { resp["circuit_state"] = cState }
+        if cFails != "" { resp["circuit_failures"] = cFails }
+        if cUntil != "" { resp["circuit_open_until"] = cUntil }
+        // Moving averages (ms)
+        keys := []string{"avg_download_ms","avg_upload_ms","avg_total_ms"}
+        for _, k := range keys {
+            var v string
+            _ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key=?`, k).Scan(&v)
+            if v != "" { resp[k] = v }
+        }
+        // Last job timestamp
+        var last string
+        _ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key='job_vod_process_last'`).Scan(&last)
+        if last != "" { resp["last_process_run"] = last }
+        w.Header().Set("Content-Type", "application/json")
+        _ = json.NewEncoder(w).Encode(resp)
     })
 
     // List VODs
@@ -265,7 +308,18 @@ func NewMux(db *sql.DB) http.Handler {
             http.NotFound(w, r)
         }
     })
-    return withCORS(mux)
+    // Wrap with correlation ID injector
+    handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        // Reuse corr header if provided else generate
+        corr := r.Header.Get("X-Correlation-ID")
+        if corr == "" { corr = uuid.New().String() }
+        ctx := telemetry.WithCorrelation(r.Context(), corr)
+        w.Header().Set("X-Correlation-ID", corr)
+        // Provide logger with corr for downstream if needed
+        telemetry.LoggerWithCorr(ctx).Debug("request start", slog.String("method", r.Method), slog.String("path", r.URL.Path), slog.String("component", "http"))
+        mux.ServeHTTP(w, r.WithContext(ctx))
+    })
+    return withCORS(handler)
 }
 
 // Start runs the HTTP server and shuts down gracefully on context cancellation.

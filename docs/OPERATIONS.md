@@ -21,12 +21,44 @@ docker compose up
 
 Pass environment variables (see CONFIG.md) using an env file or compose `environment:` section.
 
-### Monitoring (Manual Guidance)
+### Monitoring & Observability
 
-Current implementation logs to stdout using `slog` at Info/Warn levels. Suggested next steps:
+Logging: Uses Go `slog` with configurable level (`LOG_LEVEL`) and format (`LOG_FORMAT=text|json`). JSON mode is ideal for shipping to centralized log systems (e.g., Loki, ELK); each log line includes structured fields like `component=vod_process` or `component=vod_download` plus timing (`dl_ms`, `upl_ms`, `total_ms` where applicable) and queue depth snapshots.
 
-- Add metrics (Prometheus) for download throughput, queue length (#unprocessed), breaker state.
-- Export health: existing server exposes a basic endpoint (see `server` package) – extend to include readiness checks (DB reachable, breaker state closed).
+Endpoints:
+
+- `/healthz` – liveness (DB ping only). Returns 200 OK or 503.
+- `/status` – lightweight JSON summary: pending / errored / processed counts, circuit breaker state, moving averages, last process run timestamp.
+- `/metrics` – Prometheus exposition format metrics (see Metrics section below).
+- `/admin/monitor` – extended internal stats (job timestamps, circuit) – may evolve or be merged later.
+
+Moving Averages (EMAs) stored in `kv`:
+
+- `avg_download_ms` – recent download duration trend.
+- `avg_upload_ms` – recent upload duration trend.
+- `avg_total_ms` – overall processing time trend.
+
+Interpretation: Rising `avg_download_ms` may indicate network or Twitch CDN slowness; rising `avg_upload_ms` could be YouTube API throttling; high `avg_total_ms` vs sum of others suggests local queuing or CPU bottlenecks.
+
+Metrics Exposed (Prometheus):
+
+- `vod_downloads_started_total` / `vod_downloads_succeeded_total` / `vod_downloads_failed_total`
+- `vod_uploads_succeeded_total` / `vod_uploads_failed_total`
+- `vod_processing_cycles_total`
+- `vod_download_duration_seconds` (histogram)
+- `vod_upload_duration_seconds` (histogram)
+- `vod_processing_total_duration_seconds` (histogram)
+- `vod_queue_depth` (gauge) – unprocessed VOD count
+- `vod_circuit_open` (gauge 1/0)
+
+Correlation IDs:
+
+- Each HTTP request gets an `X-Correlation-ID` header (reused if supplied) added to logs as `corr`. Propagated into processing and download logs for traceability across lifecycle events.
+
+Suggested next steps:
+
+- Add readiness endpoint ensuring circuit not open and required credentials present.
+- Add histogram buckets tuning if needed for long VOD durations.
 
 ### Common Operational Scenarios
 
@@ -62,7 +94,7 @@ Current implementation logs to stdout using `slog` at Info/Warn levels. Suggeste
 ### Troubleshooting Checklist
 
 1. Validate environment variables (print selectively or use an admin endpoint – avoid dumping secrets).
-2. Confirm Helix app token retrieval succeeded (startup log with masked tail).
+2. Confirm Helix app token retrieval succeeded (startup log with masked tail). In JSON mode filter by `"msg":"twitch app token acquired"`.
 3. Query DB for pending VODs: `SELECT twitch_vod_id, processed, processing_error FROM vods ORDER BY date;`.
 4. Inspect `download_state` and retry counters for stuck items.
 5. Check system resources: disk IO, free space, network throughput.

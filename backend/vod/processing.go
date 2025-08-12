@@ -11,6 +11,7 @@ import (
 
 	"github.com/onnwee/vod-tender/backend/config"
 	"github.com/onnwee/vod-tender/backend/db"
+	"github.com/onnwee/vod-tender/backend/telemetry"
 	youtubeapi "github.com/onnwee/vod-tender/backend/youtubeapi"
 )
 
@@ -60,16 +61,25 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 		_ = dbc.QueryRowContext(ctx, `SELECT value FROM kv WHERE key='circuit_open_until'`).Scan(&until)
 		if until != "" {
 			if t, err := time.Parse(time.RFC3339, until); err == nil {
-				if time.Now().Before(t) { return nil }
+				if time.Now().Before(t) {
+					slog.Debug("circuit open; skipping processing cycle", slog.String("until", until))
+					return nil
+				}
 				_, _ = dbc.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_state','half-open',CURRENT_TIMESTAMP)
 					ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP`)
+				slog.Info("circuit transitioning to half-open")
 			}
 		}
 	}
 	dataDir := os.Getenv("DATA_DIR")
 	if dataDir == "" { dataDir = "data" }
 	if err := os.MkdirAll(dataDir, 0o755); err != nil { return fmt.Errorf("mkdir data dir: %w", err) }
-	if err := DiscoverAndUpsert(ctx, dbc); err != nil { return err }
+	if err := DiscoverAndUpsert(ctx, dbc); err != nil { slog.Warn("discover vods", slog.Any("err", err), slog.String("component","vod_process")); return err }
+	// Queue depth (unprocessed VODs)
+	var queueDepth int
+	_ = dbc.QueryRowContext(ctx, `SELECT COUNT(1) FROM vods WHERE processed=0`).Scan(&queueDepth)
+	slog.Debug("processing cycle queue depth", slog.Int("queue_depth", queueDepth), slog.String("component","vod_process"))
+	telemetry.SetQueueDepth(queueDepth)
 	maxAttempts := 5
 	if s := os.Getenv("DOWNLOAD_MAX_ATTEMPTS"); s != "" { if n, err := strconv.Atoi(s); err == nil && n > 0 { maxAttempts = n } }
 	cooldown := 600 * time.Second
@@ -82,27 +92,70 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 	var id, title string
 	var date time.Time
 	if err := row.Scan(&id, &title, &date); err != nil {
-		if err == sql.ErrNoRows { return nil }
+		if err == sql.ErrNoRows { slog.Debug("no vods ready for processing", slog.String("component","vod_process")) ; return nil }
 		return err
 	}
+	logger := slog.Default().With(slog.String("vod_id", id), slog.String("component", "vod_process"))
+	if corr := ctx.Value(struct{ string }{"corr"}); corr != nil { logger = logger.With(slog.Any("corr", corr)) }
+	logger.Info("processing candidate selected", slog.String("title", title), slog.Time("date", date), slog.Int("queue_depth", queueDepth))
+	// Metrics
+	telemetry.ProcessingCycles.Inc()
+	procStart := time.Now()
+	dlStart := time.Now()
 	filePath, err := downloader.Download(ctx, dbc, id, dataDir)
 	if err != nil {
-		slog.Error("download failed", slog.String("vod_id", id), slog.Any("err", err))
+		logger.Error("download failed", slog.Any("err", err), slog.Duration("download_duration", time.Since(dlStart)), slog.Int("queue_depth", queueDepth))
+		telemetry.DownloadsFailed.Inc()
 		_, _ = dbc.Exec(`UPDATE vods SET processing_error=?, updated_at=CURRENT_TIMESTAMP WHERE twitch_vod_id=?`, err.Error(), id)
 		updateCircuitOnFailure(ctx, dbc)
+		telemetry.UpdateCircuitGauge(true)
 		return nil
 	}
+	dlDur := time.Since(dlStart)
+	telemetry.DownloadsSucceeded.Inc()
+	telemetry.DownloadDuration.Observe(dlDur.Seconds())
+	logger.Info("download complete", slog.String("path", filePath), slog.Duration("download_duration", dlDur))
 	resetCircuit(ctx, dbc)
 	_, _ = dbc.Exec(`UPDATE vods SET downloaded_path=?, updated_at=CURRENT_TIMESTAMP WHERE twitch_vod_id=?`, filePath, id)
+	upStart := time.Now()
 	ytURL, err := uploader.Upload(ctx, filePath, title, date)
 	if err != nil {
-		slog.Error("upload failed", slog.String("vod_id", id), slog.Any("err", err))
+		logger.Error("upload failed", slog.Any("err", err), slog.Duration("download_duration", dlDur), slog.Duration("upload_duration", time.Since(upStart)))
 		_, _ = dbc.Exec(`UPDATE vods SET processing_error=?, updated_at=CURRENT_TIMESTAMP WHERE twitch_vod_id=?`, err.Error(), id)
+		telemetry.UploadsFailed.Inc()
 		return nil
 	}
 	_, _ = dbc.Exec(`UPDATE vods SET youtube_url=?, processed=1, updated_at=CURRENT_TIMESTAMP WHERE twitch_vod_id=?`, ytURL, id)
-	slog.Info("processed vod", slog.String("vod_id", id), slog.String("youtube_url", ytURL))
+	upDur := time.Since(upStart)
+	totalDur := time.Since(procStart)
+	telemetry.UploadsSucceeded.Inc()
+	telemetry.UploadDuration.Observe(upDur.Seconds())
+	telemetry.TotalProcessDuration.Observe(totalDur.Seconds())
+	updateMovingAvg(ctx, dbc, "avg_download_ms", float64(dlDur.Milliseconds()))
+	updateMovingAvg(ctx, dbc, "avg_upload_ms", float64(upDur.Milliseconds()))
+	updateMovingAvg(ctx, dbc, "avg_total_ms", float64(totalDur.Milliseconds()))
+	logger.Info("processed vod", slog.String("youtube_url", ytURL), slog.Duration("download_duration", dlDur), slog.Duration("upload_duration", upDur), slog.Duration("total_duration", totalDur), slog.Int("queue_depth", queueDepth-1))
+	telemetry.SetQueueDepth(queueDepth - 1)
+	telemetry.UpdateCircuitGauge(false)
 	return nil
+}
+
+// updateMovingAvg maintains a simple exponential moving average (EMA) stored in kv.
+// alpha = 0.2 (new contributes 20%). Values stored as integer milliseconds.
+func updateMovingAvg(ctx context.Context, db *sql.DB, key string, newVal float64) {
+	const alpha = 0.2
+	var existing string
+	_ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key=?`, key).Scan(&existing)
+	if existing == "" {
+		_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES (?,?,CURRENT_TIMESTAMP)
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP`, key, fmt.Sprintf("%.0f", newVal))
+		return
+	}
+	var old float64
+	if v, err := strconv.ParseFloat(existing, 64); err == nil { old = v }
+	ema := alpha*newVal + (1-alpha)*old
+	_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES (?,?,CURRENT_TIMESTAMP)
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP`, key, fmt.Sprintf("%.0f", ema))
 }
 
 // uploadToYouTube uploads the given video file using stored OAuth token.

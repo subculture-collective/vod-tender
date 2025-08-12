@@ -18,6 +18,7 @@ import (
 	"github.com/onnwee/vod-tender/backend/db"
 	"github.com/onnwee/vod-tender/backend/oauth"
 	"github.com/onnwee/vod-tender/backend/server"
+	"github.com/onnwee/vod-tender/backend/telemetry"
 	"github.com/onnwee/vod-tender/backend/twitchapi"
 	"github.com/onnwee/vod-tender/backend/vod"
 )
@@ -26,8 +27,34 @@ func main() {
 	// Load .env file if present
 	_ = godotenv.Load("backend/.env")
 
+	// Configure logging (level + format). Defaults: level=info, format=text.
+	lvl := slog.LevelInfo
+	switch strings.ToLower(os.Getenv("LOG_LEVEL")) {
+	case "debug": lvl = slog.LevelDebug
+	case "warn": lvl = slog.LevelWarn
+	case "error": lvl = slog.LevelError
+	case "info", "":
+		// keep default
+	default:
+		// unknown level -> keep info but note once using temporary logger
+		tmp := slog.New(slog.NewTextHandler(os.Stdout, nil))
+		tmp.Warn("unknown LOG_LEVEL, using info", slog.String("value", os.Getenv("LOG_LEVEL")))
+	}
+	format := strings.ToLower(os.Getenv("LOG_FORMAT")) // text | json
+	var handler slog.Handler
+	switch format {
+	case "json":
+		handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lvl})
+	default:
+		handler = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: lvl})
+	}
+	slog.SetDefault(slog.New(handler))
+	slog.Info("logger initialized", slog.String("level", lvl.String()), slog.String("format", map[bool]string{true: "json", false: "text"}[format=="json"]))
+
 	// Config
 	cfg, err := config.Load()
+	// Metrics / telemetry init
+	telemetry.Init()
 	if err != nil {
 		slog.Error("config load failed", slog.Any("err", err))
 		os.Exit(1)

@@ -71,20 +71,25 @@ Token JSON / credential file indirection is handled externally: populate databas
 | --------- | ------- | ---------------------------------------- |
 | HTTP_ADDR | `:8080` | Listen address for API/health endpoints. |
 
-### Miscellaneous
+### Miscellaneous / Logging
 
-| Variable  | Default   | Description                        |
-| --------- | --------- | ---------------------------------- |
-| LOG_LEVEL | (inherit) | (Future) Adjust logging verbosity. |
+| Variable   | Default | Description                                                         |
+| ---------- | ------- | ------------------------------------------------------------------- |
+| LOG_LEVEL  | info    | Logging verbosity: debug, info, warn, error.                        |
+| LOG_FORMAT | text    | Log output format: text (human) or json (structured for ingestion). |
 
 ### Derived / Internal Keys (kv table)
 
-| Key                | Purpose                                                                    |
-| ------------------ | -------------------------------------------------------------------------- |
-| catalog_after      | Cursor for next Helix page during catalog ingestion (when unlimited mode). |
-| circuit_state      | `open` or `closed`.                                                        |
-| circuit_failures   | Count of consecutive failures.                                             |
-| circuit_open_until | RFC3339 timestamp when breaker can close.                                  |
+| Key                  | Purpose                                                                    |
+| -------------------- | -------------------------------------------------------------------------- |
+| catalog_after        | Cursor for next Helix page during catalog ingestion (when unlimited mode). |
+| circuit_state        | `open` or `closed`.                                                        |
+| circuit_failures     | Count of consecutive failures.                                             |
+| circuit_open_until   | RFC3339 timestamp when breaker can close.                                  |
+| avg_download_ms      | Exponential moving average of recent download durations (milliseconds).    |
+| avg_upload_ms        | Exponential moving average of recent upload durations (milliseconds).      |
+| avg_total_ms         | Exponential moving average of end-to-end processing durations (ms).        |
+| job_vod_process_last | RFC3339 timestamp of last processing cycle (success or attempt).           |
 
 ---
 

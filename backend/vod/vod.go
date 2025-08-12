@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/onnwee/vod-tender/backend/telemetry"
 	"github.com/onnwee/vod-tender/backend/twitchapi"
 )
 
@@ -74,6 +75,10 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 	// Stable output path so yt-dlp can resume (.part file) across restarts
 	out := filepath.Join(dataDir, fmt.Sprintf("twitch_%s.mp4", id))
 	url := "https://www.twitch.tv/videos/" + id
+	logger := slog.Default().With(slog.String("vod_id", id), slog.String("component", "vod_download"))
+	if corr := ctx.Value(struct{ string }{"corr"}); corr != nil { logger = logger.With(slog.Any("corr", corr)) }
+	logger.Info("download start", slog.String("out", out))
+	telemetry.DownloadsStarted.Inc()
 
 	// yt-dlp resume-friendly flags
 	args := []string{
@@ -99,11 +104,12 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 	if s := os.Getenv("DOWNLOAD_BACKOFF_BASE"); s != "" { if d, err := time.ParseDuration(s); err == nil && d > 0 { baseBackoff = d } }
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
+		logger.Debug("download attempt", slog.Int("attempt", attempt+1), slog.Int("max", maxAttempts))
 		if attempt > 0 {
 			backoff := baseBackoff * time.Duration(1<<attempt)
 			jitter := time.Duration(rand.Int63n(int64(baseBackoff))) // up to baseBackoff extra
 			backoff += jitter
-			slog.Warn("retrying download", slog.String("vod_id", id), slog.Int("attempt", attempt), slog.Duration("backoff", backoff))
+			logger.Warn("retrying download", slog.Int("attempt", attempt), slog.Duration("backoff", backoff))
 			select {
 			case <-ctx.Done():
 				return "", ctx.Err()
@@ -194,6 +200,8 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 		if err == nil {
 			// Finalize progress to 100%
 			_, _ = db.Exec(`UPDATE vods SET download_state=?, download_total=?, download_bytes=?, downloaded_path=?, progress_updated_at=CURRENT_TIMESTAMP WHERE twitch_vod_id=?`, "complete", totalBytes, totalBytes, out, id)
+			logger.Info("download finished", slog.Int64("bytes", totalBytes))
+			telemetry.DownloadsSucceeded.Inc()
 			return out, nil
 		}
 		// Classify error from stderr state we captured last; fallback to err.Error()
@@ -205,6 +213,8 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 			return "", ctx.Err()
 		}
 	}
+	telemetry.DownloadsFailed.Inc()
+	logger.Error("download exhausted retries", slog.Any("err", lastErr))
 	return "", lastErr
 }
 
@@ -234,6 +244,7 @@ func updateCircuitOnFailure(ctx context.Context, db *sql.DB) {
 		_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_open_until',?,CURRENT_TIMESTAMP)
 			ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP`, until)
 		slog.Warn("circuit opened", slog.Int("failures", fails), slog.String("until", until))
+		telemetry.UpdateCircuitGauge(true)
 	}
 }
 
@@ -247,4 +258,5 @@ func resetCircuit(ctx context.Context, db *sql.DB) {
 	_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_state','closed',CURRENT_TIMESTAMP)
 		ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP`)
 	_, _ = db.ExecContext(ctx, `DELETE FROM kv WHERE key IN ('circuit_open_until')`)
+	telemetry.UpdateCircuitGauge(false)
 }

@@ -1,15 +1,15 @@
 package server
 
 import (
-    "context"
-    "database/sql"
-    "net/http"
-    "net/http/httptest"
-    "os"
-    "testing"
+	"context"
+	"database/sql"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"testing"
 
-    _ "github.com/jackc/pgx/v5/stdlib"
-    dbpkg "github.com/onnwee/vod-tender/backend/db"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	dbpkg "github.com/onnwee/vod-tender/backend/db"
 )
 
 func newTestDB(t *testing.T) *sql.DB {

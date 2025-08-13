@@ -25,12 +25,12 @@ import (
 // oauthTokenStore adapts the DB to youtubeapi.TokenStore interface
 type oauthTokenStore struct { db *sql.DB }
 func (o *oauthTokenStore) UpsertOAuthToken(ctx context.Context, provider string, accessToken string, refreshToken string, expiry time.Time, raw string) error {
-    _, err := o.db.ExecContext(ctx, `INSERT INTO oauth_tokens(provider, access_token, refresh_token, expires_at, scope, updated_at) VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)
-        ON CONFLICT(provider) DO UPDATE SET access_token=excluded.access_token, refresh_token=excluded.refresh_token, expires_at=excluded.expires_at, updated_at=CURRENT_TIMESTAMP`, provider, accessToken, refreshToken, expiry, "")
+    _, err := o.db.ExecContext(ctx, `INSERT INTO oauth_tokens(provider, access_token, refresh_token, expires_at, scope, updated_at) VALUES ($1,$2,$3,$4,$5,NOW())
+        ON CONFLICT(provider) DO UPDATE SET access_token=EXCLUDED.access_token, refresh_token=EXCLUDED.refresh_token, expires_at=EXCLUDED.expires_at, updated_at=NOW()`, provider, accessToken, refreshToken, expiry, "")
     return err
 }
 func (o *oauthTokenStore) GetOAuthToken(ctx context.Context, provider string) (accessToken string, refreshToken string, expiry time.Time, raw string, err error) {
-    row := o.db.QueryRowContext(ctx, `SELECT access_token, refresh_token, expires_at FROM oauth_tokens WHERE provider=?`, provider)
+    row := o.db.QueryRowContext(ctx, `SELECT access_token, refresh_token, expires_at FROM oauth_tokens WHERE provider=$1`, provider)
     err = row.Scan(&accessToken, &refreshToken, &expiry)
     if err == sql.ErrNoRows { return "", "", time.Time{}, "", nil }
     return
@@ -77,8 +77,8 @@ func NewMux(db *sql.DB) http.Handler {
         res, err := twitchapi.ExchangeAuthCode(ctx, cfg.TwitchClientID, cfg.TwitchClientSecret, code, cfg.TwitchRedirectURI)
         if err != nil { http.Error(w, err.Error(), 500); return }
         // persist tokens
-        _, err = db.Exec(`INSERT INTO oauth_tokens (provider, access_token, refresh_token, expires_at, scope, updated_at) VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)
-            ON CONFLICT(provider) DO UPDATE SET access_token=excluded.access_token, refresh_token=excluded.refresh_token, expires_at=excluded.expires_at, scope=excluded.scope, updated_at=CURRENT_TIMESTAMP`,
+        _, err = db.Exec(`INSERT INTO oauth_tokens (provider, access_token, refresh_token, expires_at, scope, updated_at) VALUES ($1,$2,$3,$4,$5,NOW())
+            ON CONFLICT(provider) DO UPDATE SET access_token=EXCLUDED.access_token, refresh_token=EXCLUDED.refresh_token, expires_at=EXCLUDED.expires_at, scope=EXCLUDED.scope, updated_at=NOW()`,
             "twitch", res.AccessToken, res.RefreshToken, twitchapi.ComputeExpiry(res.ExpiresIn), strings.Join(res.Scope, " "))
         if err != nil { http.Error(w, err.Error(), 500); return }
         w.Header().Set("Content-Type", "application/json")
@@ -154,7 +154,7 @@ func NewMux(db *sql.DB) http.Handler {
         keys := []string{"avg_download_ms","avg_upload_ms","avg_total_ms"}
         for _, k := range keys {
             var v string
-            _ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key=?`, k).Scan(&v)
+            _ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key=$1`, k).Scan(&v)
             if v != "" { resp[k] = v }
         }
         // Last job timestamp
@@ -177,7 +177,7 @@ func NewMux(db *sql.DB) http.Handler {
             limit = 50
         }
         offset := parseIntQuery(r, "offset", 0)
-        rows, err := db.QueryContext(r.Context(), `SELECT twitch_vod_id, title, date, processed, youtube_url FROM vods ORDER BY date DESC LIMIT ? OFFSET ?`, limit, offset)
+    rows, err := db.QueryContext(r.Context(), `SELECT twitch_vod_id, title, date, processed, youtube_url FROM vods ORDER BY date DESC LIMIT $1 OFFSET $2`, limit, offset)
         if err != nil {
             http.Error(w, err.Error(), http.StatusInternalServerError)
             return
@@ -246,7 +246,7 @@ func NewMux(db *sql.DB) http.Handler {
         stats := map[string]any{}
         for _, k := range keys {
             var val string
-            row := db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key=?`, k)
+            row := db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key=$1`, k)
             _ = row.Scan(&val)
             if val != "" { stats[k] = val }
         }
@@ -358,7 +358,7 @@ func handleVodDetail(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID s
     row := db.QueryRowContext(r.Context(), `
         SELECT twitch_vod_id, title, date, duration_seconds, processed, youtube_url,
                downloaded_path, download_state, download_retries, download_total, progress_updated_at
-        FROM vods WHERE twitch_vod_id=?
+    FROM vods WHERE twitch_vod_id=$1
     `, vodID)
     type vod struct {
         ID        string     `json:"id"`
@@ -395,7 +395,7 @@ func handleVodProgress(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID
     }
     row := db.QueryRowContext(r.Context(), `
         SELECT download_state, download_retries, download_total, downloaded_path, processed, youtube_url, progress_updated_at
-        FROM vods WHERE twitch_vod_id=?
+    FROM vods WHERE twitch_vod_id=$1
     `, vodID)
     var state, path, yt string
     var retries int
@@ -442,9 +442,9 @@ func handleChatJSON(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID st
     var rows *sql.Rows
     var err error
     if to > 0 {
-        rows, err = db.QueryContext(r.Context(), `SELECT username, message, abs_timestamp, rel_timestamp, badges, emotes, color FROM chat_messages WHERE vod_id=? AND rel_timestamp>=? AND rel_timestamp<=? ORDER BY rel_timestamp ASC LIMIT ?`, vodID, from, to, limit)
+    rows, err = db.QueryContext(r.Context(), `SELECT username, message, abs_timestamp, rel_timestamp, badges, emotes, color FROM chat_messages WHERE vod_id=$1 AND rel_timestamp>=$2 AND rel_timestamp<=$3 ORDER BY rel_timestamp ASC LIMIT $4`, vodID, from, to, limit)
     } else {
-        rows, err = db.QueryContext(r.Context(), `SELECT username, message, abs_timestamp, rel_timestamp, badges, emotes, color FROM chat_messages WHERE vod_id=? AND rel_timestamp>=? ORDER BY rel_timestamp ASC LIMIT ?`, vodID, from, limit)
+    rows, err = db.QueryContext(r.Context(), `SELECT username, message, abs_timestamp, rel_timestamp, badges, emotes, color FROM chat_messages WHERE vod_id=$1 AND rel_timestamp>=$2 ORDER BY rel_timestamp ASC LIMIT $3`, vodID, from, limit)
     }
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -490,7 +490,7 @@ func handleChatSSE(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID str
         speed = 1.0
     }
     ctx := r.Context()
-    rows, err := db.QueryContext(ctx, `SELECT username, message, abs_timestamp, rel_timestamp, badges, emotes, color FROM chat_messages WHERE vod_id=? AND rel_timestamp>=? ORDER BY rel_timestamp ASC`, vodID, from)
+    rows, err := db.QueryContext(ctx, `SELECT username, message, abs_timestamp, rel_timestamp, badges, emotes, color FROM chat_messages WHERE vod_id=$1 AND rel_timestamp>=$2 ORDER BY rel_timestamp ASC`, vodID, from)
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
         return
@@ -615,7 +615,7 @@ func handleVodReprocess(w http.ResponseWriter, r *http.Request, db *sql.DB, vodI
             download_total=0,
             progress_updated_at=NULL,
             updated_at=CURRENT_TIMESTAMP
-        WHERE twitch_vod_id=?
+        WHERE twitch_vod_id=$1
     `, vodID)
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)

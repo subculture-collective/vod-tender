@@ -16,7 +16,8 @@ RUN go mod download
 COPY . .
 
 # Build (trimpath + smaller binary)
-RUN go build -trimpath -ldflags="-s -w" -o /out/vod-tender-backend .
+RUN go build -trimpath -ldflags="-s -w" -o /out/vod-tender-backend . \
+ && go build -trimpath -ldflags="-s -w" -o /out/healthcheck ./cmd/healthcheck
 
 # --- Runtime stage ---
 FROM gcr.io/distroless/base-debian12 AS runtime
@@ -24,10 +25,11 @@ WORKDIR /app
 
 # Distroless already non-root (UID 65532) and has certs
 COPY --from=builder /out/vod-tender-backend ./vod-tender-backend
+COPY --from=builder /out/healthcheck ./healthcheck
 
 EXPOSE 8080
 ENV HTTP_ADDR=:8080
 
-# Healthcheck omitted (distroless lacks curl); rely on external compose healthcheck
+# Internal healthcheck binary copied; docker-compose uses it for container health.
 
 ENTRYPOINT ["./vod-tender-backend"]

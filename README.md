@@ -18,6 +18,30 @@ make docker-build
 docker run --env-file backend/.env --rm vod-tender
 ```
 
+### Docker Compose (server)
+
+Project ships a `docker-compose.yml` with:
+- Postgres (persistent volume)
+- API (Go backend with yt-dlp + ffmpeg)
+- Frontend (Vite build served by nginx)
+- Backup service (daily pg_dump to a backup volume)
+
+Basic ops:
+
+```bash
+# Ensure shared web network exists (used by Caddy too)
+docker network create web 2>/dev/null || true
+
+# Build & start
+docker compose up -d --build
+
+# Status
+docker compose ps
+
+# Tail logs
+docker logs -f vod-api
+```
+
 ## Configuration
 
 Environment variables (place in `backend/.env` for local dev):
@@ -50,6 +74,35 @@ Full configuration reference and operational guidance:
   - Resumable downloads are enabled (yt-dlp --continue with infinite retries and fragment retries).
   - Optional: install aria2c for faster and more robust downloads.
   - ffmpeg is recommended for muxing and may be required by yt-dlp.
+
+  ### Backups
+
+  - Automatic: `vod-backup` runs `pg_dump` daily into volume `pgbackups`.
+  - Manual one-off:
+
+  ```bash
+  docker compose run --rm backup sh -lc '/scripts/backup.sh /backups'
+  ```
+
+  - Copy backups to host:
+
+  ```bash
+  docker run --rm -v vod-tender_pgbackups:/src -v "$PWD":/dst alpine sh -lc 'cp -av /src/* /dst/'
+  ```
+
+  - Restore into running Postgres:
+
+  ```bash
+  zcat /path/to/vod_YYYYMMDD_HHMMSS.sql.gz | docker exec -i vod-postgres psql -U vod -d vod
+  ```
+
+  ### Caddy routing
+
+  Routes assumed by the compose and Caddyfile:
+  - Frontend: https://vod-tender.onnwee.me → `vod-frontend:80`
+  - API: https://vod-api.onnwee.me → `vod-api:8080`
+
+  Ensure `caddy` container is attached to the shared `web` network.
 
 ## YouTube upload configuration
 

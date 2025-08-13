@@ -19,13 +19,29 @@ COPY . .
 RUN go build -trimpath -ldflags="-s -w" -o /out/vod-tender-backend . \
  && go build -trimpath -ldflags="-s -w" -o /out/healthcheck ./cmd/healthcheck
 
+# Fetch yt-dlp and ffmpeg in a tiny stage
+FROM debian:bookworm-slim AS media
+RUN set -eux; \
+	apt-get update; \
+	DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+		ca-certificates curl ffmpeg; \
+	curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp; \
+	chmod +x /usr/local/bin/yt-dlp; \
+	rm -rf /var/lib/apt/lists/*
+
 # --- Runtime stage ---
-FROM gcr.io/distroless/base-debian12 AS runtime
+FROM debian:bookworm-slim AS runtime
 WORKDIR /app
 
 # Distroless already non-root (UID 65532) and has certs
+RUN set -eux; \
+	apt-get update; \
+	DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+		ca-certificates ffmpeg; \
+	rm -rf /var/lib/apt/lists/*
 COPY --from=builder /out/vod-tender-backend ./vod-tender-backend
 COPY --from=builder /out/healthcheck ./healthcheck
+COPY --from=media /usr/local/bin/yt-dlp /usr/local/bin/yt-dlp
 
 EXPOSE 8080
 ENV HTTP_ADDR=:8080

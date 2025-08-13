@@ -1,13 +1,13 @@
-## Architecture Overview
+# Architecture Overview
 
-vod-tender ingests Twitch VOD metadata and live chat, downloads VOD video files, and (optionally) uploads processed videos to YouTube. It is a small Go service optimized for a single Twitch channel (multi-channel extension is straightforward) with a lightweight SQLite persistence layer and job-style background workers.
+vod-tender ingests Twitch VOD metadata and live chat, downloads VOD video files, and (optionally) uploads processed videos to YouTube. It is a small Go service optimized for a single Twitch channel (multi-channel extension is straightforward) with a Postgres persistence layer and job-style background workers.
 
-### High-Level Components
+## High-Level Components
 
 | Component               | Package              | Responsibility                                                                                              |
 | ----------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------- |
 | Configuration           | `config`             | Environment variable parsing & defaults                                                                     |
-| Database                | `db`                 | SQLite connection & schema migrations, token storage                                                        |
+| Database                | `db`                 | Postgres connection & idempotent schema migrations, token storage                                           |
 | Twitch Chat Recorder    | `chat`               | Connect to Twitch IRC, persist chat messages with relative & absolute timestamps                            |
 | Auto Chat Orchestrator  | `chat/auto.go`       | Poll Helix live status, start/stop chat recorder, reconcile placeholder VOD id with real VOD once published |
 | VOD Model & Helpers     | `vod/vod.go`         | Core VOD struct, simple latest VOD discovery, download implementation, circuit breaker helpers              |
@@ -23,12 +23,12 @@ vod-tender ingests Twitch VOD metadata and live chat, downloads VOD video files,
 1. Service starts (`main.go`): loads config, migrates DB, launches background jobs (chat, processing, catalog backfill, token refreshers, HTTP server).
 2. Catalog backfill job populates historical VOD rows (idempotent) for the configured channel using Helix paginated API.
 3. Processing job periodically selects the earliest unprocessed VOD (ordered by processed flag, priority, date) and:
-   - Downloads video via `yt-dlp` (with resume & exponential backoff; progress persisted).
-   - Uploads the completed file to YouTube (if YouTube credentials/token exist) and stores returned URL.
-   - Marks VOD as processed or sets `processing_error` upon failure.
+    - Downloads video via `yt-dlp` (with resume & exponential backoff; progress persisted).
+    - Uploads the completed file to YouTube (if YouTube credentials/token exist) and stores returned URL.
+    - Marks VOD as processed or sets `processing_error` upon failure.
 4. Auto chat recorder (optional) polls live status:
-   - On stream start: inserts placeholder VOD row `live-<unix>` and records chat messages referencing that ID.
-   - On stream end: repeatedly polls VOD list until actual VOD appears, then reconciles: renames chat rows to real VOD id and time-shifts relative timestamps if needed.
+    - On stream start: inserts placeholder VOD row `live-<unix>` and records chat messages referencing that ID.
+    - On stream end: repeatedly polls VOD list until actual VOD appears, then reconciles: renames chat rows to real VOD id and time-shifts relative timestamps if needed.
 5. OAuth refreshers proactively renew tokens and update the `oauth_tokens` table.
 
 ### Concurrency Model
@@ -61,7 +61,7 @@ All long-running activities are goroutines governed by a root `context.Context` 
 
 Core function: `processOnce` (in `processing.go`). Pseudocode:
 
-```
+```sql
 select next unprocessed VOD ordered by processed=0, priority DESC, date ASC
 if circuit open -> skip until cooldown passes
 download via downloader.Download(ctx, db, vodID, dataDir)
@@ -96,7 +96,7 @@ Abstractions:
 
 - Uses Helix paginated listing with cursor persisted in `kv` to enable incremental historical ingestion when `maxAge==0`.
 - Rate moderation: 1.2s delay between pages to respect Twitch Helix rate limits.
-- Dedup: insertion uses `INSERT OR IGNORE` on `vods`.
+- Dedup: insertion uses `INSERT ... ON CONFLICT DO NOTHING` on `vods`.
 - `parseTwitchDuration` converts Twitch duration strings like `3h2m15s` into seconds.
 
 ### OAuth & Token Refresh
@@ -174,14 +174,14 @@ Example `/status` response:
 
 ```json
 {
-  "pending": 2,
-  "errored": 1,
-  "processed": 57,
-  "circuit_state": "closed",
-  "avg_download_ms": "4200",
-  "avg_upload_ms": "1800",
-  "avg_total_ms": "6700",
-  "last_process_run": "2025-08-12T11:23:45Z"
+    "pending": 2,
+    "errored": 1,
+    "processed": 57,
+    "circuit_state": "closed",
+    "avg_download_ms": "4200",
+    "avg_upload_ms": "1800",
+    "avg_total_ms": "6700",
+    "last_process_run": "2025-08-12T11:23:45Z"
 }
 ```
 
@@ -198,7 +198,7 @@ flowchart LR
    B --> D[Auto Chat Orchestrator]
    D --> E[Twitch IRC]
    E --> F[Chat Recorder]
-   C --> G[(SQLite)]
+   C --> G[(Postgres)]
    F --> G
    H[VOD Processing Job] -->|SELECT * FROM vods WHERE processed=0| G
    H --> I[yt-dlp]
@@ -218,7 +218,7 @@ flowchart LR
 sequenceDiagram
    autonumber
    participant Job as Processing Job
-   participant DB as SQLite
+   participant DB as Postgres
    participant DL as Downloader(yt-dlp)
    participant UP as Uploader(YouTube)
    loop Each cycle
@@ -257,7 +257,7 @@ sequenceDiagram
    participant Auto as Auto Poller
    participant Helix as Helix API
    participant Chat as Chat Recorder
-   participant DB as SQLite
+   participant DB as Postgres
    Auto->>Helix: streams? (user_login)
    Helix-->>Auto: live? started_at
    Auto->>DB: Insert placeholder VOD (live-<unix>)
@@ -399,18 +399,18 @@ vod.uploader = s3Uploader{bucket: "vod-archive"}
 
 ### Design Rationale (Selected Decisions)
 
-| Decision                       | Rationale                                       | Trade-offs                                      |
-| ------------------------------ | ----------------------------------------------- | ----------------------------------------------- |
-| SQLite                         | Zero external dependency, simple dev deploy     | Limited concurrency & scaling without migration |
-| External tool (yt-dlp)         | Mature feature set (resuming, format selection) | Shelling out; parse fragile stderr format       |
-| Interfaces for download/upload | Testability & future pluggability               | Slight indirection overhead                     |
-| KV table for breaker/cursor    | Lightweight flexible metadata                   | No schema constraints; risk of key typos        |
+| Decision                       | Rationale                                            | Trade-offs                                 |
+| ------------------------------ | ---------------------------------------------------- | ------------------------------------------ |
+| Postgres                       | Concurrency, robust SQL, native upserts, growth path | External dependency to provision & operate |
+| External tool (yt-dlp)         | Mature feature set (resuming, format selection)      | Shelling out; parse fragile stderr format  |
+| Interfaces for download/upload | Testability & future pluggability                    | Slight indirection overhead                |
+| KV table for breaker/cursor    | Lightweight flexible metadata                        | No schema constraints; risk of key typos   |
 
 ### Security Considerations
 
 Current simple model adequate for dev / low-risk personal use. For production:
 
-- Encrypt `oauth_tokens` (application-level or SQLite extension).
+- Encrypt `oauth_tokens` (application-level envelope encryption; consider KMS-managed DEK).
 - Limit process permissions (no root, least privilege file access).
 - Rotate refresh tokens periodically; monitor token scope changes.
 - Implement authN/Z for any future admin endpoints.
@@ -442,10 +442,10 @@ JSON structure idea:
 
 ```json
 {
-  "pending_vods": 3,
-  "circuit": { "state": "closed", "failures": 0, "open_until": null },
-  "last_catalog_sync": "2025-08-12T10:15:00Z",
-  "uptime_seconds": 864
+    "pending_vods": 3,
+    "circuit": { "state": "closed", "failures": 0, "open_until": null },
+    "last_catalog_sync": "2025-08-12T10:15:00Z",
+    "uptime_seconds": 864
 }
 ```
 

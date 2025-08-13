@@ -62,7 +62,7 @@ func DiscoverAndUpsert(ctx context.Context, db *sql.DB) error {
 	vods, err := FetchChannelVODs(ctx)
 	if err != nil { return err }
 	for _, v := range vods {
-		_, _ = db.Exec(`INSERT OR IGNORE INTO vods (twitch_vod_id, title, date, duration_seconds, created_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`, v.ID, v.Title, v.Date, v.Duration)
+		_, _ = db.Exec(`INSERT INTO vods (twitch_vod_id, title, date, duration_seconds, created_at) VALUES ($1,$2,$3,$4,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, v.ID, v.Title, v.Date, v.Duration)
 	}
 	return nil
 }
@@ -110,30 +110,16 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 			jitter := time.Duration(rand.Int63n(int64(baseBackoff))) // up to baseBackoff extra
 			backoff += jitter
 			logger.Warn("retrying download", slog.Int("attempt", attempt), slog.Duration("backoff", backoff))
-			select {
-			case <-ctx.Done():
-				return "", ctx.Err()
-			case <-time.After(backoff):
-			}
-		}
-
-		// Create a child context we can cancel via API
-		dlCtx, cancel := context.WithCancel(ctx)
-		activeMu.Lock()
-		activeCancels[id] = cancel
-		activeMu.Unlock()
-
-		cmd := exec.CommandContext(dlCtx, "yt-dlp", args...)
-		// Capture progress from stderr lines e.g.: "[download]   4.3% of ~2.19GiB at  3.05MiB/s ETA 11:22"
-		stderr, _ := cmd.StderrPipe()
-		cmd.Stdout = os.Stdout
-		if err := cmd.Start(); err != nil {
-			lastErr = err
 			activeMu.Lock()
 			delete(activeCancels, id)
 			activeMu.Unlock()
 			continue
 		}
+		cmd := exec.CommandContext(ctx, "yt-dlp", args...)
+		stderr, errPipe := cmd.StderrPipe()
+		if errPipe != nil { lastErr = errPipe; break }
+		if err := cmd.Start(); err != nil { lastErr = err; break }
+		activeMu.Lock(); activeCancels[id] = func(){ _ = cmd.Process.Kill() }; activeMu.Unlock()
 		progressRe := regexp.MustCompile(`(?i)\[download\]\s+([0-9.]+)%.*?of\s+~?([0-9.]+)([KMG]iB).*?at\s+([0-9.]+)([KMG]iB)/s.*?ETA\s+([0-9:]+)`) // best-effort
 		totalBytes := int64(0)
 		var lastPercent float64
@@ -181,7 +167,7 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 									curBytes = int64((lastPercent / 100.0) * float64(totalBytes))
 								}
 								// Update DB with approximate progress
-								_, _ = db.Exec(`UPDATE vods SET download_state=?, download_total=?, download_bytes=?, progress_updated_at=CURRENT_TIMESTAMP WHERE twitch_vod_id=?`, s, totalBytes, curBytes, id)
+								_, _ = db.Exec(`UPDATE vods SET download_state=$1, download_total=$2, download_bytes=$3, progress_updated_at=NOW() WHERE twitch_vod_id=$4`, s, totalBytes, curBytes, id)
 							}
 						} else {
 							line.WriteRune(r)
@@ -199,7 +185,7 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 		activeMu.Unlock()
 		if err == nil {
 			// Finalize progress to 100%
-			_, _ = db.Exec(`UPDATE vods SET download_state=?, download_total=?, download_bytes=?, downloaded_path=?, progress_updated_at=CURRENT_TIMESTAMP WHERE twitch_vod_id=?`, "complete", totalBytes, totalBytes, out, id)
+			_, _ = db.Exec(`UPDATE vods SET download_state=$1, download_total=$2, download_bytes=$3, downloaded_path=$4, progress_updated_at=NOW() WHERE twitch_vod_id=$5`, "complete", totalBytes, totalBytes, out, id)
 			logger.Info("download finished", slog.Int64("bytes", totalBytes))
 			telemetry.DownloadsSucceeded.Inc()
 			return out, nil
@@ -207,7 +193,7 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 		// Classify error from stderr state we captured last; fallback to err.Error()
 		lastErr = fmt.Errorf("yt-dlp: %w", err)
 		// Increment retry counter
-		_, _ = db.Exec(`UPDATE vods SET download_retries = COALESCE(download_retries,0) + 1, progress_updated_at=CURRENT_TIMESTAMP WHERE twitch_vod_id=?`, id)
+		_, _ = db.Exec(`UPDATE vods SET download_retries = COALESCE(download_retries,0) + 1, progress_updated_at=NOW() WHERE twitch_vod_id=$1`, id)
 		// If context canceled, stop immediately
 		if ctx.Err() != nil {
 			return "", ctx.Err()
@@ -232,17 +218,17 @@ func updateCircuitOnFailure(ctx context.Context, db *sql.DB) {
 	_ = row.Scan(&val)
 	if val != "" { _ = func() error { n, e := strconv.Atoi(val); if e==nil { fails = n }; return nil }() }
 	fails++
-	_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_failures',?,CURRENT_TIMESTAMP)
-		ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP`, fmt.Sprintf("%d", fails))
+	_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_failures',$1,NOW())
+		ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, fmt.Sprintf("%d", fails))
 	if fails >= threshold {
 		// open circuit
 		cool := 5 * time.Minute
 		if s := os.Getenv("CIRCUIT_OPEN_COOLDOWN"); s != "" { if d, err := time.ParseDuration(s); err == nil { cool = d } }
 		until := time.Now().Add(cool).UTC().Format(time.RFC3339)
-		_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_state','open',CURRENT_TIMESTAMP)
-			ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP`)
-		_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_open_until',?,CURRENT_TIMESTAMP)
-			ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP`, until)
+		_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_state','open',NOW())
+			ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`)
+		_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_open_until',$1,NOW())
+			ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, until)
 		slog.Warn("circuit opened", slog.Int("failures", fails), slog.String("until", until))
 		telemetry.UpdateCircuitGauge(true)
 	}
@@ -253,10 +239,10 @@ func resetCircuit(ctx context.Context, db *sql.DB) {
 	var state string
 	_ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key='circuit_state'`).Scan(&state)
 	if state == "closed" && os.Getenv("CIRCUIT_FAILURE_THRESHOLD") == "" { return }
-	_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_failures','0',CURRENT_TIMESTAMP)
-		ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP`)
-	_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_state','closed',CURRENT_TIMESTAMP)
-		ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP`)
+	_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_failures','0',NOW())
+		ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`)
+	_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_state','closed',NOW())
+		ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`)
 	_, _ = db.ExecContext(ctx, `DELETE FROM kv WHERE key IN ('circuit_open_until')`)
 	telemetry.UpdateCircuitGauge(false)
 }

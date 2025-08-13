@@ -1,11 +1,15 @@
 package vod
 
 import (
-	"context"
-	"database/sql"
-	"errors"
-	"testing"
-	"time"
+    "context"
+    "database/sql"
+    "errors"
+    "os"
+    "testing"
+    "time"
+
+    _ "github.com/jackc/pgx/v5/stdlib"
+    dbpkg "github.com/onnwee/vod-tender/backend/db"
 )
 
 type mockDownloader struct{ path string; err error }
@@ -17,28 +21,20 @@ func (m mockUploader) Upload(ctx context.Context, path, title string, date time.
 func TestParseTwitchDuration(t *testing.T) {
     cases := map[string]int{"1h2m3s":3723, "45m":2700, "30s":30, "2h":7200, "":0}
     for in, want := range cases {
-        got := parseTwitchDuration(in)
-        if got != want { t.Fatalf("%s => %d want %d", in, got, want) }
+        if got := parseTwitchDuration(in); got != want { t.Fatalf("%s => %d want %d", in, got, want) }
     }
 }
 
 func TestProcessOnceHappyPath(t *testing.T) {
-    // Setup in-memory DB
-    dsn := "file:proc_test?mode=memory&cache=shared"
-    db, err := sql.Open("sqlite3", dsn)
-    if err != nil { t.Fatal(err) }
+    dsn := os.Getenv("TEST_PG_DSN"); if dsn == "" { t.Skip("TEST_PG_DSN not set") }
+    db, err := sql.Open("pgx", dsn); if err != nil { t.Fatal(err) }
     defer db.Close()
-    _, _ = db.Exec(`CREATE TABLE kv (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);`)
-    _, _ = db.Exec(`CREATE TABLE vods (twitch_vod_id TEXT PRIMARY KEY, title TEXT, date TIMESTAMP, duration_seconds INT, downloaded_path TEXT, youtube_url TEXT, processed INT DEFAULT 0, processing_error TEXT, download_retries INT, priority INT, created_at TEXT, updated_at TEXT);`)
-    // Insert a VOD to process
-    _, _ = db.Exec(`INSERT INTO vods (twitch_vod_id,title,date,duration_seconds,created_at) VALUES ('123','Test',strftime('%Y-%m-%dT%H:%M:%fZ','now'),60,strftime('%Y-%m-%dT%H:%M:%fZ','now'))`)
-
-    // Override globals
+    if err := dbpkg.Migrate(db); err != nil { t.Fatal(err) }
+    _, _ = db.Exec(`INSERT INTO vods (twitch_vod_id,title,date,duration_seconds,created_at) VALUES ('123','Test',NOW(),60,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`)
     oldD, oldU := downloader, uploader
     downloader = mockDownloader{path: "/tmp/123.mp4"}
     uploader = mockUploader{url: "https://youtu.be/abc"}
     defer func(){ downloader, uploader = oldD, oldU }()
-
     ctx, cancel := context.WithCancel(context.Background()); defer cancel()
     if err := processOnce(ctx, db); err != nil { t.Fatal(err) }
     var processed int
@@ -48,13 +44,11 @@ func TestProcessOnceHappyPath(t *testing.T) {
 }
 
 func TestProcessOnceDownloadFail(t *testing.T) {
-    dsn := "file:proc_test2?mode=memory&cache=shared"
-    db, err := sql.Open("sqlite3", dsn)
-    if err != nil { t.Fatal(err) }
+    dsn := os.Getenv("TEST_PG_DSN"); if dsn == "" { t.Skip("TEST_PG_DSN not set") }
+    db, err := sql.Open("pgx", dsn); if err != nil { t.Fatal(err) }
     defer db.Close()
-    _, _ = db.Exec(`CREATE TABLE kv (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);`)
-    _, _ = db.Exec(`CREATE TABLE vods (twitch_vod_id TEXT PRIMARY KEY, title TEXT, date TIMESTAMP, duration_seconds INT, downloaded_path TEXT, youtube_url TEXT, processed INT DEFAULT 0, processing_error TEXT, download_retries INT, priority INT, created_at TEXT, updated_at TEXT);`)
-    _, _ = db.Exec(`INSERT INTO vods (twitch_vod_id,title,date,duration_seconds,created_at) VALUES ('d1','D','2024-01-01T00:00:00Z',30,strftime('%Y-%m-%dT%H:%M:%fZ','now'))`)
+    if err := dbpkg.Migrate(db); err != nil { t.Fatal(err) }
+    _, _ = db.Exec(`INSERT INTO vods (twitch_vod_id,title,date,duration_seconds,created_at) VALUES ('d1','D','2024-01-01T00:00:00Z',30,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`)
     oldD, oldU := downloader, uploader
     downloader = mockDownloader{err: errors.New("boom")}
     uploader = mockUploader{url: "ignored"}
@@ -64,4 +58,24 @@ func TestProcessOnceDownloadFail(t *testing.T) {
     var perr string
     _ = db.QueryRow(`SELECT processing_error FROM vods WHERE twitch_vod_id='d1'`).Scan(&perr)
     if perr == "" { t.Fatalf("expected processing_error set") }
+}
+
+func TestCircuitBreakerTransitions(t *testing.T) {
+    dsn := os.Getenv("TEST_PG_DSN"); if dsn == "" { t.Skip("TEST_PG_DSN not set") }
+    db, err := sql.Open("pgx", dsn); if err != nil { t.Fatal(err) }
+    defer db.Close()
+    if err := dbpkg.Migrate(db); err != nil { t.Fatal(err) }
+    os.Setenv("CIRCUIT_FAILURE_THRESHOLD", "2")
+    defer os.Unsetenv("CIRCUIT_FAILURE_THRESHOLD")
+    ctx := context.Background()
+    updateCircuitOnFailure(ctx, db)
+    var v string
+    _ = db.QueryRow(`SELECT value FROM kv WHERE key='circuit_failures'`).Scan(&v)
+    if v != "1" { t.Fatalf("expected failures=1 got %s", v) }
+    updateCircuitOnFailure(ctx, db)
+    _ = db.QueryRow(`SELECT value FROM kv WHERE key='circuit_state'`).Scan(&v)
+    if v != "open" { t.Fatalf("expected state open got %s", v) }
+    resetCircuit(ctx, db)
+    _ = db.QueryRow(`SELECT value FROM kv WHERE key='circuit_state'`).Scan(&v)
+    if v != "closed" { t.Fatalf("expected state closed got %s", v) }
 }

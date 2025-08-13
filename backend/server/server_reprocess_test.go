@@ -1,23 +1,23 @@
 package server
 
 import (
-	"database/sql"
-	"net/http"
-	"net/http/httptest"
-	"testing"
+    "database/sql"
+    "net/http"
+    "net/http/httptest"
+    "os"
+    "testing"
 
-	_ "github.com/mattn/go-sqlite3"
+    _ "github.com/jackc/pgx/v5/stdlib"
+    dbpkg "github.com/onnwee/vod-tender/backend/db"
 )
 
 func TestReprocess(t *testing.T) {
-    db, err := sql.Open("sqlite3", ":memory:")
+    dsn := os.Getenv("TEST_PG_DSN"); if dsn == "" { t.Skip("TEST_PG_DSN not set") }
+    db, err := sql.Open("pgx", dsn)
     if err != nil { t.Fatal(err) }
     defer db.Close()
-
-    // minimal schema to allow update
-    _, err = db.Exec(`CREATE TABLE vods (twitch_vod_id TEXT UNIQUE, processed BOOLEAN, processing_error TEXT, youtube_url TEXT, downloaded_path TEXT, download_state TEXT, download_retries INTEGER, download_bytes INTEGER, download_total INTEGER, progress_updated_at DATETIME, updated_at DATETIME)`)
-    if err != nil { t.Fatal(err) }
-    _, err = db.Exec(`INSERT INTO vods (twitch_vod_id, processed, processing_error, youtube_url, downloaded_path, download_state, download_retries, download_bytes, download_total) VALUES ('123', 1, 'err', 'yt', 'path', 'state', 2, 100, 200)`)
+    if err := dbpkg.Migrate(db); err != nil { t.Fatal(err) }
+    _, err = db.Exec(`INSERT INTO vods (twitch_vod_id, processed, processing_error, youtube_url, downloaded_path, download_state, download_retries, download_bytes, download_total, created_at) VALUES ('123', TRUE, 'err', 'yt', 'path', 'state', 2, 100, 200, NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`)
     if err != nil { t.Fatal(err) }
 
     req := httptest.NewRequest(http.MethodPost, "/vods/123/reprocess", nil)

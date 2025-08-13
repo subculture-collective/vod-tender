@@ -1,8 +1,8 @@
-## Configuration Reference
+# Configuration Reference
 
 All configuration is via environment variables. When running locally with `make run`, place them in `backend/.env` (auto-loaded by `main.go`). Defaults are applied where sensible; absence of optional variables typically disables related features.
 
-### Core Twitch & Chat
+## Core Twitch & Chat
 
 | Variable             | Default               | Required?           | Description                                                  |
 | -------------------- | --------------------- | ------------------- | ------------------------------------------------------------ |
@@ -61,9 +61,18 @@ Token JSON / credential file indirection is handled externally: populate databas
 
 ### Database
 
-| Variable | Default        | Description                                              |
-| -------- | -------------- | -------------------------------------------------------- |
-| DB_DSN   | `vodtender.db` | SQLite DSN/path (e.g. `file:dev.db?_busy_timeout=5000`). |
+| Variable | Default                                                | Description                                                                                                       |
+| -------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| DB_DSN   | `postgres://vod:vod@postgres:5432/vod?sslmode=disable` | Postgres connection string (pgx format). Override to point at managed Postgres or local instance (ssl as needed). |
+
+Example DSNs:
+
+```text
+postgres://user:pass@localhost:5432/vod?sslmode=disable
+postgres://user:pass@prod-host:5432/vod?sslmode=require
+```
+
+Minimum required privileges: ability to create tables & indices on first run (idempotent migrations).
 
 ### HTTP Server
 

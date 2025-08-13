@@ -1,21 +1,24 @@
 package server
 
 import (
-	"context"
-	"database/sql"
-	"net/http"
-	"net/http/httptest"
-	"testing"
+    "context"
+    "database/sql"
+    "net/http"
+    "net/http/httptest"
+    "os"
+    "testing"
 
-	_ "github.com/mattn/go-sqlite3"
+    _ "github.com/jackc/pgx/v5/stdlib"
+    dbpkg "github.com/onnwee/vod-tender/backend/db"
 )
 
 func newTestDB(t *testing.T) *sql.DB {
     t.Helper()
-    db, err := sql.Open("sqlite3", ":memory:")
-    if err != nil {
-        t.Fatalf("open db: %v", err)
-    }
+    dsn := os.Getenv("TEST_PG_DSN")
+    if dsn == "" { t.Skip("TEST_PG_DSN not set") }
+    db, err := sql.Open("pgx", dsn)
+    if err != nil { t.Fatalf("open db: %v", err) }
+    if err := dbpkg.Migrate(db); err != nil { t.Fatalf("migrate: %v", err) }
     return db
 }
 

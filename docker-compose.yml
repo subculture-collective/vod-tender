@@ -1,57 +1,93 @@
 services:
-    postgres:
-        image: postgres:16-alpine
-        container_name: vod-postgres
-        environment:
-            POSTGRES_USER: vod
-            POSTGRES_PASSWORD: vod
-            POSTGRES_DB: vod
-        ports:
-            - '5432:5432' # optional external access
-        healthcheck:
-            test: ['CMD-SHELL', 'pg_isready -U vod']
-            interval: 10s
-            timeout: 5s
-            retries: 5
-            start_period: 10s
-        volumes:
-            - pgdata:/var/lib/postgresql/data
-        restart: unless-stopped
+  postgres:
+    container_name: vod-postgres
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: vod
+      POSTGRES_USER: vod
+      POSTGRES_PASSWORD: vod
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      web:
+        aliases:
+          - vod-postgres
 
-    backend:
-        container_name: vod-backend
-        build:
-            context: ./backend
-            dockerfile: Dockerfile
-        ports:
-            - '8080:8080'
-        env_file:
-            - ./backend/.env
-        environment:
-            - HTTP_ADDR=:8080
-            - DB_DSN=postgres://vod:vod@postgres:5432/vod?sslmode=disable
-        depends_on:
-            postgres:
-                condition: service_healthy
-        healthcheck:
-            test: ['CMD', '/app/healthcheck']
-            interval: 30s
-            timeout: 5s
-            retries: 3
-            start_period: 15s
-        restart: unless-stopped
+  api:
+    container_name: vod-api
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - ./backend/.env
+    environment:
+      # Ensure API uses the postgres service and persists data
+      DB_DSN: postgres://vod:vod@postgres:5432/vod?sslmode=disable
+      DATA_DIR: /data
+    volumes:
+      - vod_data:/data
+    healthcheck:
+      test: ["CMD", "/app/healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      web:
+        aliases:
+          - vod-api
 
-    frontend:
-        container_name: vod-frontend
-        build:
-            context: ./frontend
-            dockerfile: Dockerfile
-        ports:
-            - '3000:80'
-        depends_on:
-            backend:
-                condition: service_healthy
-        restart: unless-stopped
+  frontend:
+    container_name: vod-frontend
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/ >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    networks:
+      web:
+        aliases:
+          - vod-frontend
+
+  backup:
+    container_name: vod-backup
+    image: postgres:16
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    entrypoint: ["bash", "-lc", "mkdir -p /backups; while true; do bash /scripts/backup.sh /backups || echo backup failed; sleep ${BACKUP_INTERVAL:-86400}; done" ]
+    environment:
+      POSTGRES_DB: vod
+      POSTGRES_USER: vod
+      POSTGRES_PASSWORD: vod
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      BACKUP_INTERVAL: "86400" # seconds (1 day)
+    volumes:
+      - ./scripts:/scripts:ro
+      - pgbackups:/backups
+    networks:
+      - web
 
 volumes:
-    pgdata: {}
+  pgdata:
+  vod_data:
+  pgbackups:
+
+networks:
+  web:
+    external: true

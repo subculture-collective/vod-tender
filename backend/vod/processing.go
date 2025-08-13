@@ -9,11 +9,11 @@ import (
 	"strconv"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/onnwee/vod-tender/backend/config"
 	"github.com/onnwee/vod-tender/backend/db"
 	"github.com/onnwee/vod-tender/backend/telemetry"
 	youtubeapi "github.com/onnwee/vod-tender/backend/youtubeapi"
-	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 // Downloader abstracts video retrieval (for tests/mocks).

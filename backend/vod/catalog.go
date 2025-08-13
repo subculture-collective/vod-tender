@@ -16,7 +16,7 @@ func BackfillMetadata(ctx context.Context, db *sql.DB) error {
 	vods, err := FetchChannelVODs(ctx)
 	if err != nil { return err }
 	for _, v := range vods {
-		_, _ = db.Exec(`UPDATE vods SET title=COALESCE(NULLIF(title,''), ?), date=?, duration_seconds=CASE WHEN IFNULL(duration_seconds,0)=0 THEN ? ELSE duration_seconds END, updated_at=CURRENT_TIMESTAMP WHERE twitch_vod_id=?`, v.Title, v.Date, v.Duration, v.ID)
+		_, _ = db.Exec(`UPDATE vods SET title=COALESCE(NULLIF(title,''), $1), date=$2, duration_seconds=CASE WHEN COALESCE(duration_seconds,0)=0 THEN $3 ELSE duration_seconds END, updated_at=NOW() WHERE twitch_vod_id=$4`, v.Title, v.Date, v.Duration, v.ID)
 	}
 	return nil
 }
@@ -50,8 +50,8 @@ func FetchAllChannelVODs(ctx context.Context, db *sql.DB, maxCount int, maxAge t
 		if cursor == "" || (maxCount > 0 && len(collected) >= maxCount) { break }
 		after = cursor
 		if maxAge == 0 {
-			_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('catalog_after',?,CURRENT_TIMESTAMP)
-				ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP`, after)
+			_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('catalog_after',$1,NOW())
+				ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, after)
 		}
 		select {
 		case <-ctx.Done(): return collected, ctx.Err()
@@ -66,7 +66,7 @@ func BackfillCatalog(ctx context.Context, db *sql.DB, maxCount int, maxAge time.
 	vods, err := FetchAllChannelVODs(ctx, db, maxCount, maxAge)
 	if err != nil { return err }
 	for _, v := range vods {
-		_, _ = db.Exec(`INSERT OR IGNORE INTO vods (twitch_vod_id, title, date, duration_seconds, created_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`, v.ID, v.Title, v.Date, v.Duration)
+		_, _ = db.Exec(`INSERT INTO vods (twitch_vod_id, title, date, duration_seconds, created_at) VALUES ($1,$2,$3,$4,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, v.ID, v.Title, v.Date, v.Duration)
 	}
 	slog.Info("catalog backfill inserted/ignored", slog.Int("count", len(vods)))
 	return nil

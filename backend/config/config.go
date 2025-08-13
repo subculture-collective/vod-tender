@@ -69,7 +69,8 @@ func Load() (*Config, error) {
     // DB
     cfg.DBDsn = os.Getenv("DB_DSN")
     if cfg.DBDsn == "" {
-        cfg.DBDsn = "vodtender.db"
+        // Default to local Postgres (matches docker-compose). Legacy sqlite filename removed.
+        cfg.DBDsn = "postgres://vod:vod@localhost:5432/vod?sslmode=disable"
     }
 
     // Storage

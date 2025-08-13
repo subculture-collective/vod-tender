@@ -1,20 +1,20 @@
-## Operations & Runbook
+# Operations & Runbook
 
-### Local Development
+## Local Development
 
 1. Copy `backend/.env.example` (or create) and fill required Twitch + optional YouTube variables.
 2. Ensure dependencies installed:
-   - `go` (matching module toolchain)
-   - `yt-dlp` (required for VOD downloads)
-   - `ffmpeg` (recommended; used by yt-dlp for muxing)
-   - `aria2c` (optional performance / reliability boost)
+    - `go` (matching module toolchain)
+    - `yt-dlp` (required for VOD downloads)
+    - `ffmpeg` (recommended; used by yt-dlp for muxing)
+    - `aria2c` (optional performance / reliability boost)
 3. Run: `make run` (loads `backend/.env`).
 
 ### Docker
 
 Build backend & frontend images via existing Dockerfiles or compose:
 
-```
+```bash
 make docker-build
 docker compose up
 ```
@@ -74,22 +74,23 @@ Suggested next steps:
 
 - To reset processing state (force reprocess a VOD): `UPDATE vods SET processed=0, processing_error=NULL, youtube_url=NULL WHERE twitch_vod_id='...'`.
 - To clear circuit breaker: delete its keys: `DELETE FROM kv WHERE key IN ('circuit_state','circuit_failures','circuit_open_until');`.
-- Backup strategy: snapshot SQLite DB (`vodtender.db`) and `data/` directory (video files) periodically.
+- Backup strategy: use `pg_dump` (logical) or base backups (e.g., `pg_basebackup`) plus the `data/` directory (video files). For small hobby deployments a daily `pg_dump > backup.sql` is usually sufficient.
 
 ### Security Notes
 
-- OAuth tokens stored plaintext in SQLite for simplicity; for production consider encryption (e.g., envelope encryption + KMS-managed KEK) or secrets manager integration.
+- OAuth tokens stored plaintext in `oauth_tokens`; for production consider application‑level encryption (envelope + KMS) or a dedicated secrets store.
 - Limit scope of Twitch & YouTube tokens to necessary permissions.
 - Avoid mounting the `data/` directory with overly broad permissions (use user-owned paths, not world-writable).
+- Use least‑privilege Postgres role (revoking CREATEDB, SUPERUSER if not needed). Restrict network access (security groups / firewalls).
 
 ### Scaling Considerations
 
 | Axis        | Current Approach            | Scaling Path                                                                            |
 | ----------- | --------------------------- | --------------------------------------------------------------------------------------- |
-| DB          | Single SQLite file          | Migrate to Postgres; abstract queries behind interfaces; add migrations tooling         |
-| Parallelism | Single processing goroutine | Add worker pool; enforce rate limiting per provider                                     |
+| DB          | Single Postgres instance    | Add connection pooling (pgbouncer), tune indices, partition large tables, read replicas |
+| Parallelism | Single processing goroutine | Add worker pool; rate limit per provider; sharded consumers via advisory locks          |
 | Chat        | Single channel              | Add channel column to tables; run per-channel goroutines with supervisor                |
-| Downloads   | Single active per process   | Queue + concurrency limit; distributed locking (e.g., advisory locks) if multi-instance |
+| Downloads   | Single active per process   | Queue + concurrency limit; distributed coordination (advisory locks or leader election) |
 
 ### Troubleshooting Checklist
 
@@ -101,7 +102,8 @@ Suggested next steps:
 
 ### Maintenance Tasks
 
-- Vacuum / integrity check (SQLite): `PRAGMA integrity_check;` and `VACUUM;` during low-traffic windows.
+- Postgres routine maintenance: autovacuum should suffice; consider manual `VACUUM ANALYZE` only if bloat observed.
+- Regular backups (`pg_dump` or WAL archiving) and periodic restore tests.
 - Rotate logs via process manager (if not using Docker log drivers with retention).
 - Periodically prune old completed downloads if space constrained (after confirming upload). Add retention policy script / cron.
 

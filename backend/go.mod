@@ -18,7 +18,7 @@ require (
 	google.golang.org/api v0.246.0
 )
 
-require github.com/mattn/go-sqlite3 v1.14.31
+// sqlite3 dependency removed after migration to Postgres
 
 require (
 	cloud.google.com/go/auth v0.16.3 // indirect

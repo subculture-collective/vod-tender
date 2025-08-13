@@ -1,18 +1,22 @@
 package server
 
 import (
-	"database/sql"
-	"net/http"
-	"net/http/httptest"
-	"testing"
+    "database/sql"
+    "net/http"
+    "net/http/httptest"
+    "os"
+    "testing"
 
-	_ "github.com/mattn/go-sqlite3"
+    _ "github.com/jackc/pgx/v5/stdlib"
+    dbpkg "github.com/onnwee/vod-tender/backend/db"
 )
 
 func TestCancelNoActive(t *testing.T) {
-    db, err := sql.Open("sqlite3", ":memory:")
+    dsn := os.Getenv("TEST_PG_DSN"); if dsn == "" { t.Skip("TEST_PG_DSN not set") }
+    db, err := sql.Open("pgx", dsn)
     if err != nil { t.Fatal(err) }
     defer db.Close()
+    if err := dbpkg.Migrate(db); err != nil { t.Fatal(err) }
 
     req := httptest.NewRequest(http.MethodPost, "/vods/abc/cancel", nil)
     rr := httptest.NewRecorder()

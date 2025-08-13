@@ -13,6 +13,7 @@ import (
 	"github.com/onnwee/vod-tender/backend/db"
 	"github.com/onnwee/vod-tender/backend/telemetry"
 	youtubeapi "github.com/onnwee/vod-tender/backend/youtubeapi"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 // Downloader abstracts video retrieval (for tests/mocks).
@@ -53,8 +54,8 @@ func StartVODProcessingJob(ctx context.Context, dbc *sql.DB) {
 
 // processOnce selects a single pending VOD and processes it.
 func processOnce(ctx context.Context, dbc *sql.DB) error {
-	_, _ = dbc.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('job_vod_process_last', strftime('%Y-%m-%dT%H:%M:%fZ','now'), CURRENT_TIMESTAMP)
-		ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP`)
+	_, _ = dbc.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('job_vod_process_last', to_char(NOW() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'), NOW())
+		ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`)
 	var state, until string
 	_ = dbc.QueryRowContext(ctx, `SELECT value FROM kv WHERE key='circuit_state'`).Scan(&state)
 	if state == "open" {
@@ -86,7 +87,7 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 	if s := os.Getenv("PROCESSING_RETRY_COOLDOWN"); s != "" { if d, err := time.ParseDuration(s); err == nil && d > 0 { cooldown = d } }
 	row := dbc.QueryRow(`SELECT twitch_vod_id, title, date FROM vods
 		WHERE processed=0 AND (
-			processing_error IS NULL OR processing_error='' OR (download_retries < ? AND (strftime('%s','now') - strftime('%s', COALESCE(updated_at, created_at))) >= ?)
+			processing_error IS NULL OR processing_error='' OR (download_retries < $1 AND EXTRACT(EPOCH FROM (NOW() - COALESCE(updated_at, created_at))) >= $2)
 		)
 		ORDER BY priority DESC, date ASC LIMIT 1`, maxAttempts, int(cooldown.Seconds()))
 	var id, title string
@@ -106,7 +107,7 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 	if err != nil {
 		logger.Error("download failed", slog.Any("err", err), slog.Duration("download_duration", time.Since(dlStart)), slog.Int("queue_depth", queueDepth))
 		telemetry.DownloadsFailed.Inc()
-		_, _ = dbc.Exec(`UPDATE vods SET processing_error=?, updated_at=CURRENT_TIMESTAMP WHERE twitch_vod_id=?`, err.Error(), id)
+	_, _ = dbc.Exec(`UPDATE vods SET processing_error=$1, updated_at=NOW() WHERE twitch_vod_id=$2`, err.Error(), id)
 		updateCircuitOnFailure(ctx, dbc)
 		telemetry.UpdateCircuitGauge(true)
 		return nil
@@ -116,16 +117,16 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 	telemetry.DownloadDuration.Observe(dlDur.Seconds())
 	logger.Info("download complete", slog.String("path", filePath), slog.Duration("download_duration", dlDur))
 	resetCircuit(ctx, dbc)
-	_, _ = dbc.Exec(`UPDATE vods SET downloaded_path=?, updated_at=CURRENT_TIMESTAMP WHERE twitch_vod_id=?`, filePath, id)
+	_, _ = dbc.Exec(`UPDATE vods SET downloaded_path=$1, updated_at=NOW() WHERE twitch_vod_id=$2`, filePath, id)
 	upStart := time.Now()
 	ytURL, err := uploader.Upload(ctx, filePath, title, date)
 	if err != nil {
 		logger.Error("upload failed", slog.Any("err", err), slog.Duration("download_duration", dlDur), slog.Duration("upload_duration", time.Since(upStart)))
-		_, _ = dbc.Exec(`UPDATE vods SET processing_error=?, updated_at=CURRENT_TIMESTAMP WHERE twitch_vod_id=?`, err.Error(), id)
+	_, _ = dbc.Exec(`UPDATE vods SET processing_error=$1, updated_at=NOW() WHERE twitch_vod_id=$2`, err.Error(), id)
 		telemetry.UploadsFailed.Inc()
 		return nil
 	}
-	_, _ = dbc.Exec(`UPDATE vods SET youtube_url=?, processed=1, updated_at=CURRENT_TIMESTAMP WHERE twitch_vod_id=?`, ytURL, id)
+	_, _ = dbc.Exec(`UPDATE vods SET youtube_url=$1, processed=1, updated_at=NOW() WHERE twitch_vod_id=$2`, ytURL, id)
 	upDur := time.Since(upStart)
 	totalDur := time.Since(procStart)
 	telemetry.UploadsSucceeded.Inc()
@@ -145,22 +146,25 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 func updateMovingAvg(ctx context.Context, db *sql.DB, key string, newVal float64) {
 	const alpha = 0.2
 	var existing string
-	_ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key=?`, key).Scan(&existing)
+	_ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key=$1`, key).Scan(&existing)
 	if existing == "" {
-		_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES (?,?,CURRENT_TIMESTAMP)
-            ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP`, key, fmt.Sprintf("%.0f", newVal))
+		_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ($1,$2,NOW())
+			ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, key, fmt.Sprintf("%.0f", newVal))
 		return
 	}
 	var old float64
 	if v, err := strconv.ParseFloat(existing, 64); err == nil { old = v }
 	ema := alpha*newVal + (1-alpha)*old
-	_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES (?,?,CURRENT_TIMESTAMP)
-        ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP`, key, fmt.Sprintf("%.0f", ema))
+	_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ($1,$2,NOW())
+		ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, key, fmt.Sprintf("%.0f", ema))
 }
 
 // uploadToYouTube uploads the given video file using stored OAuth token.
 func uploadToYouTube(ctx context.Context, path, title string, date time.Time) (string, error) {
-	adb, _ := sql.Open("sqlite3", os.Getenv("DB_DSN"))
+	dsn := os.Getenv("DB_DSN")
+	if dsn == "" { dsn = "postgres://vod:vod@postgres:5432/vod?sslmode=disable" }
+	adb, err := sql.Open("pgx", dsn)
+	if err != nil { return "", err }
 	defer adb.Close()
 	ts := &db.TokenStoreAdapter{DB: adb}
 	cfg, _ := config.Load()

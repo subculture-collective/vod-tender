@@ -29,7 +29,7 @@ Environment variables (place in `backend/.env` for local dev):
 - TWITCH_CLIENT_SECRET (for Helix API discovery)
 - TWITCH_VOD_ID (optional; default demo-vod-id)
 - TWITCH_VOD_START (RFC3339; optional; default now)
-- DB_DSN (optional; default vodtender.db)
+- DB_DSN (optional; default postgres://vod:vod@postgres:5432/vod?sslmode=disable)
 - DATA_DIR (optional; default data)
 - LOG_LEVEL (optional; default info)
 - LOG_FORMAT (optional; text|json; default text)
@@ -44,8 +44,8 @@ Full configuration reference and operational guidance:
 
 ## Notes
 
-- Database: SQLite by default; file path via DB_DSN.
-- VOD processing job runs hourly; discovery uses Twitch Helix if client id/secret provided.
+- Database: Postgres by default (see DB_DSN). Local docker-compose supplies a `postgres` service; override with your own DSN if needed.
+- VOD processing job runs periodically (see configuration); discovery uses Twitch Helix if client id/secret provided.
 - Downloader requires yt-dlp available in PATH.
   - Resumable downloads are enabled (yt-dlp --continue with infinite retries and fragment retries).
   - Optional: install aria2c for faster and more robust downloads.

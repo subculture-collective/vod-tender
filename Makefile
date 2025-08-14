@@ -28,7 +28,7 @@ down: ## Stop and remove services (and networks); keep volumes
 	$(DC) down
 
 restart: ## Restart app services
-	$(DC) restart backend frontend
+	$(DC) restart api frontend
 
 ps: ## List running compose services
 	$(DC) ps
@@ -37,7 +37,7 @@ logs: ## Follow logs for all services
 	$(DC) logs -f --tail=200
 
 logs-backend: ## Follow backend logs
-	$(DC) logs -f --tail=200 backend
+	$(DC) logs -f --tail=200 api
 
 logs-frontend: ## Follow frontend logs
 	$(DC) logs -f --tail=200 frontend

@@ -40,13 +40,24 @@ All configuration is via environment variables. When running locally with `make 
 
 ### Download & Processing
 
-| Variable                  | Default | Description                                                         |
-| ------------------------- | ------- | ------------------------------------------------------------------- |
-| DATA_DIR                  | `data`  | Directory for downloaded media files.                               |
-| DOWNLOAD_MAX_ATTEMPTS     | `5`     | Wrapper attempts around yt-dlp process (each may retry internally). |
-| DOWNLOAD_BACKOFF_BASE     | `2s`    | Base for exponential backoff (2^n scaling + jitter up to base).     |
-| CIRCUIT_FAILURE_THRESHOLD | (unset) | Number of consecutive failures before opening breaker.              |
-| CIRCUIT_OPEN_COOLDOWN     | `5m`    | Cooldown duration while breaker open.                               |
+| Variable                    | Default    | Description                                                                                         |
+| --------------------------- | ---------- | --------------------------------------------------------------------------------------------------- |
+| DATA_DIR                    | `data`     | Directory for downloaded media files.                                                               |
+| DOWNLOAD_MAX_ATTEMPTS       | `5`        | Wrapper attempts around yt-dlp process (each may retry internally).                                 |
+| DOWNLOAD_BACKOFF_BASE       | `2s`       | Base for exponential backoff (2^n scaling + jitter up to base).                                     |
+| CIRCUIT_FAILURE_THRESHOLD   | (unset)    | Number of consecutive failures before opening breaker.                                              |
+| CIRCUIT_OPEN_COOLDOWN       | `5m`       | Cooldown duration while breaker open.                                                               |
+| BACKFILL_AUTOCLEAN          | `1`        | If not `0`, remove local file after successful upload for older VODs (back catalog).                |
+| RETAIN_KEEP_NEWER_THAN_DAYS | `7`        | VODs newer than this many days are considered "new" and retained.                                   |
+| NEW_VOD_STORE_MODE          | `original` | Storage for new VODs: `original`, `hevc`, `lossless-hevc`, or `av1`.                                |
+| NEW_VOD_PRESET              | `medium`   | Encoder preset. For `hevc` (libx265): ultrafast..placebo. For `av1` (libsvtav1): 0..13 (0 fastest). |
+| NEW_VOD_CRF                 | `23`       | Quality CRF. HEVC typical 18-28. AV1 typical 30-40. Ignored for `lossless-hevc`.                    |
+| NEW_VOD_AUDIO               | `copy`     | Audio handling: `copy` to keep source or `aac128` to re-encode to AAC 128k.                         |
+
+Notes:
+
+- Recompression requires ffmpeg with the respective encoders (libx265 for HEVC; libsvtav1 for AV1). If unavailable, the transcode step is skipped and logged.
+- When `NEW_VOD_STORE_MODE=av1` and `NEW_VOD_PRESET` is not set, an internal default preset of `6` is used.
 
 ### YouTube Upload
 

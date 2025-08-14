@@ -1,93 +1,107 @@
 services:
-  postgres:
-    container_name: vod-postgres
-    image: postgres:16
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: vod
-      POSTGRES_USER: vod
-      POSTGRES_PASSWORD: vod
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      web:
-        aliases:
-          - vod-postgres
+    postgres:
+        container_name: vod-postgres
+        image: postgres:16
+        restart: unless-stopped
+        environment:
+            POSTGRES_DB: vod
+            POSTGRES_USER: vod
+            POSTGRES_PASSWORD: vod
+        volumes:
+            - pgdata:/var/lib/postgresql/data
+        healthcheck:
+            test:
+                ['CMD-SHELL', 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB']
+            interval: 10s
+            timeout: 5s
+            retries: 5
+        networks:
+            web:
+                aliases:
+                    - vod-postgres
 
-  api:
-    container_name: vod-api
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-    env_file:
-      - ./backend/.env
-    environment:
-      # Ensure API uses the postgres service and persists data
-      DB_DSN: postgres://vod:vod@postgres:5432/vod?sslmode=disable
-      DATA_DIR: /data
-    volumes:
-      - vod_data:/data
-    healthcheck:
-      test: ["CMD", "/app/healthcheck"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-    networks:
-      web:
-        aliases:
-          - vod-api
+    api:
+        container_name: vod-api
+        build:
+            context: ./backend
+            dockerfile: Dockerfile
+        restart: unless-stopped
+        depends_on:
+            postgres:
+                condition: service_healthy
+        env_file:
+            - ./backend/.env
+        environment:
+            # Ensure API uses the postgres service and persists data
+            DB_DSN: postgres://vod:vod@postgres:5432/vod?sslmode=disable
+            DATA_DIR: /data
+            # yt-dlp cookies (optional): place Netscape-format cookies file at ./secrets/twitch-cookies.txt on host
+            # and it will be available at /run/cookies/twitch-cookies.txt in the container
+            YTDLP_COOKIES_PATH: /run/cookies/twitch-cookies.txt
+        volumes:
+            - vod_data:/data
+            - ./secrets:/run/cookies:ro
+        healthcheck:
+            test: ['CMD', '/app/healthcheck']
+            interval: 15s
+            timeout: 5s
+            retries: 5
+        networks:
+            web:
+                aliases:
+                    - vod-api
 
-  frontend:
-    container_name: vod-frontend
-    build:
-      context: ./frontend
-    restart: unless-stopped
-    depends_on:
-      - api
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/ >/dev/null 2>&1 || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-    networks:
-      web:
-        aliases:
-          - vod-frontend
+    frontend:
+        container_name: vod-frontend
+        build:
+            context: ./frontend
+        restart: unless-stopped
+        depends_on:
+            - api
+        healthcheck:
+            test:
+                [
+                    'CMD-SHELL',
+                    'wget -q -O - http://127.0.0.1/ >/dev/null 2>&1 || exit 1',
+                ]
+            interval: 30s
+            timeout: 5s
+            retries: 5
+        networks:
+            web:
+                aliases:
+                    - vod-frontend
 
-  backup:
-    container_name: vod-backup
-    image: postgres:16
-    restart: unless-stopped
-    depends_on:
-      - postgres
-    entrypoint: ["bash", "-lc", "mkdir -p /backups; while true; do bash /scripts/backup.sh /backups || echo backup failed; sleep ${BACKUP_INTERVAL:-86400}; done" ]
-    environment:
-      POSTGRES_DB: vod
-      POSTGRES_USER: vod
-      POSTGRES_PASSWORD: vod
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      BACKUP_INTERVAL: "86400" # seconds (1 day)
-    volumes:
-      - ./scripts:/scripts:ro
-      - pgbackups:/backups
-    networks:
-      - web
+    backup:
+        container_name: vod-backup
+        image: postgres:16
+        restart: unless-stopped
+        depends_on:
+            - postgres
+        entrypoint:
+            [
+                'bash',
+                '-lc',
+                'mkdir -p /backups; while true; do bash /scripts/backup.sh /backups || echo backup failed; sleep ${BACKUP_INTERVAL:-86400}; done',
+            ]
+        environment:
+            POSTGRES_DB: vod
+            POSTGRES_USER: vod
+            POSTGRES_PASSWORD: vod
+            POSTGRES_HOST: postgres
+            POSTGRES_PORT: 5432
+            BACKUP_INTERVAL: '86400' # seconds (1 day)
+        volumes:
+            - ./scripts:/scripts:ro
+            - pgbackups:/backups
+        networks:
+            - web
 
 volumes:
-  pgdata:
-  vod_data:
-  pgbackups:
+    pgdata:
+    vod_data:
+    pgbackups:
 
 networks:
-  web:
-    external: true
+    web:
+        external: true

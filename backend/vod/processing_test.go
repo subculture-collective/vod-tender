@@ -37,10 +37,10 @@ func TestProcessOnceHappyPath(t *testing.T) {
     defer func(){ downloader, uploader = oldD, oldU }()
     ctx, cancel := context.WithCancel(context.Background()); defer cancel()
     if err := processOnce(ctx, db); err != nil { t.Fatal(err) }
-    var processed int
+    var processed bool
     var yt string
     _ = db.QueryRow(`SELECT processed,youtube_url FROM vods WHERE twitch_vod_id='123'`).Scan(&processed, &yt)
-    if processed != 1 || yt == "" { t.Fatalf("expected processed=1 and youtube_url set got %d %s", processed, yt) }
+    if !processed || yt == "" { t.Fatalf("expected processed=true and youtube_url set got %v %s", processed, yt) }
 }
 
 func TestProcessOnceDownloadFail(t *testing.T) {

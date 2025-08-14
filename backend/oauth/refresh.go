@@ -38,7 +38,7 @@ func StartRefresher(ctx context.Context, db *sql.DB, provider string, interval, 
                 return
             case <-time.After(nextSleep):
             }
-            row := db.QueryRowContext(ctx, `SELECT access_token, refresh_token, expires_at, scope FROM oauth_tokens WHERE provider=? LIMIT 1`, provider)
+            row := db.QueryRowContext(ctx, `SELECT access_token, refresh_token, expires_at, scope FROM oauth_tokens WHERE provider=$1 LIMIT 1`, provider)
             var at, rt, scope string
             var exp time.Time
             if err := row.Scan(&at, &rt, &exp, &scope); err != nil { continue }
@@ -57,7 +57,7 @@ func StartRefresher(ctx context.Context, db *sql.DB, provider string, interval, 
             if err != nil { slog.Warn("token refresh failed", slog.String("provider", provider), slog.Any("err", err)); continue }
             if newRT == "" { newRT = rt }
             if newScope == "" { newScope = scope }
-            _, err = db.ExecContext(ctx, `UPDATE oauth_tokens SET access_token=?, refresh_token=?, expires_at=?, scope=?, updated_at=CURRENT_TIMESTAMP WHERE provider=?`,
+            _, err = db.ExecContext(ctx, `UPDATE oauth_tokens SET access_token=$1, refresh_token=$2, expires_at=$3, scope=$4, updated_at=NOW() WHERE provider=$5`,
                 newAT, newRT, newExp, strings.TrimSpace(newScope), provider)
             if err != nil { slog.Warn("token persist failed", slog.String("provider", provider), slog.Any("err", err)); continue }
             slog.Info("token refreshed", slog.String("provider", provider))

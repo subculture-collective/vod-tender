@@ -80,6 +80,7 @@ func StartVODCatalogBackfillJob(ctx context.Context, db *sql.DB) {
 	if s := os.Getenv("VOD_CATALOG_MAX"); s != "" { if n, err := strconv.Atoi(s); err == nil && n > 0 { maxCount = n } }
 	maxAge := time.Duration(0)
 	if s := os.Getenv("VOD_CATALOG_MAX_AGE_DAYS"); s != "" { if n, err := strconv.Atoi(s); err == nil && n > 0 { maxAge = time.Duration(n) * 24 * time.Hour } }
+	slog.Info("catalog backfill job starting", slog.Duration("interval", interval), slog.Int("max", maxCount), slog.Duration("max_age", maxAge))
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	_ = BackfillCatalog(ctx, db, maxCount, maxAge)

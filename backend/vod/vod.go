@@ -1,6 +1,7 @@
 package vod
 
 import (
+	"bufio"
 	"context"
 	"database/sql"
 	"fmt"
@@ -80,6 +81,15 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 	logger.Info("download start", slog.String("out", out))
 	telemetry.DownloadsStarted.Inc()
 
+	// Resolve yt-dlp path (runtime image installs to /usr/local/bin)
+	ytDLP := "yt-dlp"
+	if p, err := exec.LookPath("yt-dlp"); err == nil {
+		ytDLP = p
+	} else if _, err2 := os.Stat("/usr/local/bin/yt-dlp"); err2 == nil {
+		ytDLP = "/usr/local/bin/yt-dlp"
+	}
+	logger.Debug("downloader selected", slog.String("yt_dlp", ytDLP))
+
 	// yt-dlp resume-friendly flags
 	args := []string{
 		"--continue",                 // resume partial downloads
@@ -89,6 +99,21 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 		"-f", "best",               // best available format
 		"-o", out,                   // output path
 		url,
+	}
+
+	// Optional Twitch auth via cookies; prefer HTTP Cookie header to avoid writing back to RO file
+	if cf := os.Getenv("YTDLP_COOKIES_PATH"); strings.TrimSpace(cf) != "" {
+		if hdr, err := buildCookieHeaderFromNetscape(cf, ".twitch.tv"); err == nil && strings.TrimSpace(hdr) != "" {
+			args = append([]string{"--add-header", "Cookie: " + hdr}, args...)
+		} else {
+			args = append([]string{"--cookies", cf}, args...)
+		}
+	}
+	if extra := os.Getenv("YTDLP_ARGS"); strings.TrimSpace(extra) != "" {
+		args = append(strings.Fields(extra), args...)
+	}
+	if strings.EqualFold(os.Getenv("LOG_LEVEL"), "DEBUG") || os.Getenv("YTDLP_VERBOSE") == "1" {
+		args = append([]string{"-v"}, args...)
 	}
 
 	// If aria2c available, prefer it for robustness on direct HTTP downloads
@@ -110,12 +135,12 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 			jitter := time.Duration(rand.Int63n(int64(baseBackoff))) // up to baseBackoff extra
 			backoff += jitter
 			logger.Warn("retrying download", slog.Int("attempt", attempt), slog.Duration("backoff", backoff))
+			time.Sleep(backoff)
 			activeMu.Lock()
 			delete(activeCancels, id)
 			activeMu.Unlock()
-			continue
 		}
-		cmd := exec.CommandContext(ctx, "yt-dlp", args...)
+		cmd := exec.CommandContext(ctx, ytDLP, args...)
 		stderr, errPipe := cmd.StderrPipe()
 		if errPipe != nil { lastErr = errPipe; break }
 		if err := cmd.Start(); err != nil { lastErr = err; break }
@@ -138,6 +163,14 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 			case "GIB": mult = 1024 * 1024 * 1024
 			}
 			return int64(f * mult)
+		}
+		// Reader loop; also capture tail of stderr for diagnostics
+		const maxTail = 100
+		lastLines := make([]string, 0, maxTail)
+		appendLine := func(s string) {
+			if s == "" { return }
+			if len(lastLines) >= maxTail { lastLines = lastLines[1:] }
+			lastLines = append(lastLines, s)
 		}
 		// Reader loop
 		go func() {
@@ -168,6 +201,8 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 								}
 								// Update DB with approximate progress
 								_, _ = db.Exec(`UPDATE vods SET download_state=$1, download_total=$2, download_bytes=$3, progress_updated_at=NOW() WHERE twitch_vod_id=$4`, s, totalBytes, curBytes, id)
+							} else if strings.TrimSpace(s) != "" {
+								appendLine(strings.TrimSpace(s))
 							}
 						} else {
 							line.WriteRune(r)
@@ -191,7 +226,12 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 			return out, nil
 		}
 		// Classify error from stderr state we captured last; fallback to err.Error()
-		lastErr = fmt.Errorf("yt-dlp: %w", err)
+		detail := strings.Join(lastLines, "\n")
+		lower := strings.ToLower(detail)
+		if strings.Contains(lower, "subscriber-only") || strings.Contains(lower, "only available to subscribers") || strings.Contains(lower, "403") {
+			logger.Warn("twitch indicates auth requirement; consider YTDLP_COOKIES_PATH")
+		}
+		lastErr = fmt.Errorf("yt-dlp: %w\nlast output:\n%s", err, detail)
 		// Increment retry counter
 		_, _ = db.Exec(`UPDATE vods SET download_retries = COALESCE(download_retries,0) + 1, progress_updated_at=NOW() WHERE twitch_vod_id=$1`, id)
 		// If context canceled, stop immediately
@@ -202,6 +242,29 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 	telemetry.DownloadsFailed.Inc()
 	logger.Error("download exhausted retries", slog.Any("err", lastErr))
 	return "", lastErr
+}
+
+// buildCookieHeaderFromNetscape constructs a Cookie header from a Netscape cookies file.
+func buildCookieHeaderFromNetscape(path string, domainSuffix string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil { return "", err }
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	pairs := make([]string, 0, 16)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") { continue }
+		parts := strings.Split(line, "\t")
+		if len(parts) < 7 { parts = strings.Fields(line) }
+		if len(parts) < 7 { continue }
+		dom, name, val := parts[0], parts[5], parts[6]
+		if !strings.HasSuffix(strings.ToLower(dom), strings.ToLower(domainSuffix)) { continue }
+		if strings.EqualFold(name, "#httponly_"+name) { name = strings.TrimPrefix(name, "#HttpOnly_") }
+		if name == "" { continue }
+		pairs = append(pairs, fmt.Sprintf("%s=%s", name, val))
+	}
+	if err := sc.Err(); err != nil { return "", err }
+	return strings.Join(pairs, "; "), nil
 }
 
 // uploadToYouTube uploads the given video file using stored OAuth token.

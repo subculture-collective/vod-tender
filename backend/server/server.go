@@ -136,9 +136,9 @@ func NewMux(db *sql.DB) http.Handler {
         resp := map[string]any{}
         // Queue depth & counts
         var pending, errored, processed int
-        _ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM vods WHERE processed=0`).Scan(&pending)
-        _ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM vods WHERE processed=0 AND processing_error IS NOT NULL AND processing_error!=''`).Scan(&errored)
-        _ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM vods WHERE processed=1`).Scan(&processed)
+    _ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM vods WHERE COALESCE(processed,false)=false`).Scan(&pending)
+    _ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM vods WHERE COALESCE(processed,false)=false AND processing_error IS NOT NULL AND processing_error!=''`).Scan(&errored)
+    _ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM vods WHERE COALESCE(processed,false)=true`).Scan(&processed)
         resp["pending"] = pending
         resp["errored"] = errored
         resp["processed"] = processed
@@ -177,7 +177,16 @@ func NewMux(db *sql.DB) http.Handler {
             limit = 50
         }
         offset := parseIntQuery(r, "offset", 0)
-    rows, err := db.QueryContext(r.Context(), `SELECT twitch_vod_id, title, date, processed, youtube_url FROM vods ORDER BY date DESC LIMIT $1 OFFSET $2`, limit, offset)
+    rows, err := db.QueryContext(r.Context(), `
+        SELECT twitch_vod_id,
+               COALESCE(title, ''),
+               COALESCE(date, to_timestamp(0)),
+               COALESCE(processed, FALSE),
+               COALESCE(youtube_url, '')
+        FROM vods
+        ORDER BY COALESCE(date, to_timestamp(0)) DESC
+        LIMIT $1 OFFSET $2
+    `, limit, offset)
         if err != nil {
             http.Error(w, err.Error(), http.StatusInternalServerError)
             return
@@ -190,7 +199,7 @@ func NewMux(db *sql.DB) http.Handler {
             Processed bool      `json:"processed"`
             YouTube   string    `json:"youtube_url"`
         }
-        var list []vod
+    list := make([]vod, 0)
         for rows.Next() {
             var v vod
             if err := rows.Scan(&v.ID, &v.Title, &v.Date, &v.Processed, &v.YouTube); err != nil {
@@ -200,7 +209,7 @@ func NewMux(db *sql.DB) http.Handler {
             list = append(list, v)
         }
         w.Header().Set("Content-Type", "application/json")
-        _ = json.NewEncoder(w).Encode(list)
+    _ = json.NewEncoder(w).Encode(list)
     })
 
     // Manual trigger: discover new VODs (no processing) - admin helper
@@ -261,16 +270,16 @@ func NewMux(db *sql.DB) http.Handler {
 
         // Queue counts
         var pending, errored, processed int
-        _ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM vods WHERE processed=0`).Scan(&pending)
-        _ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM vods WHERE processed=0 AND processing_error IS NOT NULL AND processing_error!=''`).Scan(&errored)
-        _ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM vods WHERE processed=1`).Scan(&processed)
+    _ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM vods WHERE COALESCE(processed,false)=false`).Scan(&pending)
+    _ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM vods WHERE COALESCE(processed,false)=false AND processing_error IS NOT NULL AND processing_error!=''`).Scan(&errored)
+    _ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM vods WHERE COALESCE(processed,false)=true`).Scan(&processed)
         stats["vods_pending"] = pending
         stats["vods_errored"] = errored
         stats["vods_processed"] = processed
         // Oldest unprocessed
         var oldestID string
         var oldestDate time.Time
-        row := db.QueryRowContext(ctx, `SELECT twitch_vod_id, date FROM vods WHERE processed=0 ORDER BY date ASC LIMIT 1`)
+    row := db.QueryRowContext(ctx, `SELECT twitch_vod_id, date FROM vods WHERE COALESCE(processed,false)=false ORDER BY date ASC LIMIT 1`)
         _ = row.Scan(&oldestID, &oldestDate)
         if oldestID != "" { stats["oldest_pending"] = map[string]any{"id": oldestID, "date": oldestDate} }
         w.Header().Set("Content-Type", "application/json")
@@ -356,8 +365,17 @@ func handleVodDetail(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID s
         return
     }
     row := db.QueryRowContext(r.Context(), `
-        SELECT twitch_vod_id, title, date, duration_seconds, processed, youtube_url,
-               downloaded_path, download_state, download_retries, download_total, progress_updated_at
+        SELECT twitch_vod_id,
+               COALESCE(title, ''),
+               COALESCE(date, to_timestamp(0)),
+               COALESCE(duration_seconds, 0),
+               COALESCE(processed, FALSE),
+               COALESCE(youtube_url, ''),
+               COALESCE(downloaded_path, ''),
+               COALESCE(download_state, ''),
+               COALESCE(download_retries, 0),
+               COALESCE(download_total, 0),
+               progress_updated_at
     FROM vods WHERE twitch_vod_id=$1
     `, vodID)
     type vod struct {
@@ -394,7 +412,13 @@ func handleVodProgress(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID
         return
     }
     row := db.QueryRowContext(r.Context(), `
-        SELECT download_state, download_retries, download_total, downloaded_path, processed, youtube_url, progress_updated_at
+        SELECT COALESCE(download_state, ''),
+               COALESCE(download_retries, 0),
+               COALESCE(download_total, 0),
+               COALESCE(downloaded_path, ''),
+               COALESCE(processed, FALSE),
+               COALESCE(youtube_url, ''),
+               progress_updated_at
     FROM vods WHERE twitch_vod_id=$1
     `, vodID)
     var state, path, yt string
@@ -460,7 +484,7 @@ func handleChatJSON(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID st
         Emotes string   `json:"emotes"`
         Color  string   `json:"color"`
     }
-    var out []msg
+    out := make([]msg, 0)
     for rows.Next() {
         var m msg
         if err := rows.Scan(&m.User, &m.Text, &m.Abs, &m.Rel, &m.Badges, &m.Emotes, &m.Color); err != nil {

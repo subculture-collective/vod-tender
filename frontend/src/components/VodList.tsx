@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+import { getApiBase } from '../lib/api';
+const API_BASE_URL = getApiBase();
 
 export interface Vod {
     id: string;

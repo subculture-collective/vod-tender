@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	twitch "github.com/gempir/go-twitch-irc/v4"
@@ -20,6 +21,10 @@ func StartTwitchChatRecorder(ctx context.Context, db *sql.DB, vodID string, vodS
 		// Attempt to load from oauth_tokens
 		row := db.QueryRowContext(ctx, `SELECT access_token FROM oauth_tokens WHERE provider='twitch' LIMIT 1`)
 		_ = row.Scan(&oauth)
+	}
+	// Normalize token format for IRC lib (expects "oauth:xxxxx").
+	if oauth != "" && !strings.HasPrefix(strings.ToLower(oauth), "oauth:") {
+		oauth = "oauth:" + oauth
 	}
 	if channel == "" || username == "" || oauth == "" {
 		slog.Info("twitch creds not set (env or stored token); skipping chat recorder")
@@ -60,7 +65,7 @@ func StartTwitchChatRecorder(ctx context.Context, db *sql.DB, vodID string, vodS
 
 	client.Join(channel)
 	if err := client.Connect(); err != nil {
-		slog.Error("twitch chat connect error", slog.Any("err", err))
+		slog.Error("twitch chat connect error", slog.Any("err", err), slog.String("hint", "ensure TWITCH_BOT_USERNAME matches the token owner and token includes 'oauth:' prefix"))
 	}
 	<-done
 }

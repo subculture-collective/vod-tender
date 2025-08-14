@@ -33,19 +33,32 @@ RUN set -eux; \
 FROM debian:bookworm-slim AS runtime
 WORKDIR /app
 
-# Distroless already non-root (UID 65532) and has certs
+# Install runtime deps and certs
 RUN set -eux; \
 	apt-get update; \
 	DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-		ca-certificates ffmpeg; \
+		ca-certificates ffmpeg python3 gosu; \
 	rm -rf /var/lib/apt/lists/*
 COPY --from=builder /out/vod-tender-backend ./vod-tender-backend
 COPY --from=builder /out/healthcheck ./healthcheck
 COPY --from=media /usr/local/bin/yt-dlp /usr/local/bin/yt-dlp
+
+# Create non-root user for security
+RUN useradd -m -u 10001 appuser && mkdir -p /data && chown -R appuser:appuser /app /data
+
+# Entrypoint to ensure volume permissions, then drop privileges
+COPY --chown=root:root <<'EOS' /usr/local/bin/entrypoint.sh
+#!/bin/sh
+set -e
+mkdir -p /data
+chown -R 10001:10001 /data || true
+exec gosu appuser:appuser /app/vod-tender-backend
+EOS
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
 EXPOSE 8080
 ENV HTTP_ADDR=:8080
 
 # Internal healthcheck binary copied; docker-compose uses it for container health.
 
-ENTRYPOINT ["./vod-tender-backend"]
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

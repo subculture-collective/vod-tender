@@ -1,69 +1,50 @@
-# React + TypeScript + Vite
+# vod-tender frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + TypeScript + Vite single-page app for browsing VODs and replaying chat. Built and served by nginx in Docker; supports local dev via Vite.
 
-Currently, two official plugins are available:
+Project overview and backend setup: see the root `README.md` and `docs/CONFIG.md`.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Local development
 
-## Expanding the ESLint configuration
+Prereqs: Node 20+, npm.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+- Install deps: `npm ci` (or `npm install`)
+- Configure API base for dev: create `.env.local` with
 
-```js
-export default tseslint.config([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      ...tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      ...tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      ...tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```txt
+VITE_API_BASE_URL=http://localhost:8080
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+- Start dev server: `npm run dev`
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+Open the printed URL (usually <http://localhost:5173>). The app will call the backend at `VITE_API_BASE_URL`.
 
-export default tseslint.config([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+## API base resolution
+
+The frontend resolves the API base in this order (see `src/lib/api.ts`):
+
+- `VITE_API_BASE_URL` (build-time env; recommended for local dev)
+- If hosted on a domain like `vod-tender.<domain>`, it maps to `https://vod-api.<domain>` automatically
+- Otherwise, same-origin
+
+In Docker Compose + Caddy, no extra config is needed if you route `vod-tender.*` to the frontend and `vod-api.*` to the backend (see repo README).
+
+## Build and ship
+
+- Production build: `npm run build`
+- Preview build locally: `npm run preview`
+- Docker: `frontend/Dockerfile` builds the static assets and serves them via nginx. The top-level `docker-compose.yml` includes a `frontend` service; use `docker compose up -d --build` from the repo root.
+
+## Features and endpoints
+
+- List VODs: `GET /vods`
+- VOD detail: `GET /vods/{id}` and `GET /vods/{id}/progress`
+- Chat: `GET /vods/{id}/chat` (paged JSON) and `GET /vods/{id}/chat/stream` (SSE)
+
+The backend emits empty arrays (`[]`) for list fields to avoid null errors in the UI.
+
+## Troubleshooting
+
+- Requests failing in dev: ensure `VITE_API_BASE_URL` points to your backend (default `http://localhost:8080`)
+- In production: confirm domain mapping (`vod-tender.*` → frontend, `vod-api.*` → backend) and CORS if using same-origin fallback
+- Blank list: verify the backend is running and `/vods` returns data; tail backend logs via `docker compose logs -f api`

@@ -35,7 +35,7 @@ func TestReprocess(t *testing.T) {
         t.Fatal(err)
     }
     if processed {
-        t.Fatalf("expected processed=0 after reset")
+        t.Fatalf("expected processed=false after reset")
     }
     if retries != 0 || bytes != 0 || total != 0 {
         t.Fatalf("expected counters reset, got retries=%d bytes=%d total=%d", retries, bytes, total)

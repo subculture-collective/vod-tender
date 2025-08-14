@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import ChatReplay from './ChatReplay';
 import type { Vod } from './VodList';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+import { getApiBase } from '../lib/api';
+const API_BASE_URL = getApiBase();
 
 interface VodDetailProps {
     vodId: string;

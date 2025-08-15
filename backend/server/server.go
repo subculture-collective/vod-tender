@@ -286,7 +286,7 @@ func NewMux(db *sql.DB) http.Handler {
         _ = json.NewEncoder(w).Encode(stats)
     })
 
-    // Chat JSON and SSE under /vods/{id}/chat and /vods/{id}/chat/stream
+    // Chat JSON/SSE under /vods/{id}/chat and /vods/{id}/chat/stream, plus import
     mux.HandleFunc("/vods/", func(w http.ResponseWriter, r *http.Request) {
         // crude routing
         path := strings.TrimPrefix(r.URL.Path, "/vods/")
@@ -313,9 +313,24 @@ func NewMux(db *sql.DB) http.Handler {
             handleChatJSON(w, r, db, vodID)
         case tail == "chat/stream":
             handleChatSSE(w, r, db, vodID)
+        case tail == "chat/import":
+            handleVodChatImport(w, r, db, vodID)
         default:
             http.NotFound(w, r)
         }
+    })
+
+    // Admin convenience: /admin/vod/chat/import?id=<vodID>
+    mux.HandleFunc("/admin/vod/chat/import", func(w http.ResponseWriter, r *http.Request) {
+        if r.Method != http.MethodPost && r.Method != http.MethodGet { http.Error(w, "method not allowed", http.StatusMethodNotAllowed); return }
+        vodID := r.URL.Query().Get("id")
+        if vodID == "" { http.Error(w, "missing id", 400); return }
+        if err := vodpkg.ImportChat(r.Context(), db, vodID); err != nil {
+            http.Error(w, err.Error(), 500)
+            return
+        }
+        w.Header().Set("Content-Type", "application/json")
+        _ = json.NewEncoder(w).Encode(map[string]any{"status":"ok","vod_id": vodID})
     })
     // Wrap with correlation ID injector
     handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -415,6 +430,7 @@ func handleVodProgress(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID
         SELECT COALESCE(download_state, ''),
                COALESCE(download_retries, 0),
                COALESCE(download_total, 0),
+               COALESCE(download_bytes, 0),
                COALESCE(downloaded_path, ''),
                COALESCE(processed, FALSE),
                COALESCE(youtube_url, ''),
@@ -424,9 +440,10 @@ func handleVodProgress(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID
     var state, path, yt string
     var retries int
     var total int64
+    var bytes int64
     var processed bool
     var updated *time.Time
-    if err := row.Scan(&state, &retries, &total, &path, &processed, &yt, &updated); err != nil {
+    if err := row.Scan(&state, &retries, &total, &bytes, &path, &processed, &yt, &updated); err != nil {
         if err == sql.ErrNoRows {
             http.NotFound(w, r)
             return
@@ -434,11 +451,24 @@ func handleVodProgress(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID
         http.Error(w, err.Error(), http.StatusInternalServerError)
         return
     }
-    percent := derivePercent(state)
+    // Derive percent from state string; if absent, fall back to bytes/total.
+    var percentVal float64
+    if p := derivePercent(state); p != nil {
+        percentVal = *p
+    } else if total > 0 && bytes >= 0 {
+        // Clamp to [0,100]
+        percentVal = (float64(bytes) / float64(total)) * 100.0
+        if percentVal < 0 { percentVal = 0 }
+        if percentVal > 100 { percentVal = 100 }
+    } else if processed || strings.EqualFold(state, "complete") {
+        percentVal = 100
+    } else {
+        percentVal = 0
+    }
     resp := map[string]any{
         "vod_id": vodID,
         "state": state,
-        "percent": percent,
+        "percent": percentVal,
         "retries": retries,
         "total_bytes": total,
         "downloaded_path": path,
@@ -567,6 +597,24 @@ func handleChatSSE(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID str
     }
 }
 
+// handleVodChatImport triggers chat replay import for a given VOD
+func handleVodChatImport(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID string) {
+    if r.Method != http.MethodPost && r.Method != http.MethodGet {
+        http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+        return
+    }
+    if vodID == "" {
+        http.Error(w, "missing vod id", http.StatusBadRequest)
+        return
+    }
+    if err := vodpkg.ImportChat(r.Context(), db, vodID); err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+    w.Header().Set("Content-Type", "application/json")
+    _ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "vod_id": vodID})
+}
+
 func parseFloat64Query(r *http.Request, key string, def float64) float64 {
     if v := r.URL.Query().Get(key); v != "" {
         if f, err := strconv.ParseFloat(v, 64); err == nil {
@@ -666,3 +714,4 @@ func handleVodCancel(w http.ResponseWriter, r *http.Request, _ *sql.DB, vodID st
 func handleVodSegments(w http.ResponseWriter, r *http.Request, _ *sql.DB, _ string) {
     http.Error(w, "not implemented", http.StatusNotImplemented)
 }
+

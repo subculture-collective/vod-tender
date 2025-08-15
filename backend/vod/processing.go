@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -80,6 +81,26 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 	dataDir := os.Getenv("DATA_DIR")
 	if dataDir == "" { dataDir = "data" }
 	if err := os.MkdirAll(dataDir, 0o755); err != nil { return fmt.Errorf("mkdir data dir: %w", err) }
+	// Best-effort cleanup: prune stale partial/tmp files to keep /data small
+	// Controlled via DATA_CLEANUP_MAX_AGE (default 24h). Set to 0 to disable.
+	maxAge := 24 * time.Hour
+	if s := os.Getenv("DATA_CLEANUP_MAX_AGE"); s != "" {
+		if d, err := time.ParseDuration(s); err == nil { maxAge = d }
+	}
+	if maxAge > 0 {
+		now := time.Now()
+		if entries, err := os.ReadDir(dataDir); err == nil {
+			for _, e := range entries {
+				name := e.Name()
+				if !(strings.HasSuffix(name, ".part") || strings.HasSuffix(name, ".tmp") || strings.Contains(name, ".transcode.tmp.mp4")) { continue }
+				if fi, err := e.Info(); err == nil {
+					if now.Sub(fi.ModTime()) > maxAge {
+						_ = os.Remove(filepath.Join(dataDir, name))
+					}
+				}
+			}
+		}
+	}
 	if err := DiscoverAndUpsert(ctx, dbc); err != nil { slog.Warn("discover vods", slog.Any("err", err), slog.String("component","vod_process")); return err }
 	// Queue depth (unprocessed VODs)
 	var queueDepth int

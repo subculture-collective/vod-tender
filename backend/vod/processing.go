@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -101,6 +101,45 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 			}
 		}
 	}
+
+	// Optional orphan sweeper: prune stale full files not referenced by DB and older than RETAIN_KEEP_NEWER_THAN_DAYS.
+	// This helps clean up any leftovers from crashes or manual copies.
+	if keepDaysStr := os.Getenv("RETAIN_KEEP_NEWER_THAN_DAYS"); keepDaysStr != "" {
+		if keepDays, err := strconv.Atoi(keepDaysStr); err == nil && keepDays >= 0 {
+			cutoff := time.Now().Add(-time.Duration(keepDays) * 24 * time.Hour)
+			// Build a set of active paths from DB
+			active := map[string]struct{}{}
+			rows, err := dbc.QueryContext(ctx, `SELECT downloaded_path FROM vods WHERE downloaded_path IS NOT NULL`)
+			if err == nil {
+				defer rows.Close()
+				for rows.Next() {
+					var p string
+					if err := rows.Scan(&p); err == nil && p != "" { active[p] = struct{}{} }
+				}
+			}
+			if entries, err := os.ReadDir(dataDir); err == nil {
+				for _, e := range entries {
+					if e.IsDir() { continue }
+					// Only consider video-like files for sweeping
+					name := e.Name()
+					if !(strings.HasSuffix(strings.ToLower(name), ".mp4") || strings.HasSuffix(strings.ToLower(name), ".mkv") || strings.HasSuffix(strings.ToLower(name), ".webm")) {
+						continue
+					}
+					path := filepath.Join(dataDir, name)
+					if _, ok := active[path]; ok { continue }
+					if fi, err := e.Info(); err == nil {
+						if fi.ModTime().Before(cutoff) {
+							if err := os.Remove(path); err == nil {
+								slog.Info("sweeper removed orphaned file", slog.String("path", path))
+							} else {
+								slog.Warn("sweeper failed to remove orphaned file", slog.String("path", path), slog.Any("err", err))
+							}
+						}
+					}
+				}
+			}
+		}
+	}
 	if err := DiscoverAndUpsert(ctx, dbc); err != nil { slog.Warn("discover vods", slog.Any("err", err), slog.String("component","vod_process")); return err }
 	// Queue depth (unprocessed VODs)
 	var queueDepth int
@@ -153,90 +192,83 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 	logger.Info("download complete", slog.String("path", filePath), slog.Duration("download_duration", dlDur))
 	resetCircuit(ctx, dbc)
 	_, _ = dbc.Exec(`UPDATE vods SET downloaded_path=$1, updated_at=NOW() WHERE twitch_vod_id=$2`, filePath, id)
-	upStart := time.Now()
-	ytURL, err := uploader.Upload(ctx, filePath, title, date)
-	if err != nil {
-		logger.Error("upload failed", slog.Any("err", err), slog.Duration("download_duration", dlDur), slog.Duration("upload_duration", time.Since(upStart)))
-	_, _ = dbc.Exec(`UPDATE vods SET processing_error=$1, updated_at=NOW() WHERE twitch_vod_id=$2`, err.Error(), id)
-		telemetry.UploadsFailed.Inc()
-		return nil
+	// Idempotency: if a YouTube URL already exists, skip upload to prevent duplicates.
+	var preYT string
+	_ = dbc.QueryRowContext(ctx, `SELECT COALESCE(youtube_url,'') FROM vods WHERE twitch_vod_id=$1`, id).Scan(&preYT)
+	var ytURL string
+	var upDur time.Duration
+	if preYT != "" {
+		ytURL = preYT
+		slog.Info("skipping upload; youtube_url already present", slog.String("youtube_url", ytURL))
+		// Ensure processed is marked; we'll still perform post-success cleanup below.
+		_, _ = dbc.Exec(`UPDATE vods SET processed=TRUE, updated_at=NOW() WHERE twitch_vod_id=$1`, id)
+	} else {
+		// Retry loop with exponential backoff + jitter for uploads
+		maxUp := 5
+		if s := os.Getenv("UPLOAD_MAX_ATTEMPTS"); s != "" { if n, err := strconv.Atoi(s); err == nil && n > 0 { maxUp = n } }
+		base := 2 * time.Second
+		if s := os.Getenv("UPLOAD_BACKOFF_BASE"); s != "" { if d, err := time.ParseDuration(s); err == nil && d > 0 { base = d } }
+		var lastErr error
+		for attempt := 0; attempt < maxUp; attempt++ {
+			if attempt > 0 {
+				backoff := base * time.Duration(1<<attempt)
+				jitter := time.Duration(rand.Int63n(int64(base)))
+				backoff += jitter
+				logger.Warn("retrying upload", slog.Int("attempt", attempt), slog.Int("max", maxUp), slog.Duration("backoff", backoff))
+				time.Sleep(backoff)
+			}
+			upStart := time.Now()
+			url, err := uploader.Upload(ctx, filePath, title, date)
+			if err == nil {
+				upDur = time.Since(upStart)
+				ytURL = url
+				break
+			}
+			lastErr = err
+			// If context canceled, abort early
+			if ctx.Err() != nil { break }
+		}
+		if ytURL == "" {
+			// Exhausted attempts; persist error and increment retries so global cooldown/limit logic applies
+			logger.Error("upload exhausted retries", slog.Any("err", lastErr))
+			_, _ = dbc.Exec(`UPDATE vods SET processing_error=$1, download_retries = COALESCE(download_retries,0)+1, updated_at=NOW() WHERE twitch_vod_id=$2`,
+				fmt.Sprintf("upload: %v", lastErr), id)
+			telemetry.UploadsFailed.Inc()
+			return nil
+		}
+		// Record YouTube URL and mark processed now
+		_, _ = dbc.Exec(`UPDATE vods SET youtube_url=$1, processed=TRUE, processing_error=NULL, updated_at=NOW() WHERE twitch_vod_id=$2`, ytURL, id)
 	}
-	// Record YouTube URL and mark processed now; we may adjust downloaded_path below if we delete.
-	_, _ = dbc.Exec(`UPDATE vods SET youtube_url=$1, processed=TRUE, updated_at=NOW() WHERE twitch_vod_id=$2`, ytURL, id)
+
+	// Clean up local file after successful upload (both backfill and new items)
 	// Retention and optimization policy
-	// BACKFILL_AUTOCLEAN: if not "0", delete local file for older VODs (back catalog)
+	// BACKFILL_AUTOCLEAN: if not "0", delete local file for older VODs (back catalog) — legacy behavior
 	// RETAIN_KEEP_NEWER_THAN_DAYS: window to consider a VOD "new" (default 7)
 	keepDays := 7
 	if s := os.Getenv("RETAIN_KEEP_NEWER_THAN_DAYS"); s != "" { if n, err := strconv.Atoi(s); err == nil && n >= 0 { keepDays = n } }
 	backfillAutoclean := os.Getenv("BACKFILL_AUTOCLEAN") != "0" // default on
 	cutoff := time.Now().Add(-time.Duration(keepDays) * 24 * time.Hour)
 	isBackfill := date.Before(cutoff)
-	if isBackfill && backfillAutoclean {
-		if filePath != "" {
-			if err := os.Remove(filePath); err != nil {
-				logger.Warn("autoclean delete failed", slog.String("path", filePath), slog.Any("err", err))
-			} else {
+	// New behavior: always try to remove local file after successful upload to save disk, while keeping legacy backfill flag for logs
+	if filePath != "" {
+		if err := os.Remove(filePath); err != nil {
+			logger.Warn("delete local file failed", slog.String("path", filePath), slog.Any("err", err))
+		} else {
+			if isBackfill && backfillAutoclean {
 				logger.Info("autoclean removed local file", slog.String("path", filePath))
-				_, _ = dbc.Exec(`UPDATE vods SET downloaded_path=NULL, updated_at=NOW() WHERE twitch_vod_id=$1`, id)
+			} else {
+				logger.Info("removed local file after upload", slog.String("path", filePath))
 			}
-		}
-	} else if !isBackfill && filePath != "" {
-		// Optional re-encode for efficient storage of new VODs
-		mode := strings.ToLower(os.Getenv("NEW_VOD_STORE_MODE")) // original|hevc|av1|lossless-hevc
-		if mode == "" { mode = "original" }
-		if mode != "original" {
-			preset := os.Getenv("NEW_VOD_PRESET")
-			if preset == "" { preset = "medium" }
-			crf := 23
-			if s := os.Getenv("NEW_VOD_CRF"); s != "" { if n, err := strconv.Atoi(s); err == nil && n >= 0 { crf = n } }
-			audio := strings.ToLower(os.Getenv("NEW_VOD_AUDIO")) // copy|aac128
-			if audio == "" { audio = "copy" }
-			args := []string{"-y", "-i", filePath}
-			switch mode {
-			case "hevc":
-				args = append(args, "-c:v", "libx265", "-preset", preset, "-crf", fmt.Sprintf("%d", crf), "-tag:v", "hvc1")
-			case "lossless-hevc":
-				args = append(args, "-c:v", "libx265", "-preset", preset, "-x265-params", "lossless=1", "-tag:v", "hvc1")
-			case "av1":
-				// Use SVT-AV1 if available; otherwise this will fail and we log it.
-				// Typical CRF around 30-40 for reasonable size/quality.
-				if crf == 23 { crf = 32 }
-				if preset == "medium" { preset = "6" } // SVT-AV1 preset scale (0 fastest .. 13 slowest)
-				args = append(args, "-c:v", "libsvtav1", "-preset", preset, "-crf", fmt.Sprintf("%d", crf))
-			default:
-				// unknown -> skip
-				args = nil
-			}
-			if len(args) > 0 {
-				if audio == "aac128" {
-					args = append(args, "-c:a", "aac", "-b:a", "128k")
-				} else {
-					args = append(args, "-c:a", "copy")
-				}
-				tmp := filePath + ".transcode.tmp.mp4"
-				args = append(args, tmp)
-				cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-				if out, err := cmd.CombinedOutput(); err != nil {
-					logger.Warn("transcode failed", slog.Any("err", err), slog.String("out", string(out)), slog.Any("args", args))
-					_ = os.Remove(tmp)
-				} else {
-					if err := os.Rename(tmp, filePath); err != nil {
-						logger.Warn("transcode rename failed", slog.Any("err", err))
-						_ = os.Remove(tmp)
-					} else {
-						logger.Info("stored new VOD with recompression", slog.String("codec", mode), slog.String("path", filePath))
-					}
-				}
-			}
+			_, _ = dbc.Exec(`UPDATE vods SET downloaded_path=NULL, updated_at=NOW() WHERE twitch_vod_id=$1`, id)
 		}
 	}
-	upDur := time.Since(upStart)
+	// If we performed an upload in this run, we have upDur set; otherwise it may be zero for idempotent path
 	totalDur := time.Since(procStart)
 	telemetry.UploadsSucceeded.Inc()
-	telemetry.UploadDuration.Observe(upDur.Seconds())
+	if upDur > 0 { telemetry.UploadDuration.Observe(upDur.Seconds()) }
 	telemetry.TotalProcessDuration.Observe(totalDur.Seconds())
 	updateMovingAvg(ctx, dbc, "avg_download_ms", float64(dlDur.Milliseconds()))
-	updateMovingAvg(ctx, dbc, "avg_upload_ms", float64(upDur.Milliseconds()))
+	if upDur > 0 { updateMovingAvg(ctx, dbc, "avg_upload_ms", float64(upDur.Milliseconds())) }
 	updateMovingAvg(ctx, dbc, "avg_total_ms", float64(totalDur.Milliseconds()))
 	logger.Info("processed vod", slog.String("youtube_url", ytURL), slog.Duration("download_duration", dlDur), slog.Duration("upload_duration", upDur), slog.Duration("total_duration", totalDur), slog.Int("queue_depth", queueDepth-1))
 	telemetry.SetQueueDepth(queueDepth - 1)

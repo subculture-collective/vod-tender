@@ -1,6 +1,6 @@
 # vod-tender
 
-Small service to record Twitch chat tied to VODs and process Twitch VODs into YouTube uploads, with chat capture.
+Small service to record Twitch chat tied to VODs and process VOD metadata.
 
 ## Quick start
 
@@ -11,7 +11,12 @@ Small service to record Twitch chat tied to VODs and process Twitch VODs into Yo
 make run
 ```
 
-Or with Docker Compose (recommended): see below.
+Or with Docker:
+
+```bash
+make docker-build
+docker run --env-file backend/.env --rm vod-tender
+```
 
 ### Docker Compose (server)
 
@@ -35,10 +40,8 @@ docker compose up -d --build
 docker compose ps
 
 # Tail logs
-docker compose logs -f --tail=200 api
+docker logs -f vod-api
 ```
-
-For local-only frontend development, see `frontend/README.md`.
 
 ## Configuration
 
@@ -56,8 +59,6 @@ Environment variables (place in `backend/.env` for local dev):
 - LOG_LEVEL (optional; default info)
 - LOG_FORMAT (optional; text|json; default text)
 
-See docs/CONFIG.md for full list including processing cadence, retry/backoff, retention, and recompression options for new VODs.
-
 Chat recorder starts only when Twitch creds are present.
 
 Full configuration reference and operational guidance:
@@ -72,39 +73,39 @@ Full configuration reference and operational guidance:
 - VOD processing job runs periodically (see configuration); discovery uses Twitch Helix if client id/secret provided.
 - Downloader requires yt-dlp available in PATH.
 
-  - Resumable downloads are enabled (yt-dlp --continue with network/fragment retries and resume from .part on restart).
+  - Resumable downloads are enabled (yt-dlp --continue with infinite retries and fragment retries).
   - Optional: install aria2c for faster and more robust downloads.
   - ffmpeg is recommended for muxing and may be required by yt-dlp.
 
-    ### Backups
+  ### Backups
 
   - Automatic: `vod-backup` runs `pg_dump` daily into volume `pgbackups`.
   - Manual one-off:
 
-    ```bash
-    docker compose run --rm backup sh -lc '/scripts/backup.sh /backups'
-    ```
+  ```bash
+  docker compose run --rm backup sh -lc '/scripts/backup.sh /backups'
+  ```
 
   - Copy backups to host:
 
-    ```bash
-    docker run --rm -v vod-tender_pgbackups:/src -v "$PWD":/dst alpine sh -lc 'cp -av /src/* /dst/'
-    ```
+  ```bash
+  docker run --rm -v vod-tender_pgbackups:/src -v "$PWD":/dst alpine sh -lc 'cp -av /src/* /dst/'
+  ```
 
   - Restore into running Postgres:
 
-    ```bash
-    zcat /path/to/vod_YYYYMMDD_HHMMSS.sql.gz | docker exec -i vod-postgres psql -U vod -d vod
-    ```
+  ```bash
+  zcat /path/to/vod_YYYYMMDD_HHMMSS.sql.gz | docker exec -i vod-postgres psql -U vod -d vod
+  ```
 
-    ### Caddy routing
+  ### Caddy routing
 
-    Routes assumed by the compose and Caddyfile:
+  Routes assumed by the compose and Caddyfile:
 
-  - Frontend: <https://vod-tender.onnwee.me> → `vod-frontend:80`
-  - API: <https://vod-api.onnwee.me> → `vod-api:8080`
+  - Frontend: https://vod-tender.onnwee.me → `vod-frontend:80`
+  - API: https://vod-api.onnwee.me → `vod-api:8080`
 
-    Ensure `caddy` container is attached to the shared `web` network.
+  Ensure `caddy` container is attached to the shared `web` network.
 
 ## YouTube upload configuration
 
@@ -132,8 +133,6 @@ npx openapi-typescript backend/api/openapi.yaml -o web/src/api/types.ts
 ```
 
 Simple CORS is enabled for dev (Access-Control-Allow-Origin: \*). For production, tighten CORS settings.
-
-Frontend guide: see `frontend/README.md` for local dev, API base resolution, and Docker notes.
 
 ### Monitoring
 

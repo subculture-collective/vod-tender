@@ -43,6 +43,9 @@ All configuration is via environment variables. When running locally with `make 
 | Variable                    | Default    | Description                                                                                         |
 | --------------------------- | ---------- | --------------------------------------------------------------------------------------------------- |
 | DATA_DIR                    | `data`     | Directory for downloaded media files.                                                               |
+| YTDLP_COOKIES_PATH          | (unset)    | Absolute path to a Netscape-format cookies file (inside container) used for Twitch auth.            |
+| YTDLP_ARGS                  | (unset)    | Extra yt-dlp flags injected before the default ones.                                                |
+| YTDLP_VERBOSE               | `0`        | When `1`, enables yt-dlp `-v` debug output (avoid when passing cookies to prevent secret leakage).  |
 | DOWNLOAD_MAX_ATTEMPTS       | `5`        | Wrapper attempts around yt-dlp process (each may retry internally).                                 |
 | DOWNLOAD_BACKOFF_BASE       | `2s`       | Base for exponential backoff (2^n scaling + jitter up to base).                                     |
 | CIRCUIT_FAILURE_THRESHOLD   | (unset)    | Number of consecutive failures before opening breaker.                                              |
@@ -58,6 +61,19 @@ Notes:
 
 - Recompression requires ffmpeg with the respective encoders (libx265 for HEVC; libsvtav1 for AV1). If unavailable, the transcode step is skipped and logged.
 - When `NEW_VOD_STORE_MODE=av1` and `NEW_VOD_PRESET` is not set, an internal default preset of `6` is used.
+
+#### Twitch authentication (subscriber-only/private VODs)
+
+To download subscriber-only or otherwise private Twitch VODs, provide browser cookies in Netscape format and set `YTDLP_COOKIES_PATH` to that file path (inside the container). The runtime copies the cookies to a private temp file and invokes yt-dlp with `--cookies <temp-file>` so the source file remains untouched. Example with Docker Compose:
+
+- Mount `./secrets/twitch-cookies.txt` to `/run/cookies/twitch-cookies.txt`
+- Set `YTDLP_COOKIES_PATH=/run/cookies/twitch-cookies.txt`
+
+Tips:
+
+- Regenerate the cookies periodically from your browser; Twitch sessions expire. Use the Netscape format.
+- Keep `LOG_LEVEL` at `info` when cookies are configured; `-v` is automatically disabled to avoid echoing sensitive data.
+- Verify in logs that yt-dlp is invoked with `--cookies` (not a raw Cookie header).
 
 ### YouTube Upload
 

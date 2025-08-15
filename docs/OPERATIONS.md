@@ -21,6 +21,37 @@ docker compose up
 
 Pass environment variables (see CONFIG.md) using an env file or compose `environment:` section.
 
+#### Multi-instance (per-channel) runs
+
+Compose is parameterized via a root `.env` file. Copy `.env.example` to `.env` and set:
+
+- `STACK_NAME` – instance name (used in container names/labels)
+- `TWITCH_CHANNEL` – for identification and defaults
+- `API_PORT`, `FRONTEND_PORT` – host ports
+- `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST` – database settings
+- `SECRETS_DIR`, `YTDLP_COOKIES_PATH` – cookies mount for this instance
+
+You can spin up multiple instances by using separate directories each with its own `.env` and backend `.env` files, sharing an external `WEB_NETWORK`:
+
+```bash
+cp .env.example .env
+echo "STACK_NAME=vod-ch1" >> .env
+echo "TWITCH_CHANNEL=channel1" >> .env
+echo "API_PORT=18080" >> .env
+echo "FRONTEND_PORT=18081" >> .env
+docker compose --env-file .env up -d --build
+
+# In another working dir or with another env-file
+cp .env.example .env
+echo "STACK_NAME=vod-ch2" >> .env
+echo "TWITCH_CHANNEL=channel2" >> .env
+echo "API_PORT=28080" >> .env
+echo "FRONTEND_PORT=28081" >> .env
+docker compose --env-file .env up -d --build
+```
+
+Each instance uses its own Postgres database name (via `DB_NAME`) inside its containerized Postgres. If pointing multiple API instances at a shared/managed Postgres, ensure `DB_NAME` is unique per channel.
+
 ### Monitoring & Observability
 
 Logging: Uses Go `slog` with configurable level (`LOG_LEVEL`) and format (`LOG_FORMAT=text|json`). JSON mode is ideal for shipping to centralized log systems (e.g., Loki, ELK); each log line includes structured fields like `component=vod_process` or `component=vod_download` plus timing (`dl_ms`, `upl_ms`, `total_ms` where applicable) and queue depth snapshots.

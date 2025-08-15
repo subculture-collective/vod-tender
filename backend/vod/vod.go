@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"log/slog"
 	"math/rand"
 	"os"
@@ -90,29 +91,45 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 	}
 	logger.Debug("downloader selected", slog.String("yt_dlp", ytDLP))
 
-	// yt-dlp resume-friendly flags
+	// yt-dlp flags tuned for resilient HLS; let yt-dlp auto-pick best formats (avoid deprecated -f best warning)
 	args := []string{
-		"--continue",                 // resume partial downloads
-		"--retries", "infinite",     // retry network errors
+		"--continue",                      // resume partial downloads
+		"--retries", "infinite",          // retry network errors
 		"--fragment-retries", "infinite", // retry fragment errors (HLS)
 		"--concurrent-fragments", "10",   // speed up HLS by parallel fragments
-		"-f", "best",               // best available format
-		"-o", out,                   // output path
+		"--no-cache-dir",                  // avoid writing caches to disk
+		"-o", out,                         // output path
 		url,
 	}
 
-	// Optional Twitch auth via cookies; prefer HTTP Cookie header to avoid writing back to RO file
+	// Optional Twitch auth via cookies file. Copy to a temp file to avoid writing back to a read-only mount.
+	hasSecrets := false
+	var tmpCookiesPath string
 	if cf := os.Getenv("YTDLP_COOKIES_PATH"); strings.TrimSpace(cf) != "" {
-		if hdr, err := buildCookieHeaderFromNetscape(cf, ".twitch.tv"); err == nil && strings.TrimSpace(hdr) != "" {
-			args = append([]string{"--add-header", "Cookie: " + hdr}, args...)
-		} else {
-			args = append([]string{"--cookies", cf}, args...)
+		// Create a private temp copy
+		f, err := os.Open(cf)
+		if err == nil {
+			defer f.Close()
+			tf, terr := os.CreateTemp("", fmt.Sprintf("yt_cookies_%s_*.txt", id))
+			if terr == nil {
+				tmpCookiesPath = tf.Name()
+				_, _ = io.Copy(tf, f)
+				_ = tf.Chmod(0o600)
+				_ = tf.Close()
+			}
 		}
+		if tmpCookiesPath == "" {
+			// Fallback to using source path directly
+			tmpCookiesPath = cf
+		}
+		args = append([]string{"--cookies", tmpCookiesPath}, args...)
+		hasSecrets = true
 	}
 	if extra := os.Getenv("YTDLP_ARGS"); strings.TrimSpace(extra) != "" {
 		args = append(strings.Fields(extra), args...)
 	}
-	if strings.EqualFold(os.Getenv("LOG_LEVEL"), "DEBUG") || os.Getenv("YTDLP_VERBOSE") == "1" {
+	// Avoid -v when credentials are present to prevent yt-dlp echoing secrets in logs
+	if !hasSecrets && (strings.EqualFold(os.Getenv("LOG_LEVEL"), "DEBUG") || os.Getenv("YTDLP_VERBOSE") == "1") {
 		args = append([]string{"-v"}, args...)
 	}
 
@@ -164,11 +181,23 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 			}
 			return int64(f * mult)
 		}
-		// Reader loop; also capture tail of stderr for diagnostics
+		// Reader loop; also capture tail of stderr for diagnostics (with secret scrubbing)
 		const maxTail = 100
 		lastLines := make([]string, 0, maxTail)
+		sanitize := func(s string) string {
+			// Redact explicit Cookie headers and auth-token occurrences if any
+			if i := strings.Index(s, "Cookie:"); i >= 0 {
+				// keep prefix, redact rest of header value
+				return s[:i+len("Cookie:")] + " [redacted]"
+			}
+			if strings.Contains(strings.ToLower(s), "auth-token=") {
+				return regexp.MustCompile(`auth-token=[^;\s]+`).ReplaceAllString(s, "auth-token=[redacted]")
+			}
+			return s
+		}
 		appendLine := func(s string) {
 			if s == "" { return }
+			s = sanitize(s)
 			if len(lastLines) >= maxTail { lastLines = lastLines[1:] }
 			lastLines = append(lastLines, s)
 		}
@@ -218,10 +247,15 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 		activeMu.Lock()
 		delete(activeCancels, id)
 		activeMu.Unlock()
+		if tmpCookiesPath != "" && !strings.EqualFold(tmpCookiesPath, os.Getenv("YTDLP_COOKIES_PATH")) {
+			_ = os.Remove(tmpCookiesPath)
+		}
 		if err == nil {
-			// Finalize progress to 100%
-			_, _ = db.Exec(`UPDATE vods SET download_state=$1, download_total=$2, download_bytes=$3, downloaded_path=$4, progress_updated_at=NOW() WHERE twitch_vod_id=$5`, "complete", totalBytes, totalBytes, out, id)
-			logger.Info("download finished", slog.Int64("bytes", totalBytes))
+			// Finalize progress to 100%; determine actual file size if available
+			actual := totalBytes
+			if fi, statErr := os.Stat(out); statErr == nil { actual = fi.Size() }
+			_, _ = db.Exec(`UPDATE vods SET download_state=$1, download_total=$2, download_bytes=$3, downloaded_path=$4, progress_updated_at=NOW() WHERE twitch_vod_id=$5`, "complete", actual, actual, out, id)
+			logger.Info("download finished", slog.Int64("bytes", actual))
 			telemetry.DownloadsSucceeded.Inc()
 			return out, nil
 		}

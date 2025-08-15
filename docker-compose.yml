@@ -3,6 +3,11 @@ services:
         container_name: vod-postgres
         image: postgres:16
         restart: unless-stopped
+        logging:
+            driver: json-file
+            options:
+                max-size: '10m'
+                max-file: '3'
         environment:
             POSTGRES_DB: vod
             POSTGRES_USER: vod
@@ -26,6 +31,14 @@ services:
             context: ./backend
             dockerfile: Dockerfile
         restart: unless-stopped
+        logging:
+            driver: json-file
+            options:
+                max-size: '10m'
+                max-file: '3'
+        read_only: true
+        tmpfs:
+            - /tmp
         depends_on:
             postgres:
                 condition: service_healthy
@@ -35,6 +48,9 @@ services:
             # Ensure API uses the postgres service and persists data
             DB_DSN: postgres://vod:vod@postgres:5432/vod?sslmode=disable
             DATA_DIR: /data
+            # Retention: delete local file immediately after successful upload (0 days)
+            RETAIN_KEEP_NEWER_THAN_DAYS: '0'
+            BACKFILL_AUTOCLEAN: '1'
             # yt-dlp cookies (optional): place Netscape-format cookies file at ./secrets/twitch-cookies.txt on host
             # and it will be available at /run/cookies/twitch-cookies.txt in the container
             YTDLP_COOKIES_PATH: /run/cookies/twitch-cookies.txt
@@ -56,6 +72,11 @@ services:
         build:
             context: ./frontend
         restart: unless-stopped
+        logging:
+            driver: json-file
+            options:
+                max-size: '10m'
+                max-file: '3'
         depends_on:
             - api
         healthcheck:
@@ -76,6 +97,11 @@ services:
         container_name: vod-backup
         image: postgres:16
         restart: unless-stopped
+        logging:
+            driver: json-file
+            options:
+                max-size: '10m'
+                max-file: '3'
         depends_on:
             - postgres
         entrypoint:

@@ -1,6 +1,6 @@
 # vod-tender
 
-Small service to record Twitch chat tied to VODs and process VOD metadata.
+Small Go service that discovers Twitch VODs for a channel, downloads them with yt-dlp, records live chat tied to VODs, and optionally uploads to YouTube. It ships with a minimal API and a small frontend for browsing VODs and chat replay.
 
 ## Quick start
 
@@ -59,7 +59,7 @@ Environment variables (place in `backend/.env` for local dev):
 - LOG_LEVEL (optional; default info)
 - LOG_FORMAT (optional; text|json; default text)
 
-Chat recorder starts only when Twitch creds are present.
+Chat recorder starts only when Twitch creds are present. Auto mode can start the recorder when the channel goes live (see `CHAT_AUTO_START`).
 
 Full configuration reference and operational guidance:
 
@@ -67,7 +67,53 @@ Full configuration reference and operational guidance:
 - Configuration: `docs/CONFIG.md`
 - Operations / Runbook: `docs/OPERATIONS.md`
 
-## Notes
+## End-to-end overview
+
+1. Catalog backfill periodically discovers historical VODs using Twitch Helix and fills the `vods` table.
+2. Processing job loops: selects next unprocessed VOD, downloads via `yt-dlp` (resumable), and uploads to YouTube if configured. Progress is written to DB and exposed via the API.
+3. Chat recorder can run in two modes:
+
+- Manual: provide `TWITCH_VOD_ID` and `TWITCH_VOD_START` and it will record chat for that VOD.
+- Auto: set `CHAT_AUTO_START=1` and it will detect when the channel goes live, record under a placeholder id, and reconcile to the real VOD after it’s published.
+
+See `docs/ARCHITECTURE.md` for a deeper flow description and diagrams.
+
+## Configuration
+
+All environment variables are documented in `docs/CONFIG.md` with defaults and tips. Key ones for a minimal run:
+
+- TWITCH_CHANNEL, TWITCH_BOT_USERNAME, TWITCH_OAUTH_TOKEN (or store in DB via OAuth endpoints)
+- TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET (Helix discovery / auto chat)
+- DB_DSN (Postgres)
+- DATA_DIR (download storage)
+- LOG_LEVEL, LOG_FORMAT
+
+## Cookies for subscriber-only/private VODs
+
+yt-dlp needs Twitch cookies to authenticate for subscriber-only or otherwise private VODs.
+
+- Export your browser cookies in Netscape format to `./secrets/twitch-cookies.txt`.
+- Mount them in Docker Compose to `/run/cookies/twitch-cookies.txt` and set `YTDLP_COOKIES_PATH=/run/cookies/twitch-cookies.txt`.
+- The downloader copies cookies to a private temp file (0600) before invoking `yt-dlp --cookies <temp>` and avoids verbose logs to protect secrets.
+- Refresh cookies periodically; sessions expire.
+
+## OAuth and tokens
+
+- Twitch Chat: Provide `TWITCH_OAUTH_TOKEN` (format `oauth:xxxxx`) or obtain/store via `/auth/twitch/start` → `/auth/twitch/callback` endpoints. The token is saved to `oauth_tokens` with expiry and refreshed automatically.
+- YouTube Upload: Provide `YT_CLIENT_ID`, `YT_CLIENT_SECRET`, `YT_REDIRECT_URI`, then visit `/auth/youtube/start` to authorize. The refresh token is stored and the uploader uses it automatically.
+
+## Deployment
+
+Docker Compose (bundled) is the simplest path for self-hosting:
+
+- Postgres with a persistent volume
+- API (Go backend) with yt-dlp and ffmpeg in the image
+- Frontend built with Vite and served by nginx
+- Optional daily backups via `pg_dump`
+
+Routing: example Caddyfile assumes two hostnames, mapping to the shared `web` network. Ensure your reverse proxy attaches to the `web` network created by `docker network create web`.
+
+For Kubernetes, map the same containers to Deployments and expose `/metrics` to Prometheus. Mount cookies as a Secret to the API pod and set `YTDLP_COOKIES_PATH` accordingly.
 
 - Database: Postgres by default (see DB_DSN). Local docker-compose supplies a `postgres` service; override with your own DSN if needed.
 - VOD processing job runs periodically (see configuration); discovery uses Twitch Helix if client id/secret provided.
@@ -132,7 +178,7 @@ Generate a TypeScript client (example using openapi-typescript):
 npx openapi-typescript backend/api/openapi.yaml -o web/src/api/types.ts
 ```
 
-Simple CORS is enabled for dev (Access-Control-Allow-Origin: \*). For production, tighten CORS settings.
+Simple CORS is enabled for dev (Access-Control-Allow-Origin: \*). For production, tighten CORS or place API behind your reverse proxy with appropriate headers.
 
 ### Monitoring
 
@@ -140,3 +186,24 @@ Simple CORS is enabled for dev (Access-Control-Allow-Origin: \*). For production
 - Status: `GET /status` (queue counts, circuit state, moving averages, last processing run)
 - Metrics: `GET /metrics` (Prometheus format: download/upload counters, durations, queue depth, circuit gauge)
 - Logs: default human text; switch to JSON with `LOG_FORMAT=json` for ingestion.
+
+## Troubleshooting quick hits
+
+- Chat not recording: ensure `TWITCH_BOT_USERNAME` matches token owner, token has `chat:read chat:edit`, and is prefixed with `oauth:`. Auto mode requires valid Helix app credentials.
+- Downloads failing with auth-required: configure `YTDLP_COOKIES_PATH` and verify the path is mounted inside the container.
+- Circuit open and processing paused: check `CIRCUIT_FAILURE_THRESHOLD`, investigate root error in logs, and clear with `DELETE FROM kv WHERE key IN ('circuit_*');` if necessary.
+
+## Security notes
+
+- OAuth tokens are stored in plaintext in Postgres for convenience. For production, consider encrypting at rest or using a dedicated secret store.
+- Avoid enabling `YTDLP_VERBOSE=1` when passing cookies; secrets may leak in verbose output.
+
+
+# feature ideas
+
+- 10 per 24hrs
+- edit info
+- edit thumbnail
+- indexed chat
+- on/off switches
+- auto update cookie

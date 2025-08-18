@@ -1,3 +1,6 @@
+// Package youtubeapi wraps Google OAuth2 client config and the YouTube Data API
+// for the single purpose of uploading VOD videos. Tokens are persisted via the
+// provided TokenStore interface so they can be refreshed and reused by workers.
 package youtubeapi
 
 import (

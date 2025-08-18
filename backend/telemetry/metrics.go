@@ -1,3 +1,4 @@
+// Package telemetry provides Prometheus metrics and correlation-id aware logging helpers.
 package telemetry
 
 import (

@@ -1,6 +1,6 @@
 # Architecture Overview
 
-vod-tender ingests Twitch VOD metadata and live chat, downloads VOD video files, and (optionally) uploads processed videos to YouTube. It is a small Go service optimized for a single Twitch channel (multi-channel extension is straightforward) with a Postgres persistence layer and job-style background workers.
+vod-tender ingests Twitch VOD metadata and live chat, downloads VOD video files, and (optionally) uploads processed videos to YouTube. It is a small Go service optimized for a single Twitch channel with a Postgres persistence layer and job-style background workers.
 
 ## High-Level Components
 
@@ -23,12 +23,12 @@ vod-tender ingests Twitch VOD metadata and live chat, downloads VOD video files,
 1. Service starts (`main.go`): loads config, migrates DB, launches background jobs (chat, processing, catalog backfill, token refreshers, HTTP server).
 2. Catalog backfill job populates historical VOD rows (idempotent) for the configured channel using Helix paginated API.
 3. Processing job periodically selects the earliest unprocessed VOD (ordered by processed flag, priority, date) and:
-    - Downloads video via `yt-dlp` (with resume & exponential backoff; progress persisted).
-    - Uploads the completed file to YouTube (if YouTube credentials/token exist) and stores returned URL.
-    - Marks VOD as processed or sets `processing_error` upon failure.
+   - Downloads video via `yt-dlp` (with resume & exponential backoff; progress persisted).
+   - Uploads the completed file to YouTube (if YouTube credentials/token exist) and stores returned URL.
+   - Marks VOD as processed or sets `processing_error` upon failure.
 4. Auto chat recorder (optional) polls live status:
-    - On stream start: inserts placeholder VOD row `live-<unix>` and records chat messages referencing that ID.
-    - On stream end: repeatedly polls VOD list until actual VOD appears, then reconciles: renames chat rows to real VOD id and time-shifts relative timestamps if needed.
+   - On stream start: inserts placeholder VOD row `live-<unix>` and records chat messages referencing that ID.
+   - On stream end: repeatedly polls VOD list until actual VOD appears, then reconciles: renames chat rows to real VOD id and time-shifts relative timestamps if needed.
 5. OAuth refreshers proactively renew tokens and update the `oauth_tokens` table.
 
 ### Concurrency Model
@@ -156,7 +156,7 @@ Recommended future tests:
 
 For configuration details see `CONFIG.md`. For operational guidance see `OPERATIONS.md`.
 
-### Observability Additions
+### Observability
 
 Current implementation includes:
 
@@ -164,7 +164,7 @@ Current implementation includes:
 - Exponential moving averages (EMA) maintained in the `kv` store for download, upload, and total processing durations (`avg_download_ms`, `avg_upload_ms`, `avg_total_ms`). The smoothing factor favors recent runs while retaining historical trend (simple alpha decay; see implementation in `vod/processing.go`).
 - `/status` endpoint returns concise JSON: queue counts (pending, errored, processed), circuit breaker fields, moving averages, and last processing timestamp (`job_vod_process_last`). Intended for lightweight dashboards or CLI `curl` checks.
 - `/metrics` endpoint exposes Prometheus metrics (downloads/uploads counts, durations, queue depth, circuit open gauge).
-- `/admin/monitor` provides a broader set of job timestamps; may be deprecated once metrics exporter exists.
+- `/admin/monitor` provides a broader set of job timestamps.
 
 Correlation IDs:
 
@@ -174,18 +174,18 @@ Example `/status` response:
 
 ```json
 {
-    "pending": 2,
-    "errored": 1,
-    "processed": 57,
-    "circuit_state": "closed",
-    "avg_download_ms": "4200",
-    "avg_upload_ms": "1800",
-    "avg_total_ms": "6700",
-    "last_process_run": "2025-08-12T11:23:45Z"
+  "pending": 2,
+  "errored": 1,
+  "processed": 57,
+  "circuit_state": "closed",
+  "avg_download_ms": "4200",
+  "avg_upload_ms": "1800",
+  "avg_total_ms": "6700",
+  "last_process_run": "2025-08-12T11:23:45Z"
 }
 ```
 
-Planned next step: surface these values via metrics (Prometheus) and introduce correlation IDs for tracing a VOD through discovery → download → upload.
+Correlation IDs are injected per request and appear in logs as `corr`.
 
 ### Diagrams (Mermaid)
 
@@ -343,12 +343,10 @@ erDiagram
 ### Observability Plan
 
 Current: logs only.
-Recommended additions:
+Potential additions:
 
-- Metrics: counters (downloads_started, downloads_failed), gauges (queue_depth, breaker_state), histograms (download_duration_seconds).
-- Tracing: wrap external calls (Helix, YouTube) with spans; correlate VOD id.
-- Structured logging: include fields `component`, `vod_id`, `attempt`, `circuit_state`.
-- Health endpoint: add JSON summarizing pending VOD count, breaker state, last catalog sync time.
+- Distributed tracing around Helix/YouTube calls.
+- Readiness endpoint that considers circuit and credentials.
 
 ### Performance & Capacity Notes
 
@@ -442,10 +440,10 @@ JSON structure idea:
 
 ```json
 {
-    "pending_vods": 3,
-    "circuit": { "state": "closed", "failures": 0, "open_until": null },
-    "last_catalog_sync": "2025-08-12T10:15:00Z",
-    "uptime_seconds": 864
+  "pending_vods": 3,
+  "circuit": { "state": "closed", "failures": 0, "open_until": null },
+  "last_catalog_sync": "2025-08-12T10:15:00Z",
+  "uptime_seconds": 864
 }
 ```
 

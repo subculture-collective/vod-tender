@@ -38,7 +38,8 @@ var (
 	uploader   Uploader   = youtubeUploader{}
 )
 
-// StartVODProcessingJob runs a loop processing VODs at an interval.
+// StartVODProcessingJob runs a loop that picks the next unprocessed VOD and processes it.
+// It is safe to run a single instance per process; for multiple workers add distributed coordination.
 func StartVODProcessingJob(ctx context.Context, dbc *sql.DB) {
 	interval := 1 * time.Minute
 	if s := os.Getenv("VOD_PROCESS_INTERVAL"); s != "" { if d, err := time.ParseDuration(s); err == nil && d > 0 { interval = d } }
@@ -59,6 +60,7 @@ func StartVODProcessingJob(ctx context.Context, dbc *sql.DB) {
 }
 
 // processOnce selects a single pending VOD and processes it.
+// It implements a simple circuit breaker to avoid hot-looping on systemic failures.
 func processOnce(ctx context.Context, dbc *sql.DB) error {
 	_, _ = dbc.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('job_vod_process_last', to_char(NOW() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'), NOW())
 		ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`)
@@ -225,6 +227,12 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 				break
 			}
 			lastErr = err
+			// Non-retriable: invalid title
+			el := strings.ToLower(err.Error())
+			if strings.Contains(el, "invalidtitle") || strings.Contains(el, "invalid or empty video title") {
+				logger.Error("non-retriable upload error: invalid title", slog.Any("err", err))
+				break
+			}
 			// If context canceled, abort early
 			if ctx.Err() != nil { break }
 		}
@@ -307,7 +315,22 @@ func uploadToYouTube(ctx context.Context, path, title string, date time.Time) (s
 	svc, err := yts.Client(ctx)
 	if err != nil { return "", fmt.Errorf("youtube client: %w", err) }
 	datePrefix := date.Format("2006-01-02")
-	finalTitle := fmt.Sprintf("%s %s", datePrefix, title)
+	// Sanitize and validate title: non-empty, trimmed, max 100 chars, no control chars
+	t := strings.TrimSpace(title)
+	if t == "" { t = "Twitch VOD" }
+	// Remove control characters
+	clean := make([]rune, 0, len(t))
+	for _, r := range t {
+		if r == '\n' || r == '\r' || r == '\t' { continue }
+		if r < 0x20 { continue }
+		clean = append(clean, r)
+	}
+	t = string(clean)
+	finalTitle := fmt.Sprintf("%s %s", datePrefix, t)
+	if len([]rune(finalTitle)) > 100 {
+		runes := []rune(finalTitle)
+		finalTitle = string(runes[:97]) + "..."
+	}
 	description := fmt.Sprintf("Uploaded from Twitch VOD on %s", date.Format(time.RFC3339))
 	return youtubeapi.UploadVideo(ctx, svc, path, finalTitle, description, "private")
 }

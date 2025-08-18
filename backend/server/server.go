@@ -1,3 +1,6 @@
+// Package server exposes the HTTP API: health, status, metrics, and VOD/chat helpers
+// used by the frontend. It includes permissive CORS for development and injects
+// correlation IDs into request contexts for consistent logging.
 package server
 
 import (

@@ -1,3 +1,12 @@
+// Command backend is the main entrypoint for the vod-tender API and background workers.
+// It:
+//   - Loads configuration and initializes structured logging.
+//   - Connects to Postgres and runs idempotent migrations.
+//   - Starts background jobs: chat recorder (manual or auto), VOD processing,
+//     VOD catalog backfill, and OAuth token refreshers for Twitch/YouTube.
+//   - Exposes a minimal HTTP server with /healthz, /status, and /metrics.
+//
+// Shutdown is graceful on SIGINT/SIGTERM.
 package main
 
 import (
@@ -24,7 +33,7 @@ import (
 )
 
 func main() {
-	// Load .env file if present
+	// Load .env file if present (local dev convenience only; production relies on real env)
 	_ = godotenv.Load("backend/.env")
 
 	// Configure logging (level + format). Defaults: level=info, format=text.
@@ -60,7 +69,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Fetch an app access token (NOT for chat) if client id/secret provided.
+	// Best-effort: fetch a Twitch app access token (client-credentials) if client id/secret provided.
+	// This token is used for Helix API calls (discovery, auto-chat polling). It is NOT used for IRC chat.
 	if cfg.TwitchClientID != "" && cfg.TwitchClientSecret != "" {
 		ctx2, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 		if tok, err := (&twitchapi.TokenSource{ClientID: cfg.TwitchClientID, ClientSecret: cfg.TwitchClientSecret}).Get(ctx2); err != nil {
@@ -89,7 +99,7 @@ func main() {
 	defer stop()
 
 	// Start services
-	// Chat recorder: direct start or auto mode
+	// Chat recorder: either auto mode (poll live) or manual recorder when env has fixed VOD id/start
 	if os.Getenv("CHAT_AUTO_START") == "1" {
 		go chat.StartAutoChatRecorder(ctx, database)
 	} else if err := cfg.ValidateChatReady(); err == nil {
@@ -116,7 +126,7 @@ func main() {
 		return newTok.AccessToken, newTok.RefreshToken, newTok.Expiry, "", nil
 	})
 
-	// HTTP server (health endpoint)
+	// HTTP server (health/status/metrics)
 	addr := os.Getenv("HTTP_ADDR")
 	if addr == "" {
 		addr = ":8080"

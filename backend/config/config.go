@@ -1,3 +1,6 @@
+// Package config loads environment variables and provides a typed Config used across the service.
+// It applies sensible defaults so the binary can run locally with minimal setup.
+// For required credentials (e.g., Twitch chat), use ValidateChatReady.
 package config
 
 import (
@@ -34,7 +37,7 @@ type Config struct {
 }
 
 // Load reads environment variables and applies defaults. It doesn't fail if Twitch creds are missing;
-// use Validate() when you require chat recording.
+// use ValidateChatReady() when you require chat recording. Missing optional variables disable features (e.g., YouTube).
 func Load() (*Config, error) {
     cfg := &Config{}
 
@@ -91,7 +94,7 @@ func Load() (*Config, error) {
     return cfg, nil
 }
 
-// Validate checks required fields when chat is enabled.
+// ValidateChatReady checks required fields when chat is enabled (manual recorder path).
 func (c *Config) ValidateChatReady() error {
     if c.TwitchChannel == "" || c.TwitchBotUsername == "" || c.TwitchOAuthToken == "" {
         return fmt.Errorf("missing twitch env: require TWITCH_CHANNEL, TWITCH_BOT_USERNAME, TWITCH_OAUTH_TOKEN")

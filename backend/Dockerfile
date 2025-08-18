@@ -37,7 +37,7 @@ WORKDIR /app
 RUN set -eux; \
 	apt-get update; \
 	DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-		ca-certificates ffmpeg; \
+	ca-certificates ffmpeg python3; \
 	rm -rf /var/lib/apt/lists/*
 COPY --from=builder /out/vod-tender-backend ./vod-tender-backend
 COPY --from=builder /out/healthcheck ./healthcheck

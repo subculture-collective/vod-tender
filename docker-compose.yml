@@ -34,8 +34,11 @@ services:
       # Ensure API uses the postgres service and persists data
       DB_DSN: postgres://vod:vod@postgres:5432/vod?sslmode=disable
       DATA_DIR: /data
+      # Provide cookies to yt-dlp for subscriber-only/authenticated VODs
+      YTDLP_COOKIES_PATH: /run/cookies/twitch-cookies.txt
     volumes:
       - vod_data:/data
+      - ./secrets:/run/cookies:ro
     healthcheck:
       test: ["CMD", "/app/healthcheck"]
       interval: 15s

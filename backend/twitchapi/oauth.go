@@ -29,7 +29,7 @@ type RefreshResult struct {
     TokenType    string   `json:"token_type"`
 }
 
-// BuildAuthorizeURL constructs the user authorization URL.
+// BuildAuthorizeURL constructs the user authorization URL for OAuth code grant.
 func BuildAuthorizeURL(clientID, redirectURI, scopes, state string) (string, error) {
     if clientID == "" || redirectURI == "" {
         return "", errors.New("missing clientID or redirectURI")
@@ -47,7 +47,7 @@ func BuildAuthorizeURL(clientID, redirectURI, scopes, state string) (string, err
     return "https://id.twitch.tv/oauth2/authorize?" + v.Encode(), nil
 }
 
-// ExchangeAuthCode exchanges code for tokens.
+// ExchangeAuthCode exchanges an authorization code for access & refresh tokens.
 func ExchangeAuthCode(ctx context.Context, clientID, clientSecret, code, redirectURI string) (*AuthCodeExchangeResult, error) {
     if clientID == "" || clientSecret == "" || code == "" || redirectURI == "" {
         return nil, errors.New("missing required parameter for auth code exchange")
@@ -79,7 +79,7 @@ func ExchangeAuthCode(ctx context.Context, clientID, clientSecret, code, redirec
     return &res, nil
 }
 
-// ComputeExpiry returns absolute expiry time.
+// ComputeExpiry returns absolute expiry time from seconds, defaulting to +60m when unknown.
 func ComputeExpiry(seconds int) time.Time {
     if seconds <= 0 {
         return time.Now().Add(60 * time.Minute)

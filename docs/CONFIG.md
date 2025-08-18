@@ -40,27 +40,26 @@ All configuration is via environment variables. When running locally with `make 
 
 ### Download & Processing
 
-| Variable                    | Default    | Description                                                                                         |
-| --------------------------- | ---------- | --------------------------------------------------------------------------------------------------- |
-| DATA_DIR                    | `data`     | Directory for downloaded media files.                                                               |
-| YTDLP_COOKIES_PATH          | (unset)    | Absolute path to a Netscape-format cookies file (inside container) used for Twitch auth.            |
-| YTDLP_ARGS                  | (unset)    | Extra yt-dlp flags injected before the default ones.                                                |
-| YTDLP_VERBOSE               | `0`        | When `1`, enables yt-dlp `-v` debug output (avoid when passing cookies to prevent secret leakage).  |
-| DOWNLOAD_MAX_ATTEMPTS       | `5`        | Wrapper attempts around yt-dlp process (each may retry internally).                                 |
-| DOWNLOAD_BACKOFF_BASE       | `2s`       | Base for exponential backoff (2^n scaling + jitter up to base).                                     |
-| CIRCUIT_FAILURE_THRESHOLD   | (unset)    | Number of consecutive failures before opening breaker.                                              |
-| CIRCUIT_OPEN_COOLDOWN       | `5m`       | Cooldown duration while breaker open.                                                               |
-| BACKFILL_AUTOCLEAN          | `1`        | If not `0`, remove local file after successful upload for older VODs (back catalog).                |
-| RETAIN_KEEP_NEWER_THAN_DAYS | `7`        | VODs newer than this many days are considered "new" and retained.                                   |
-| NEW_VOD_STORE_MODE          | `original` | Storage for new VODs: `original`, `hevc`, `lossless-hevc`, or `av1`.                                |
-| NEW_VOD_PRESET              | `medium`   | Encoder preset. For `hevc` (libx265): ultrafast..placebo. For `av1` (libsvtav1): 0..13 (0 fastest). |
-| NEW_VOD_CRF                 | `23`       | Quality CRF. HEVC typical 18-28. AV1 typical 30-40. Ignored for `lossless-hevc`.                    |
-| NEW_VOD_AUDIO               | `copy`     | Audio handling: `copy` to keep source or `aac128` to re-encode to AAC 128k.                         |
+| Variable                    | Default | Description                                                                                        |
+| --------------------------- | ------- | -------------------------------------------------------------------------------------------------- |
+| DATA_DIR                    | `data`  | Directory for downloaded media files.                                                              |
+| YTDLP_COOKIES_PATH          | (unset) | Absolute path to a Netscape-format cookies file (inside container) used for Twitch auth.           |
+| YTDLP_ARGS                  | (unset) | Extra yt-dlp flags injected before the default ones.                                               |
+| YTDLP_VERBOSE               | `0`     | When `1`, enables yt-dlp `-v` debug output (avoid when passing cookies to prevent secret leakage). |
+| DOWNLOAD_MAX_ATTEMPTS       | `5`     | Wrapper attempts around yt-dlp process (each may retry internally).                                |
+| DOWNLOAD_BACKOFF_BASE       | `2s`    | Base for exponential backoff (2^n scaling + jitter up to base).                                    |
+| CIRCUIT_FAILURE_THRESHOLD   | (unset) | Number of consecutive failures before opening breaker.                                             |
+| CIRCUIT_OPEN_COOLDOWN       | `5m`    | Cooldown duration while breaker open.                                                              |
+| BACKFILL_AUTOCLEAN          | `1`     | If not `0`, remove local file after successful upload for older VODs (back catalog).               |
+| RETAIN_KEEP_NEWER_THAN_DAYS | `7`     | VODs newer than this many days are considered "new" and retained.                                  |
+| VOD_PROCESS_INTERVAL        | `1m`    | Interval between processing cycles.                                                                |
+| PROCESSING_RETRY_COOLDOWN   | `600s`  | Minimum seconds before a failed item is retried.                                                   |
+| UPLOAD_MAX_ATTEMPTS         | `5`     | Attempts for YouTube upload step.                                                                  |
+| UPLOAD_BACKOFF_BASE         | `2s`    | Base for exponential backoff on upload retries.                                                    |
 
 Notes:
 
-- Recompression requires ffmpeg with the respective encoders (libx265 for HEVC; libsvtav1 for AV1). If unavailable, the transcode step is skipped and logged.
-- When `NEW_VOD_STORE_MODE=av1` and `NEW_VOD_PRESET` is not set, an internal default preset of `6` is used.
+- The current downloader stores the original file; post-processing/transcoding is not enabled in this revision. ffmpeg may still be required by yt-dlp for muxing.
 
 #### Twitch authentication (subscriber-only/private VODs)
 
@@ -84,7 +83,7 @@ Tips:
 | YT_REDIRECT_URI  | (none)                                           | Redirect URI for OAuth dance.        |
 | YT_SCOPES        | `https://www.googleapis.com/auth/youtube.upload` | Space or comma separated scopes.     |
 
-Token JSON / credential file indirection is handled externally: populate database using an auth endpoint (future) or manual insert; current code refreshes tokens found in `oauth_tokens` table.
+Tokens are stored in the `oauth_tokens` table after you complete the OAuth dance using the built-in endpoints. The refresher renews them automatically ahead of expiry.
 
 ### Database
 

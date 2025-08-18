@@ -1,3 +1,6 @@
+// Package oauth provides generic token refresh scheduling for providers whose
+// tokens are persisted in the oauth_tokens table. It performs jittered checks
+// and refreshes when expiry falls within a configured window.
 package oauth
 
 import (

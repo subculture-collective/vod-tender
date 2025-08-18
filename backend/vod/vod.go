@@ -1,3 +1,5 @@
+// Package vod implements the VOD model, discovery helpers, downloader integration (yt-dlp),
+// and auxiliary utilities like a cancellation registry and circuit breaker helpers.
 package vod
 
 import (
@@ -21,7 +23,7 @@ import (
 	"github.com/onnwee/vod-tender/backend/twitchapi"
 )
 
-// Core VOD model (DB schema lives in migrations elsewhere)
+// VOD is the core model (DB schema defined in db.migrate). It mirrors a subset of Twitch video metadata.
 type VOD struct {
 	ID       string
 	Title    string
@@ -73,6 +75,9 @@ func DiscoverAndUpsert(ctx context.Context, db *sql.DB) error {
 // (catalog backfill + duration parsing moved to catalog.go)
 
 // downloadVOD uses yt-dlp to download a Twitch VOD by id.
+// Security: when cookies are provided via YTDLP_COOKIES_PATH this function copies
+// the file to a private temp path (0600) and passes --cookies, avoiding echoing
+// sensitive headers to logs. Avoid enabling verbose yt-dlp logs when secrets are used.
 func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, error) {
 	// Stable output path so yt-dlp can resume (.part file) across restarts
 	out := filepath.Join(dataDir, fmt.Sprintf("twitch_%s.mp4", id))
@@ -105,7 +110,15 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 	// Optional Twitch auth via cookies file. Copy to a temp file to avoid writing back to a read-only mount.
 	hasSecrets := false
 	var tmpCookiesPath string
-	if cf := os.Getenv("YTDLP_COOKIES_PATH"); strings.TrimSpace(cf) != "" {
+	// Allow default path when env var is not set
+	cf := strings.TrimSpace(os.Getenv("YTDLP_COOKIES_PATH"))
+	if cf == "" {
+		// Common default mount path in our compose
+		if _, err := os.Stat("/run/cookies/twitch-cookies.txt"); err == nil {
+			cf = "/run/cookies/twitch-cookies.txt"
+		}
+	}
+	if cf != "" {
 		// Create a private temp copy
 		f, err := os.Open(cf)
 		if err == nil {
@@ -122,7 +135,8 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 			// Fallback to using source path directly
 			tmpCookiesPath = cf
 		}
-		args = append([]string{"--cookies", tmpCookiesPath}, args...)
+	logger.Debug("using cookies file for yt-dlp", slog.String("cookies_path", cf))
+	args = append([]string{"--cookies", tmpCookiesPath}, args...)
 		hasSecrets = true
 	}
 	if extra := os.Getenv("YTDLP_ARGS"); strings.TrimSpace(extra) != "" {

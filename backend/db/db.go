@@ -1,3 +1,4 @@
+// Package db provides database connection helpers, schema migration, and small data access helpers.
 package db
 
 import (
@@ -10,12 +11,14 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib" // pgx postgres driver registered as 'pgx'
 )
 
+// Connect opens a Postgres connection using DB_DSN (or a sane default when running in Docker compose).
 func Connect() (*sql.DB, error) {
 	dsn := os.Getenv("DB_DSN")
 	if dsn == "" { dsn = "postgres://vod:vod@postgres:5432/vod?sslmode=disable" }
 	return sql.Open("pgx", dsn)
 }
 
+// Migrate applies idempotent schema changes for all required tables and indices.
 func Migrate(db *sql.DB) error { return migratePostgres(db) }
 
 func migratePostgres(db *sql.DB) error {
@@ -80,7 +83,7 @@ func migratePostgres(db *sql.DB) error {
 	return nil
 }
 
-// UpsertOAuthToken stores or updates an OAuth token.
+// UpsertOAuthToken stores or updates an OAuth token for a provider (e.g., twitch, youtube).
 func UpsertOAuthToken(ctx context.Context, dbx *sql.DB, provider, access, refresh string, expiry time.Time, raw string, scope string) error {
 	q := `INSERT INTO oauth_tokens(provider, access_token, refresh_token, expires_at, scope, updated_at)
 		  VALUES($1,$2,$3,$4,$5,NOW())
@@ -89,7 +92,7 @@ func UpsertOAuthToken(ctx context.Context, dbx *sql.DB, provider, access, refres
 	return err
 }
 
-// GetOAuthToken retrieves a stored token row.
+// GetOAuthToken retrieves a stored token row; returns zero values if not found.
 func GetOAuthToken(ctx context.Context, dbx *sql.DB, provider string) (access, refresh string, expiry time.Time, scope string, err error) {
 	row := dbx.QueryRowContext(ctx, `SELECT access_token, refresh_token, expires_at, scope FROM oauth_tokens WHERE provider = $1`, provider)
 	err = row.Scan(&access, &refresh, &expiry, &scope)
@@ -97,7 +100,7 @@ func GetOAuthToken(ctx context.Context, dbx *sql.DB, provider string) (access, r
 	return
 }
 
-// TokenStoreAdapter implements youtubeapi.TokenStore
+// TokenStoreAdapter implements youtubeapi.TokenStore and reuses the table structure here.
 type TokenStoreAdapter struct { DB *sql.DB }
 
 func (t *TokenStoreAdapter) UpsertOAuthToken(ctx context.Context, provider string, accessToken string, refreshToken string, expiry time.Time, raw string) error {

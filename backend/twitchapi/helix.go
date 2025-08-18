@@ -1,3 +1,5 @@
+// Package twitchapi contains minimal helpers to interact with Twitch Helix APIs
+// for user id resolution and listing archived VODs, using an app access token.
 package twitchapi
 
 import (

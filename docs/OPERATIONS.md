@@ -4,10 +4,10 @@
 
 1. Copy `backend/.env.example` (or create) and fill required Twitch + optional YouTube variables.
 2. Ensure dependencies installed:
-    - `go` (matching module toolchain)
-    - `yt-dlp` (required for VOD downloads)
-    - `ffmpeg` (recommended; used by yt-dlp for muxing)
-    - `aria2c` (optional performance / reliability boost)
+   - `go` (matching module toolchain)
+   - `yt-dlp` (required for VOD downloads)
+   - `ffmpeg` (recommended; used by yt-dlp for muxing)
+   - `aria2c` (optional performance / reliability boost)
 3. Run: `make run` (loads `backend/.env`).
 
 ### Docker
@@ -61,7 +61,7 @@ Endpoints:
 - `/healthz` – liveness (DB ping only). Returns 200 OK or 503.
 - `/status` – lightweight JSON summary: pending / errored / processed counts, circuit breaker state, moving averages, last process run timestamp.
 - `/metrics` – Prometheus exposition format metrics (see Metrics section below).
-- `/admin/monitor` – extended internal stats (job timestamps, circuit) – may evolve or be merged later.
+- `/admin/monitor` – extended internal stats (job timestamps, circuit).
 
 Moving Averages (EMAs) stored in `kv`:
 
@@ -84,7 +84,7 @@ Metrics Exposed (Prometheus):
 
 Correlation IDs:
 
-- Each HTTP request gets an `X-Correlation-ID` header (reused if supplied) added to logs as `corr`. Propagated into processing and download logs for traceability across lifecycle events.
+- Each HTTP request gets an `X-Correlation-ID` header (reused if supplied) added to logs as `corr`. It is propagated into processing and download logs for traceability.
 
 Suggested next steps:
 

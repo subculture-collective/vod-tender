@@ -56,6 +56,7 @@ All configuration is via environment variables. When running locally with `make 
 | PROCESSING_RETRY_COOLDOWN   | `600s`  | Minimum seconds before a failed item is retried.                                                   |
 | UPLOAD_MAX_ATTEMPTS         | `5`     | Attempts for YouTube upload step.                                                                  |
 | UPLOAD_BACKOFF_BASE         | `2s`    | Base for exponential backoff on upload retries.                                                    |
+| BACKFILL_UPLOAD_DAILY_LIMIT | `10`    | Maximum number of back-catalog uploads allowed per 24h window.                                     |
 
 Notes:
 

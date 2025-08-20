@@ -127,6 +127,7 @@ func main() {
 	})
 
 	// HTTP server (health/status/metrics)
+	// Allow config override via kv (cfg:HTTP_ADDR) if set through the admin API
 	addr := os.Getenv("HTTP_ADDR")
 	if addr == "" {
 		addr = ":8080"

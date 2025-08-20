@@ -201,9 +201,6 @@ Simple CORS is enabled for dev (Access-Control-Allow-Origin: \*). For production
 
 # feature ideas
 
-- 10 per 24hrs
-- edit info
-- edit thumbnail
 - indexed chat
 - on/off switches
 - auto update cookie

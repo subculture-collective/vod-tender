@@ -148,20 +148,52 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 	_ = dbc.QueryRowContext(ctx, `SELECT COUNT(1) FROM vods WHERE COALESCE(processed,false)=false`).Scan(&queueDepth)
 	slog.Debug("processing cycle queue depth", slog.Int("queue_depth", queueDepth), slog.String("component","vod_process"))
 	telemetry.SetQueueDepth(queueDepth)
+	// Backfill upload throttling: limit back-catalog uploads per 24h window.
+	// Define back-catalog as VODs older than RETAIN_KEEP_NEWER_THAN_DAYS (default 7 days).
+	backfillDays := 7
+	if s := os.Getenv("RETAIN_KEEP_NEWER_THAN_DAYS"); s != "" { if n, err := strconv.Atoi(s); err == nil && n >= 0 { backfillDays = n } }
+	backfillCutoff := time.Now().Add(-time.Duration(backfillDays) * 24 * time.Hour)
+	dailyLimit := 10
+	if s := os.Getenv("BACKFILL_UPLOAD_DAILY_LIMIT"); s != "" { if n, err := strconv.Atoi(s); err == nil && n > 0 { dailyLimit = n } }
+	// Count successful uploads of back-catalog in past 24h
+	var backfillUploaded24 int
+	_ = dbc.QueryRowContext(ctx, `SELECT COUNT(1) FROM vods WHERE youtube_url IS NOT NULL AND date < $1 AND updated_at > (NOW() - INTERVAL '24 hours')`, backfillCutoff).Scan(&backfillUploaded24)
+	backfillThrottled := backfillUploaded24 >= dailyLimit
 	maxAttempts := 5
 	if s := os.Getenv("DOWNLOAD_MAX_ATTEMPTS"); s != "" { if n, err := strconv.Atoi(s); err == nil && n > 0 { maxAttempts = n } }
 	cooldown := 600 * time.Second
 	if s := os.Getenv("PROCESSING_RETRY_COOLDOWN"); s != "" { if d, err := time.ParseDuration(s); err == nil && d > 0 { cooldown = d } }
-	row := dbc.QueryRow(`SELECT twitch_vod_id, title, date FROM vods
+	// Select a small batch of candidates and pick the first eligible.
+	rows, err := dbc.Query(`SELECT twitch_vod_id, title, date FROM vods
 		WHERE COALESCE(processed,false)=false AND (
 			processing_error IS NULL OR processing_error='' OR (download_retries < $1 AND EXTRACT(EPOCH FROM (NOW() - COALESCE(updated_at, created_at))) >= $2)
 		)
-		ORDER BY priority DESC, date ASC LIMIT 1`, maxAttempts, int(cooldown.Seconds()))
+		ORDER BY priority DESC, date ASC LIMIT 20`, maxAttempts, int(cooldown.Seconds()))
+	if err != nil { return err }
+	defer rows.Close()
 	var id, title string
 	var date time.Time
-	if err := row.Scan(&id, &title, &date); err != nil {
-		if err == sql.ErrNoRows { slog.Debug("no vods ready for processing", slog.String("component","vod_process")) ; return nil }
-		return err
+	picked := false
+	for rows.Next() {
+		var cid, ctitle string
+		var cdate time.Time
+		if err := rows.Scan(&cid, &ctitle, &cdate); err != nil { return err }
+		isBackfill := cdate.Before(backfillCutoff)
+		if backfillThrottled && isBackfill {
+			// Skip back-catalog while throttled; continue searching for a newer (non-backfill) item.
+			continue
+		}
+		id, title, date = cid, ctitle, cdate
+		picked = true
+		break
+	}
+	if !picked {
+		if backfillThrottled {
+			slog.Info("backfill upload throttled for 24h window; no eligible non-backfill items", slog.Int("uploaded24h", backfillUploaded24), slog.Int("limit", dailyLimit))
+		} else {
+			slog.Debug("no vods ready for processing", slog.String("component","vod_process"))
+		}
+		return nil
 	}
 	logger := slog.Default().With(slog.String("vod_id", id), slog.String("component", "vod_process"))
 	if corr := ctx.Value(struct{ string }{"corr"}); corr != nil { logger = logger.With(slog.Any("corr", corr)) }
@@ -196,7 +228,7 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 	_, _ = dbc.Exec(`UPDATE vods SET downloaded_path=$1, updated_at=NOW() WHERE twitch_vod_id=$2`, filePath, id)
 	// Idempotency: if a YouTube URL already exists, skip upload to prevent duplicates.
 	var preYT string
-	_ = dbc.QueryRowContext(ctx, `SELECT COALESCE(youtube_url,'') FROM vods WHERE twitch_vod_id=$1`, id).Scan(&preYT)
+	_ = dbc.QueryRowContext(ctx, `SELECT COALESCE(youtube_url,'' ) FROM vods WHERE twitch_vod_id=$1`, id).Scan(&preYT)
 	var ytURL string
 	var upDur time.Duration
 	if preYT != "" {
@@ -211,7 +243,10 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 		base := 2 * time.Second
 		if s := os.Getenv("UPLOAD_BACKOFF_BASE"); s != "" { if d, err := time.ParseDuration(s); err == nil && d > 0 { base = d } }
 		var lastErr error
-		for attempt := 0; attempt < maxUp; attempt++ {
+	// Load any custom description set by user
+	var customDesc string
+	_ = dbc.QueryRowContext(ctx, `SELECT COALESCE(description,'') FROM vods WHERE twitch_vod_id=$1`, id).Scan(&customDesc)
+	for attempt := 0; attempt < maxUp; attempt++ {
 			if attempt > 0 {
 				backoff := base * time.Duration(1<<attempt)
 				jitter := time.Duration(rand.Int63n(int64(base)))
@@ -220,6 +255,10 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 				time.Sleep(backoff)
 			}
 			upStart := time.Now()
+			// Temporarily override description if custom provided via context key
+			if customDesc != "" {
+				ctx = context.WithValue(ctx, struct{ string }{"vod_custom_desc"}, customDesc)
+			}
 			url, err := uploader.Upload(ctx, filePath, title, date)
 			if err == nil {
 				upDur = time.Since(upStart)
@@ -331,6 +370,12 @@ func uploadToYouTube(ctx context.Context, path, title string, date time.Time) (s
 		runes := []rune(finalTitle)
 		finalTitle = string(runes[:97]) + "..."
 	}
+	// Use custom description if provided in context (set by processOnce) else fall back to default
 	description := fmt.Sprintf("Uploaded from Twitch VOD on %s", date.Format(time.RFC3339))
+	if v := ctx.Value(struct{ string }{"vod_custom_desc"}); v != nil {
+		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+			description = s
+		}
+	}
 	return youtubeapi.UploadVideo(ctx, svc, path, finalTitle, description, "private")
 }

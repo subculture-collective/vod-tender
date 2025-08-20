@@ -38,10 +38,12 @@ func migratePostgres(db *sql.DB) error {
 			processed BOOLEAN DEFAULT FALSE,
 			processing_error TEXT,
 			youtube_url TEXT,
+			description TEXT,
 			priority INTEGER DEFAULT 0,
 			created_at TIMESTAMPTZ DEFAULT NOW(),
 			updated_at TIMESTAMPTZ
 		)`,
+		`ALTER TABLE vods ADD COLUMN IF NOT EXISTS description TEXT`,
 		`CREATE TABLE IF NOT EXISTS chat_messages (
 			id SERIAL PRIMARY KEY,
 			vod_id TEXT NOT NULL REFERENCES vods(twitch_vod_id),

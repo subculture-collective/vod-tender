@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -130,6 +131,47 @@ func NewMux(db *sql.DB) http.Handler {
         w.Header().Set("Content-Type", "text/plain; charset=utf-8")
         w.WriteHeader(http.StatusOK)
         _, _ = w.Write([]byte("ok"))
+    })
+
+    // Config: safe editable settings via KV (whitelist)
+    mux.HandleFunc("/config", func(w http.ResponseWriter, r *http.Request) {
+        // Only allow GET/PUT for known keys; secrets must not be exposed here.
+        safeKeys := map[string]bool{
+            "LOG_LEVEL": true,
+            "LOG_FORMAT": true,
+            "DATA_DIR": true,
+            "VOD_PROCESS_INTERVAL": true,
+            "PROCESSING_RETRY_COOLDOWN": true,
+            "DOWNLOAD_MAX_ATTEMPTS": true,
+            "DOWNLOAD_BACKOFF_BASE": true,
+            "UPLOAD_MAX_ATTEMPTS": true,
+            "UPLOAD_BACKOFF_BASE": true,
+            "RETAIN_KEEP_NEWER_THAN_DAYS": true,
+            "BACKFILL_UPLOAD_DAILY_LIMIT": true,
+        }
+        switch r.Method {
+    case http.MethodGet:
+            // Return safe keys with values from env override (kv) if present
+            out := map[string]string{}
+            for k := range safeKeys {
+                var v string
+                _ = db.QueryRowContext(r.Context(), `SELECT value FROM kv WHERE key=$1`, "cfg:"+k).Scan(&v)
+                if v == "" { v = os.Getenv(k) }
+                if v != "" { out[k] = v }
+            }
+            w.Header().Set("Content-Type", "application/json")
+            _ = json.NewEncoder(w).Encode(out)
+        case http.MethodPut:
+            var body map[string]string
+            if err := json.NewDecoder(r.Body).Decode(&body); err != nil { http.Error(w, "invalid json", 400); return }
+            for k, v := range body {
+                if !safeKeys[k] { continue }
+                _, _ = db.ExecContext(r.Context(), `INSERT INTO kv (key,value,updated_at) VALUES ($1,$2,NOW()) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, "cfg:"+k, strings.TrimSpace(v))
+            }
+            w.WriteHeader(http.StatusNoContent)
+        default:
+            http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+        }
     })
 
     // Lightweight status summary (JSON)
@@ -318,6 +360,8 @@ func NewMux(db *sql.DB) http.Handler {
             handleChatSSE(w, r, db, vodID)
         case tail == "chat/import":
             handleVodChatImport(w, r, db, vodID)
+        case tail == "description":
+            handleVodDescription(w, r, db, vodID)
         default:
             http.NotFound(w, r)
         }
@@ -347,6 +391,14 @@ func NewMux(db *sql.DB) http.Handler {
         mux.ServeHTTP(w, r.WithContext(ctx))
     })
     return withCORS(handler)
+}
+
+// cfgGet returns an override value from kv for a given key (with cfg: prefix) or falls back to env.
+func cfgGet(ctx context.Context, db *sql.DB, key string) string {
+    var v string
+    _ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key=$1`, "cfg:"+key).Scan(&v)
+    if v != "" { return v }
+    return os.Getenv(key)
 }
 
 // Start runs the HTTP server and shuts down gracefully on context cancellation.
@@ -408,6 +460,7 @@ func handleVodDetail(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID s
         DownloadRetries int   `json:"download_retries"`
         DownloadTotal   int64 `json:"download_total"`
         ProgressUpdated *time.Time `json:"progress_updated_at,omitempty"`
+    Description string    `json:"description"`
     }
     var v vod
     if err := row.Scan(&v.ID, &v.Title, &v.Date, &v.Duration, &v.Processed, &v.YouTube,
@@ -419,6 +472,8 @@ func handleVodDetail(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID s
         http.Error(w, err.Error(), http.StatusInternalServerError)
         return
     }
+    // Load description separately to preserve compatibility with older schemas
+    _ = db.QueryRowContext(r.Context(), `SELECT COALESCE(description,'') FROM vods WHERE twitch_vod_id=$1`, vodID).Scan(&v.Description)
     w.Header().Set("Content-Type", "application/json")
     _ = json.NewEncoder(w).Encode(v)
 }
@@ -716,5 +771,27 @@ func handleVodCancel(w http.ResponseWriter, r *http.Request, _ *sql.DB, vodID st
 // handleVodSegments is a placeholder if future segmentation is added.
 func handleVodSegments(w http.ResponseWriter, r *http.Request, _ *sql.DB, _ string) {
     http.Error(w, "not implemented", http.StatusNotImplemented)
+}
+
+// handleVodDescription allows GET to read and PUT/PATCH to update the custom video description stored in DB.
+func handleVodDescription(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID string) {
+    switch r.Method {
+    case http.MethodGet:
+        var desc string
+        _ = db.QueryRowContext(r.Context(), `SELECT COALESCE(description,'') FROM vods WHERE twitch_vod_id=$1`, vodID).Scan(&desc)
+        w.Header().Set("Content-Type", "application/json")
+        _ = json.NewEncoder(w).Encode(map[string]any{"vod_id": vodID, "description": desc})
+        return
+    case http.MethodPut, http.MethodPatch:
+        var body struct{ Description string `json:"description"` }
+        if err := json.NewDecoder(r.Body).Decode(&body); err != nil { http.Error(w, "invalid json", http.StatusBadRequest); return }
+        _, err := db.ExecContext(r.Context(), `UPDATE vods SET description=$1, updated_at=NOW() WHERE twitch_vod_id=$2`, strings.TrimSpace(body.Description), vodID)
+        if err != nil { http.Error(w, err.Error(), http.StatusInternalServerError); return }
+        w.WriteHeader(http.StatusNoContent)
+        return
+    default:
+        http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+        return
+    }
 }
 

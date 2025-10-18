@@ -11,6 +11,39 @@ concurrency:
     cancel-in-progress: true
 
 jobs:
+    gitleaks:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - name: Run Gitleaks
+              uses: gitleaks/gitleaks-action@v2
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GITLEAKS_ENABLE_SUMMARY: true
+
+    govulncheck:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: '1.22.x'
+                  cache: true
+
+            - name: Install govulncheck
+              run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+            - name: Run govulncheck
+              working-directory: backend
+              run: govulncheck ./...
+
     build-test-lint:
         runs-on: ubuntu-latest
         steps:

@@ -24,6 +24,7 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   GITLEAKS_ENABLE_SUMMARY: true
+              # Fails on any secret findings. Use .gitleaks.toml for baseline suppressions.
 
     govulncheck:
         runs-on: ubuntu-latest
@@ -43,6 +44,7 @@ jobs:
             - name: Run govulncheck
               working-directory: backend
               run: govulncheck ./...
+              # Fails on any known vulnerabilities affecting this code. Go vuln DB is curated for exploitable vulns.
 
     build-test-lint:
         runs-on: ubuntu-latest

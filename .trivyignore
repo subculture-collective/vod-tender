@@ -1,0 +1,20 @@
+# Trivy Ignore File - Baseline Allowlist
+# Use this file to suppress specific vulnerabilities that have been reviewed and accepted
+# Format: CVE-ID or vulnerability ID per line
+#
+# Example:
+# CVE-2023-12345
+# GHSA-xxxx-yyyy-zzzz
+#
+# Guidelines:
+# - Only add vulnerabilities after thorough review and risk assessment
+# - Document the reason for each exception with a comment
+# - Periodically review and remove fixed vulnerabilities
+# - Consider setting an expiration date for temporary exceptions
+#
+# To ignore a vulnerability with expiration:
+# CVE-2023-12345 # expires: 2024-12-31 - Waiting for upstream fix
+#
+# Documentation: https://aquasecurity.github.io/trivy/latest/docs/configuration/filtering/
+
+# Add exceptions below this line:

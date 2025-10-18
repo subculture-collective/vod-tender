@@ -18,6 +18,34 @@ make docker-build
 docker run --env-file backend/.env --rm vod-tender
 ```
 
+## Development
+
+### Linting
+
+This project uses [golangci-lint](https://golangci-lint.run/) for static analysis of Go code.
+
+Install golangci-lint:
+
+```bash
+# macOS
+brew install golangci-lint
+
+# Linux
+curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
+
+# Windows
+# See https://golangci-lint.run/welcome/install/
+```
+
+Run lint locally:
+
+```bash
+make lint          # Check for issues
+make lint-fix      # Auto-fix issues where possible
+```
+
+The linter configuration is in `.golangci.yml` and is tuned for CI with appropriate timeouts. Several linters are currently disabled as part of the baseline to achieve a clean build. These can be gradually enabled as issues are addressed.
+
 ### Docker Compose (server)
 
 Project ships a `docker-compose.yml` with:

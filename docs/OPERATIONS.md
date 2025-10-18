@@ -140,6 +140,7 @@ The CI pipeline includes automated container security scanning using Trivy:
 - **Severity threshold**: Build fails on CRITICAL or HIGH severity vulnerabilities
 - **Reports**: Available as CI artifacts (SARIF and JSON formats) with 30-day retention
 - **GitHub Security**: SARIF results automatically uploaded to GitHub Security tab for tracking
+- **Baseline allowlist**: Optional `.trivyignore` file available for suppressing reviewed/accepted vulnerabilities
 
 To manually scan images locally:
 

@@ -44,6 +44,12 @@ make lint          # Check for issues
 make lint-fix      # Auto-fix issues where possible
 ```
 
+Format code before committing:
+
+```bash
+cd backend && gofmt -w .
+```
+
 The linter configuration is in `.golangci.yml` and is tuned for CI with appropriate timeouts. Several linters are currently disabled as part of the baseline to achieve a clean build. These can be gradually enabled as issues are addressed.
 
 ### Docker Compose (server)

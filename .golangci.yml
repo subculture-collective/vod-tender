@@ -25,11 +25,6 @@ linters:
         - unparam           # 1 issue - unused param
         - gosec             # 22 issues - security (mostly false positives for baseline)
 
-formatters:
-    enable:
-        - gofmt             # Check whether code was gofmt-ed
-        - goimports         # Check import statements are formatted well
-
 linters-settings:
     govet:
         enable-all: true

@@ -138,6 +138,17 @@ Suggested next steps:
 - Rotate logs via process manager (if not using Docker log drivers with retention).
 - Periodically prune old completed downloads if space constrained (after confirming upload). Add retention policy script / cron.
 
+## CI/CD & Security
+
+### Security Scanning
+
+The CI pipeline includes automated security scans:
+
+- **Gitleaks** – Scans commits and PRs for secrets (API keys, tokens, passwords). Fails on any findings. Use `.gitleaks.toml` to suppress false positives if needed.
+- **govulncheck** – Checks Go dependencies for known vulnerabilities from the official Go vulnerability database. Fails on any exploitable vulnerabilities affecting the codebase.
+
+Both tools run automatically on every push to `main` and on all pull requests. The build will fail if security issues are detected.
+
 ---
 
 For architectural details see `ARCHITECTURE.md`. For configuration specifics see `CONFIG.md`.

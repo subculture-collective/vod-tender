@@ -45,5 +45,70 @@ jobs:
                   version: latest
                   working-directory: backend
 
-            - name: Docker build
-              run: docker build -t vod-tender .
+            - name: Build backend Docker image
+              run: docker build -t vod-tender-backend:${{ github.sha }} ./backend
+
+            - name: Build frontend Docker image
+              run: docker build -t vod-tender-frontend:${{ github.sha }} ./frontend
+
+            - name: Run Trivy vulnerability scanner on backend
+              uses: aquasecurity/trivy-action@master
+              with:
+                  image-ref: 'vod-tender-backend:${{ github.sha }}'
+                  format: 'sarif'
+                  output: 'trivy-backend-results.sarif'
+                  severity: 'CRITICAL,HIGH'
+                  exit-code: '1'
+
+            - name: Upload backend Trivy results to GitHub Security
+              uses: github/codeql-action/upload-sarif@v3
+              if: always()
+              with:
+                  sarif_file: 'trivy-backend-results.sarif'
+                  category: 'trivy-backend'
+
+            - name: Run Trivy vulnerability scanner on backend (JSON report)
+              uses: aquasecurity/trivy-action@master
+              if: always()
+              with:
+                  image-ref: 'vod-tender-backend:${{ github.sha }}'
+                  format: 'json'
+                  output: 'trivy-backend-results.json'
+                  severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+
+            - name: Run Trivy vulnerability scanner on frontend
+              uses: aquasecurity/trivy-action@master
+              with:
+                  image-ref: 'vod-tender-frontend:${{ github.sha }}'
+                  format: 'sarif'
+                  output: 'trivy-frontend-results.sarif'
+                  severity: 'CRITICAL,HIGH'
+                  exit-code: '1'
+
+            - name: Upload frontend Trivy results to GitHub Security
+              uses: github/codeql-action/upload-sarif@v3
+              if: always()
+              with:
+                  sarif_file: 'trivy-frontend-results.sarif'
+                  category: 'trivy-frontend'
+
+            - name: Run Trivy vulnerability scanner on frontend (JSON report)
+              uses: aquasecurity/trivy-action@master
+              if: always()
+              with:
+                  image-ref: 'vod-tender-frontend:${{ github.sha }}'
+                  format: 'json'
+                  output: 'trivy-frontend-results.json'
+                  severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+
+            - name: Upload Trivy scan reports
+              uses: actions/upload-artifact@v4
+              if: always()
+              with:
+                  name: trivy-reports
+                  path: |
+                      trivy-backend-results.json
+                      trivy-backend-results.sarif
+                      trivy-frontend-results.json
+                      trivy-frontend-results.sarif
+                  retention-days: 30

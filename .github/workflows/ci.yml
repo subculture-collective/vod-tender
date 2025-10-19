@@ -74,12 +74,12 @@ jobs:
               uses: actions/setup-node@v4
               with:
                   node-version: '20'
-                  cache: 'pnpm'
-                  cache-dependency-path: frontend/pnpm-lock.yaml
+                  cache: 'npm'
+                  cache-dependency-path: frontend/npm-lock.yaml
 
             - name: Install dependencies
               working-directory: frontend
-              run: pnpm install
+              run: npm install
 
             - name: Build
               working-directory: frontend

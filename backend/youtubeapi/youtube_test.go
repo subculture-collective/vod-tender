@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onnwee/vod-tender/backend/config"
+	"subculture-collective/vod-tender/backend/config"
 )
 
 // mockTokenStore implements TokenStore for testing
@@ -191,7 +191,7 @@ func TestUploadVideo_DefaultPrivacy(t *testing.T) {
 	// This test just verifies the function signature and defaults
 	// Full integration test would require mocking YouTube API
 	ctx := context.Background()
-	
+
 	// Test that calling with empty privacy doesn't panic
 	// (actual upload will fail without valid service, but we're testing the parameter handling)
 	_, err := UploadVideo(ctx, nil, "/nonexistent/file.mp4", "Test", "Desc", "")
@@ -199,5 +199,3 @@ func TestUploadVideo_DefaultPrivacy(t *testing.T) {
 		t.Error("expected error for nil service")
 	}
 }
-
-

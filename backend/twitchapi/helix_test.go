@@ -82,7 +82,7 @@ func TestHelixClient_GetUserID(t *testing.T) {
 			// Pre-seed the token to avoid OAuth calls
 			ts.token = "test-token"
 			ts.expiresAt = time.Now().Add(1 * time.Hour)
-			
+
 			client := &HelixClient{
 				AppTokenSource: ts,
 				ClientID:       "test-client-id",
@@ -333,11 +333,9 @@ func (t *rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	if t.host != "" {
 		// Strip the scheme from host
 		host := t.host
-		if len(host) > 7 && host[:7] == "http://" {
-			host = host[7:]
-		}
+		host = strings.TrimPrefix(host, "http://")
+		host = strings.TrimPrefix(host, "https://")
 		req.URL.Host = host
 	}
 	return t.Transport.RoundTrip(req)
 }
-

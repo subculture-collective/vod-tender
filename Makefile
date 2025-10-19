@@ -51,3 +51,12 @@ db-reset: ## Drop and recreate the Postgres database for this stack
 	DB_NAME_CMD=': "$${POSTGRES_DB:?}"; : "$${POSTGRES_USER:?}"; psql -U "$$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS \"$$POSTGRES_DB\" WITH (FORCE);" -c "CREATE DATABASE \"$$POSTGRES_DB\";"'; \
 	( $(DC) exec -T postgres bash -lc "set -e; $$DB_NAME_CMD" ) || ( echo "compose exec failed, trying docker exec on $$POSTGRES_CONTAINER"; docker start $$POSTGRES_CONTAINER >/dev/null 2>&1 || true; docker exec -i $$POSTGRES_CONTAINER bash -lc "set -e; $$DB_NAME_CMD" ); \
 	echo "Database reset completed."
+
+# Development
+lint: ## Run golangci-lint on backend code
+	@echo "Running golangci-lint..."
+	@cd backend && golangci-lint run --timeout=5m
+
+lint-fix: ## Run golangci-lint with auto-fix on backend code
+	@echo "Running golangci-lint with --fix..."
+	@cd backend && golangci-lint run --timeout=5m --fix

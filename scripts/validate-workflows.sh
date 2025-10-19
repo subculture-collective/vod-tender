@@ -18,7 +18,7 @@ fi
 # Check if PyYAML is available
 if ! python3 -c "import yaml" 2>/dev/null; then
     echo "⚠️  PyYAML not found, installing..."
-    pip3 install --user PyYAML
+    python3 -m pip install --user PyYAML
 fi
 
 VALID=0

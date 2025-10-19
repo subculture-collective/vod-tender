@@ -96,32 +96,26 @@ jobs:
             - name: Run Trivy vulnerability scanner on backend
               uses: aquasecurity/trivy-action@0.33.1
               with:
-                  image-ref: 'vod-tender-${{ matrix.target }}:${{ github.sha }}'
+                  image-ref: 'vod-tender-backend:${{ github.sha }}'
                   format: 'sarif'
-                  output: 'trivy-${{ matrix.target }}-results.sarif'
+                  output: 'trivy-backend-results.sarif'
                   severity: 'CRITICAL,HIGH'
                   exit-code: '1'
-              strategy:
-                  matrix:
-                      target: [backend, frontend]
 
-            - name: Upload Trivy SARIF results to GitHub Security
+            - name: Upload backend Trivy results to GitHub Security
               uses: github/codeql-action/upload-sarif@v3
               if: always()
               with:
-                  sarif_file: 'trivy-${{ matrix.target }}-results.sarif'
-                  category: 'trivy-${{ matrix.target }}'
-              strategy:
-                  matrix:
-                      target: [backend, frontend]
+                  sarif_file: 'trivy-backend-results.sarif'
+                  category: 'trivy-backend'
 
             - name: Run Trivy vulnerability scanner on backend (JSON report)
               uses: aquasecurity/trivy-action@0.33.1
               if: always()
               with:
-                  image-ref: 'vod-tender-${{ matrix.target }}:${{ github.sha }}'
+                  image-ref: 'vod-tender-backend:${{ github.sha }}'
                   format: 'json'
-                  output: 'trivy-${{ matrix.target }}-results.json'
+                  output: 'trivy-backend-results.json'
                   severity: 'CRITICAL,HIGH,MEDIUM,LOW'
 
             - name: Run Trivy vulnerability scanner on frontend

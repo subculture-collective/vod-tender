@@ -3,7 +3,6 @@
 package vod
 
 import (
-	"bufio"
 	"context"
 	"database/sql"
 	"fmt"
@@ -79,7 +78,7 @@ func DiscoverAndUpsert(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	for _, v := range vods {
-		_, _ = db.Exec(`INSERT INTO vods (twitch_vod_id, title, date, duration_seconds, created_at) VALUES ($1,$2,$3,$4,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, v.ID, v.Title, v.Date, v.Duration)
+		_, _ = db.ExecContext(ctx, `INSERT INTO vods (twitch_vod_id, title, date, duration_seconds, created_at) VALUES ($1,$2,$3,$4,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, v.ID, v.Title, v.Date, v.Duration)
 	}
 	return nil
 }
@@ -136,9 +135,14 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 	}
 	if cf != "" {
 		// Create a private temp copy
+		//nolint:gosec // G304: Path is from environment variable TWITCH_COOKIES_FILE, operator-controlled
 		f, err := os.Open(cf)
 		if err == nil {
-			defer f.Close()
+			defer func() {
+				if err := f.Close(); err != nil {
+					slog.Warn("failed to close cookies file", slog.Any("err", err))
+				}
+			}()
 			tf, terr := os.CreateTemp("", fmt.Sprintf("yt_cookies_%s_*.txt", id))
 			if terr == nil {
 				tmpCookiesPath = tf.Name()
@@ -187,6 +191,7 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 		logger.Debug("download attempt", slog.Int("attempt", attempt+1), slog.Int("max", maxAttempts))
 		if attempt > 0 {
 			backoff := baseBackoff * time.Duration(1<<attempt)
+			//nolint:gosec // G404: math/rand is sufficient for exponential backoff jitter, not used for security
 			jitter := time.Duration(rand.Int63n(int64(baseBackoff))) // up to baseBackoff extra
 			backoff += jitter
 			logger.Warn("retrying download", slog.Int("attempt", attempt), slog.Duration("backoff", backoff))
@@ -195,6 +200,7 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 			delete(activeCancels, id)
 			activeMu.Unlock()
 		}
+		//nolint:gosec // G204: ytDLP command path is from environment variable or hardcoded constant, args are controlled
 		cmd := exec.CommandContext(ctx, ytDLP, args...)
 		stderr, errPipe := cmd.StderrPipe()
 		if errPipe != nil {
@@ -220,7 +226,9 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 					continue
 				}
 			}
-			fmt.Sscanf(val, "%f", &f)
+			if _, err := fmt.Sscanf(val, "%f", &f); err != nil {
+				slog.Debug("failed to parse download size", slog.String("val", val), slog.Any("err", err))
+			}
 			mult := float64(1)
 			switch strings.ToUpper(unit) {
 			case "KIB":
@@ -284,7 +292,7 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 									curBytes = int64((lastPercent / 100.0) * float64(totalBytes))
 								}
 								// Update DB with approximate progress
-								_, _ = db.Exec(`UPDATE vods SET download_state=$1, download_total=$2, download_bytes=$3, progress_updated_at=NOW() WHERE twitch_vod_id=$4`, s, totalBytes, curBytes, id)
+								_, _ = db.ExecContext(ctx, `UPDATE vods SET download_state=$1, download_total=$2, download_bytes=$3, progress_updated_at=NOW() WHERE twitch_vod_id=$4`, s, totalBytes, curBytes, id)
 							} else if strings.TrimSpace(s) != "" {
 								appendLine(strings.TrimSpace(s))
 							}
@@ -311,7 +319,7 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 			if fi, statErr := os.Stat(out); statErr == nil {
 				actual = fi.Size()
 			}
-			_, _ = db.Exec(`UPDATE vods SET download_state=$1, download_total=$2, download_bytes=$3, downloaded_path=$4, progress_updated_at=NOW() WHERE twitch_vod_id=$5`, "complete", actual, actual, out, id)
+			_, _ = db.ExecContext(ctx, `UPDATE vods SET download_state=$1, download_total=$2, download_bytes=$3, downloaded_path=$4, progress_updated_at=NOW() WHERE twitch_vod_id=$5`, "complete", actual, actual, out, id)
 			logger.Info("download finished", slog.Int64("bytes", actual))
 			telemetry.DownloadsSucceeded.Inc()
 			return out, nil
@@ -324,7 +332,7 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 		}
 		lastErr = fmt.Errorf("yt-dlp: %w\nlast output:\n%s", err, detail)
 		// Increment retry counter
-		_, _ = db.Exec(`UPDATE vods SET download_retries = COALESCE(download_retries,0) + 1, progress_updated_at=NOW() WHERE twitch_vod_id=$1`, id)
+		_, _ = db.ExecContext(ctx, `UPDATE vods SET download_retries = COALESCE(download_retries,0) + 1, progress_updated_at=NOW() WHERE twitch_vod_id=$1`, id)
 		// If context canceled, stop immediately
 		if ctx.Err() != nil {
 			return "", ctx.Err()
@@ -333,45 +341,6 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 	telemetry.DownloadsFailed.Inc()
 	logger.Error("download exhausted retries", slog.Any("err", lastErr))
 	return "", lastErr
-}
-
-// buildCookieHeaderFromNetscape constructs a Cookie header from a Netscape cookies file.
-func buildCookieHeaderFromNetscape(path string, domainSuffix string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	pairs := make([]string, 0, 16)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		parts := strings.Split(line, "\t")
-		if len(parts) < 7 {
-			parts = strings.Fields(line)
-		}
-		if len(parts) < 7 {
-			continue
-		}
-		dom, name, val := parts[0], parts[5], parts[6]
-		if !strings.HasSuffix(strings.ToLower(dom), strings.ToLower(domainSuffix)) {
-			continue
-		}
-		if strings.EqualFold(name, "#httponly_"+name) {
-			name = strings.TrimPrefix(name, "#HttpOnly_")
-		}
-		if name == "" {
-			continue
-		}
-		pairs = append(pairs, fmt.Sprintf("%s=%s", name, val))
-	}
-	if err := sc.Err(); err != nil {
-		return "", err
-	}
-	return strings.Join(pairs, "; "), nil
 }
 
 // uploadToYouTube uploads the given video file using stored OAuth token.
@@ -393,13 +362,9 @@ func updateCircuitOnFailure(ctx context.Context, db *sql.DB) {
 	var val string
 	_ = row.Scan(&val)
 	if val != "" {
-		_ = func() error {
-			n, e := strconv.Atoi(val)
-			if e == nil {
-				fails = n
-			}
-			return nil
-		}()
+		if n, err := strconv.Atoi(val); err == nil {
+			fails = n
+		}
 	}
 	fails++
 	_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_failures',$1,NOW())

@@ -18,7 +18,7 @@ func BackfillMetadata(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	for _, v := range vods {
-		_, _ = db.Exec(`UPDATE vods SET title=COALESCE(NULLIF(title,''), $1), date=$2, duration_seconds=CASE WHEN COALESCE(duration_seconds,0)=0 THEN $3 ELSE duration_seconds END, updated_at=NOW() WHERE twitch_vod_id=$4`, v.Title, v.Date, v.Duration, v.ID)
+		_, _ = db.ExecContext(ctx, `UPDATE vods SET title=COALESCE(NULLIF(title,''), $1), date=$2, duration_seconds=CASE WHEN COALESCE(duration_seconds,0)=0 THEN $3 ELSE duration_seconds END, updated_at=NOW() WHERE twitch_vod_id=$4`, v.Title, v.Date, v.Duration, v.ID)
 	}
 	return nil
 }
@@ -90,7 +90,7 @@ func BackfillCatalog(ctx context.Context, db *sql.DB, maxCount int, maxAge time.
 		return err
 	}
 	for _, v := range vods {
-		_, _ = db.Exec(`INSERT INTO vods (twitch_vod_id, title, date, duration_seconds, created_at) VALUES ($1,$2,$3,$4,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, v.ID, v.Title, v.Date, v.Duration)
+		_, _ = db.ExecContext(ctx, `INSERT INTO vods (twitch_vod_id, title, date, duration_seconds, created_at) VALUES ($1,$2,$3,$4,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, v.ID, v.Title, v.Date, v.Duration)
 	}
 	slog.Info("catalog backfill inserted/ignored", slog.Int("count", len(vods)))
 	return nil

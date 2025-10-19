@@ -22,7 +22,7 @@ func newTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := dbpkg.Migrate(db); err != nil {
+	if err := dbpkg.Migrate(context.Background(), db); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	return db

@@ -218,7 +218,7 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 		}
 	}
 	// Select a small batch of candidates and pick the first eligible.
-	rows, err := dbc.Query(`SELECT twitch_vod_id, title, date FROM vods
+	rows, err := dbc.QueryContext(ctx, `SELECT twitch_vod_id, title, date FROM vods
 		WHERE COALESCE(processed,false)=false AND (
 			processing_error IS NULL OR processing_error='' OR (download_retries < $1 AND EXTRACT(EPOCH FROM (NOW() - COALESCE(updated_at, created_at))) >= $2)
 		)
@@ -273,13 +273,13 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 		if strings.Contains(lower, "subscriber-only") || strings.Contains(lower, "must be logged into") || strings.Contains(lower, "login required") {
 			logger.Warn("skipping vod: auth required (subscriber-only)")
 			// Mark non-retriable by setting retries to maxAttempts
-			_, _ = dbc.Exec(`UPDATE vods SET processing_error=$1, download_retries=$2, updated_at=NOW() WHERE twitch_vod_id=$3`, "auth-required: subscriber-only", maxAttempts, id)
+			_, _ = dbc.ExecContext(ctx, `UPDATE vods SET processing_error=$1, download_retries=$2, updated_at=NOW() WHERE twitch_vod_id=$3`, "auth-required: subscriber-only", maxAttempts, id)
 			return nil
 		}
 		// Otherwise count as a failure and trip the circuit
 		logger.Error("download failed", slog.Any("err", err), slog.Duration("download_duration", time.Since(dlStart)), slog.Int("queue_depth", queueDepth))
 		telemetry.DownloadsFailed.Inc()
-		_, _ = dbc.Exec(`UPDATE vods SET processing_error=$1, updated_at=NOW() WHERE twitch_vod_id=$2`, err.Error(), id)
+		_, _ = dbc.ExecContext(ctx, `UPDATE vods SET processing_error=$1, updated_at=NOW() WHERE twitch_vod_id=$2`, err.Error(), id)
 		updateCircuitOnFailure(ctx, dbc)
 		telemetry.UpdateCircuitGauge(true)
 		return nil
@@ -289,7 +289,7 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 	telemetry.DownloadDuration.Observe(dlDur.Seconds())
 	logger.Info("download complete", slog.String("path", filePath), slog.Duration("download_duration", dlDur))
 	resetCircuit(ctx, dbc)
-	_, _ = dbc.Exec(`UPDATE vods SET downloaded_path=$1, updated_at=NOW() WHERE twitch_vod_id=$2`, filePath, id)
+	_, _ = dbc.ExecContext(ctx, `UPDATE vods SET downloaded_path=$1, updated_at=NOW() WHERE twitch_vod_id=$2`, filePath, id)
 	// Idempotency: if a YouTube URL already exists, skip upload to prevent duplicates.
 	var preYT string
 	_ = dbc.QueryRowContext(ctx, `SELECT COALESCE(youtube_url,'' ) FROM vods WHERE twitch_vod_id=$1`, id).Scan(&preYT)
@@ -299,7 +299,7 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 		ytURL = preYT
 		slog.Info("skipping upload; youtube_url already present", slog.String("youtube_url", ytURL))
 		// Ensure processed is marked; we'll still perform post-success cleanup below.
-		_, _ = dbc.Exec(`UPDATE vods SET processed=TRUE, updated_at=NOW() WHERE twitch_vod_id=$1`, id)
+		_, _ = dbc.ExecContext(ctx, `UPDATE vods SET processed=TRUE, updated_at=NOW() WHERE twitch_vod_id=$1`, id)
 	} else {
 		// Retry loop with exponential backoff + jitter for uploads
 		maxUp := 5
@@ -352,13 +352,13 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 		if ytURL == "" {
 			// Exhausted attempts; persist error and increment retries so global cooldown/limit logic applies
 			logger.Error("upload exhausted retries", slog.Any("err", lastErr))
-			_, _ = dbc.Exec(`UPDATE vods SET processing_error=$1, download_retries = COALESCE(download_retries,0)+1, updated_at=NOW() WHERE twitch_vod_id=$2`,
+			_, _ = dbc.ExecContext(ctx, `UPDATE vods SET processing_error=$1, download_retries = COALESCE(download_retries,0)+1, updated_at=NOW() WHERE twitch_vod_id=$2`,
 				fmt.Sprintf("upload: %v", lastErr), id)
 			telemetry.UploadsFailed.Inc()
 			return nil
 		}
 		// Record YouTube URL and mark processed now
-		_, _ = dbc.Exec(`UPDATE vods SET youtube_url=$1, processed=TRUE, processing_error=NULL, updated_at=NOW() WHERE twitch_vod_id=$2`, ytURL, id)
+		_, _ = dbc.ExecContext(ctx, `UPDATE vods SET youtube_url=$1, processed=TRUE, processing_error=NULL, updated_at=NOW() WHERE twitch_vod_id=$2`, ytURL, id)
 	}
 
 	// Clean up local file after successful upload (both backfill and new items)
@@ -384,7 +384,7 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 			} else {
 				logger.Info("removed local file after upload", slog.String("path", filePath))
 			}
-			_, _ = dbc.Exec(`UPDATE vods SET downloaded_path=NULL, updated_at=NOW() WHERE twitch_vod_id=$1`, id)
+			_, _ = dbc.ExecContext(ctx, `UPDATE vods SET downloaded_path=NULL, updated_at=NOW() WHERE twitch_vod_id=$1`, id)
 		}
 	}
 	// If we performed an upload in this run, we have upDur set; otherwise it may be zero for idempotent path

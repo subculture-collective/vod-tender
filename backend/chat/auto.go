@@ -143,30 +143,30 @@ func StartAutoChatRecorder(ctx context.Context, db *sql.DB) {
 									}
 								}
 								if candidate != nil {
-									tx, err := db.Begin()
+									tx, err := db.BeginTx(ctx, nil)
 									if err != nil {
 										slog.Warn("auto chat: reconcile begin tx", slog.Any("err", err))
 										return
 									}
 									// Ensure real VOD row; then refresh metadata (title/date/duration)
-									_, _ = tx.Exec(`INSERT INTO vods (twitch_vod_id, title, date, duration_seconds, created_at) VALUES ($1,$2,$3,$4,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, candidate.ID, candidate.Title, candidate.Date, candidate.Duration)
-									_, _ = tx.Exec(`UPDATE vods SET title=$1, date=$2, duration_seconds=$3, updated_at=NOW() WHERE twitch_vod_id=$4`, candidate.Title, candidate.Date, candidate.Duration, candidate.ID)
+									_, _ = tx.ExecContext(ctx, `INSERT INTO vods (twitch_vod_id, title, date, duration_seconds, created_at) VALUES ($1,$2,$3,$4,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, candidate.ID, candidate.Title, candidate.Date, candidate.Duration)
+									_, _ = tx.ExecContext(ctx, `UPDATE vods SET title=$1, date=$2, duration_seconds=$3, updated_at=NOW() WHERE twitch_vod_id=$4`, candidate.Title, candidate.Date, candidate.Duration, candidate.ID)
 									// Realign relative timestamps if placeholder start differs from actual VOD date
 									if !candidate.Date.Equal(st) {
 										delta := candidate.Date.Sub(st).Seconds()
 										// Shift existing rel_timestamp by delta (if candidate.Date later, delta positive)
-										if _, err := tx.Exec(`UPDATE chat_messages SET rel_timestamp=rel_timestamp - $1 WHERE vod_id=$2`, delta, ph); err != nil {
+										if _, err := tx.ExecContext(ctx, `UPDATE chat_messages SET rel_timestamp=rel_timestamp - $1 WHERE vod_id=$2`, delta, ph); err != nil {
 											_ = tx.Rollback()
 											slog.Warn("auto chat: reconcile shift timestamps", slog.Any("err", err))
 											return
 										}
 									}
-									if _, err := tx.Exec(`UPDATE chat_messages SET vod_id=$1 WHERE vod_id=$2`, candidate.ID, ph); err != nil {
+									if _, err := tx.ExecContext(ctx, `UPDATE chat_messages SET vod_id=$1 WHERE vod_id=$2`, candidate.ID, ph); err != nil {
 										_ = tx.Rollback()
 										slog.Warn("auto chat: reconcile update chat", slog.Any("err", err))
 										return
 									}
-									if _, err := tx.Exec(`DELETE FROM vods WHERE twitch_vod_id=$1`, ph); err != nil {
+									if _, err := tx.ExecContext(ctx, `DELETE FROM vods WHERE twitch_vod_id=$1`, ph); err != nil {
 										_ = tx.Rollback()
 										slog.Warn("auto chat: reconcile delete placeholder", slog.Any("err", err))
 										return
@@ -200,7 +200,7 @@ func StartAutoChatRecorder(ctx context.Context, db *sql.DB) {
 			startedAt = body.Data[0].StartedAt.UTC()
 			placeholder = fmt.Sprintf("live-%d", startedAt.Unix())
 			reconciled = false
-			_, _ = db.Exec(`INSERT INTO vods (twitch_vod_id, title, date, duration_seconds, created_at) VALUES ($1,$2,$3,$4,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, placeholder, "LIVE: "+body.Data[0].Title, startedAt, 0)
+			_, _ = db.ExecContext(ctx, `INSERT INTO vods (twitch_vod_id, title, date, duration_seconds, created_at) VALUES ($1,$2,$3,$4,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, placeholder, "LIVE: "+body.Data[0].Title, startedAt, 0)
 			running = true
 			slog.Info("auto chat: stream live; starting chat recorder", slog.String("vod_id", placeholder), slog.Time("started_at", startedAt))
 			recCtx, cancel := context.WithCancel(ctx)

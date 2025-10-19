@@ -96,7 +96,10 @@ func main() {
 			slog.Error("failed to close database", slog.Any("err", err))
 		}
 	}()
-	if err := db.Migrate(database); err != nil {
+	
+	// Create a context for migration
+	migrationCtx := context.Background()
+	if err := db.Migrate(migrationCtx, database); err != nil {
 		slog.Error("failed to migrate db", slog.Any("err", err))
 		os.Exit(1)
 	}

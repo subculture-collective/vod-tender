@@ -78,7 +78,7 @@ func DiscoverAndUpsert(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	for _, v := range vods {
-		_, _ = db.Exec(`INSERT INTO vods (twitch_vod_id, title, date, duration_seconds, created_at) VALUES ($1,$2,$3,$4,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, v.ID, v.Title, v.Date, v.Duration)
+		_, _ = db.ExecContext(ctx, `INSERT INTO vods (twitch_vod_id, title, date, duration_seconds, created_at) VALUES ($1,$2,$3,$4,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, v.ID, v.Title, v.Date, v.Duration)
 	}
 	return nil
 }
@@ -289,7 +289,7 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 									curBytes = int64((lastPercent / 100.0) * float64(totalBytes))
 								}
 								// Update DB with approximate progress
-								_, _ = db.Exec(`UPDATE vods SET download_state=$1, download_total=$2, download_bytes=$3, progress_updated_at=NOW() WHERE twitch_vod_id=$4`, s, totalBytes, curBytes, id)
+								_, _ = db.ExecContext(ctx, `UPDATE vods SET download_state=$1, download_total=$2, download_bytes=$3, progress_updated_at=NOW() WHERE twitch_vod_id=$4`, s, totalBytes, curBytes, id)
 							} else if strings.TrimSpace(s) != "" {
 								appendLine(strings.TrimSpace(s))
 							}
@@ -316,7 +316,7 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 			if fi, statErr := os.Stat(out); statErr == nil {
 				actual = fi.Size()
 			}
-			_, _ = db.Exec(`UPDATE vods SET download_state=$1, download_total=$2, download_bytes=$3, downloaded_path=$4, progress_updated_at=NOW() WHERE twitch_vod_id=$5`, "complete", actual, actual, out, id)
+			_, _ = db.ExecContext(ctx, `UPDATE vods SET download_state=$1, download_total=$2, download_bytes=$3, downloaded_path=$4, progress_updated_at=NOW() WHERE twitch_vod_id=$5`, "complete", actual, actual, out, id)
 			logger.Info("download finished", slog.Int64("bytes", actual))
 			telemetry.DownloadsSucceeded.Inc()
 			return out, nil
@@ -329,7 +329,7 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 		}
 		lastErr = fmt.Errorf("yt-dlp: %w\nlast output:\n%s", err, detail)
 		// Increment retry counter
-		_, _ = db.Exec(`UPDATE vods SET download_retries = COALESCE(download_retries,0) + 1, progress_updated_at=NOW() WHERE twitch_vod_id=$1`, id)
+		_, _ = db.ExecContext(ctx, `UPDATE vods SET download_retries = COALESCE(download_retries,0) + 1, progress_updated_at=NOW() WHERE twitch_vod_id=$1`, id)
 		// If context canceled, stop immediately
 		if ctx.Err() != nil {
 			return "", ctx.Err()

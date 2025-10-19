@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
@@ -9,7 +10,12 @@ import (
 
 func main() {
 	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get("http://localhost:8080/healthz")
+	ctx := context.Background()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost:8080/healthz", nil)
+	if err != nil {
+		os.Exit(1)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		os.Exit(1)
 	}

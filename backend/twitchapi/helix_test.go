@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -81,7 +82,7 @@ func TestHelixClient_GetUserID(t *testing.T) {
 			// Pre-seed the token to avoid OAuth calls
 			ts.token = "test-token"
 			ts.expiresAt = time.Now().Add(1 * time.Hour)
-			
+
 			client := &HelixClient{
 				AppTokenSource: ts,
 				ClientID:       "test-client-id",
@@ -98,7 +99,7 @@ func TestHelixClient_GetUserID(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("GetUserID() error = nil, want error containing %q", tt.errContains)
-				} else if tt.errContains != "" && !contains(err.Error(), tt.errContains) {
+				} else if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
 					t.Errorf("GetUserID() error = %v, want error containing %q", err, tt.errContains)
 				}
 				return
@@ -247,7 +248,7 @@ func TestHelixClient_ListVideos(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("ListVideos() error = nil, want error containing %q", tt.errContains)
-				} else if tt.errContains != "" && !contains(err.Error(), tt.errContains) {
+				} else if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
 					t.Errorf("ListVideos() error = %v, want error containing %q", err, tt.errContains)
 				}
 				return
@@ -338,17 +339,4 @@ func (t *rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		req.URL.Host = host
 	}
 	return t.Transport.RoundTrip(req)
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || findSubstr(s, substr)))
-}
-
-func findSubstr(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

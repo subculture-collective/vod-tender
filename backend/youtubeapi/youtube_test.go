@@ -2,6 +2,7 @@ package youtubeapi
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -127,13 +128,13 @@ func TestAuthCodeURL(t *testing.T) {
 		t.Error("AuthCodeURL returned empty string")
 	}
 	// Check that it contains expected parameters
-	if !contains(url, "client_id=test-client-id") {
+	if !strings.Contains(url, "client_id=test-client-id") {
 		t.Errorf("URL missing client_id: %s", url)
 	}
-	if !contains(url, "state=test-state") {
+	if !strings.Contains(url, "state=test-state") {
 		t.Errorf("URL missing state: %s", url)
 	}
-	if !contains(url, "access_type=offline") {
+	if !strings.Contains(url, "access_type=offline") {
 		t.Errorf("URL missing access_type=offline: %s", url)
 	}
 }
@@ -150,7 +151,7 @@ func TestRefreshIfNeeded_NoToken(t *testing.T) {
 	if err == nil {
 		t.Error("refreshIfNeeded() should return error when no token stored")
 	}
-	if !contains(err.Error(), "no youtube token") {
+	if !strings.Contains(err.Error(), "no youtube token") {
 		t.Errorf("error = %v, want error about no token", err)
 	}
 }
@@ -181,7 +182,7 @@ func TestUploadVideo_NilService(t *testing.T) {
 	if err == nil {
 		t.Error("UploadVideo() with nil service should return error")
 	}
-	if !contains(err.Error(), "nil youtube service") {
+	if !strings.Contains(err.Error(), "nil youtube service") {
 		t.Errorf("error = %v, want error about nil service", err)
 	}
 }
@@ -190,24 +191,11 @@ func TestUploadVideo_DefaultPrivacy(t *testing.T) {
 	// This test just verifies the function signature and defaults
 	// Full integration test would require mocking YouTube API
 	ctx := context.Background()
-	
+
 	// Test that calling with empty privacy doesn't panic
 	// (actual upload will fail without valid service, but we're testing the parameter handling)
 	_, err := UploadVideo(ctx, nil, "/nonexistent/file.mp4", "Test", "Desc", "")
 	if err == nil {
 		t.Error("expected error for nil service")
 	}
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || findSubstr(s, substr)))
-}
-
-func findSubstr(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

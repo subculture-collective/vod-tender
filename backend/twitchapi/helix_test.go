@@ -328,9 +328,7 @@ type rewriteTransport struct {
 func (t *rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// Rewrite URL to point to test server
 	req.URL.Scheme = "http"
-	req.URL.Host = req.URL.Host // Keep the original host from the request
 	// Parse the test server URL and use its host
-	req.URL.Host = req.URL.Host
 	if t.host != "" {
 		// Strip the scheme from host
 		host := t.host

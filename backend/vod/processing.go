@@ -20,17 +20,27 @@ import (
 )
 
 // Downloader abstracts video retrieval (for tests/mocks).
-type Downloader interface { Download(ctx context.Context, dbc *sql.DB, id, dataDir string) (string, error) }
+type Downloader interface {
+	Download(ctx context.Context, dbc *sql.DB, id, dataDir string) (string, error)
+}
 
 // Uploader abstracts upload destination behavior.
-type Uploader interface { Upload(ctx context.Context, path, title string, date time.Time) (string, error) }
+type Uploader interface {
+	Upload(ctx context.Context, path, title string, date time.Time) (string, error)
+}
 
 // default implementations wrap existing functions.
 type ytDLPDownloader struct{}
-func (ytDLPDownloader) Download(ctx context.Context, dbc *sql.DB, id, dataDir string) (string, error) { return downloadVOD(ctx, dbc, id, dataDir) }
+
+func (ytDLPDownloader) Download(ctx context.Context, dbc *sql.DB, id, dataDir string) (string, error) {
+	return downloadVOD(ctx, dbc, id, dataDir)
+}
 
 type youtubeUploader struct{}
-func (youtubeUploader) Upload(ctx context.Context, path, title string, date time.Time) (string, error) { return uploadToYouTube(ctx, path, title, date) }
+
+func (youtubeUploader) Upload(ctx context.Context, path, title string, date time.Time) (string, error) {
+	return uploadToYouTube(ctx, path, title, date)
+}
 
 // configurable for tests
 var (
@@ -42,10 +52,16 @@ var (
 // It is safe to run a single instance per process; for multiple workers add distributed coordination.
 func StartVODProcessingJob(ctx context.Context, dbc *sql.DB) {
 	interval := 1 * time.Minute
-	if s := os.Getenv("VOD_PROCESS_INTERVAL"); s != "" { if d, err := time.ParseDuration(s); err == nil && d > 0 { interval = d } }
+	if s := os.Getenv("VOD_PROCESS_INTERVAL"); s != "" {
+		if d, err := time.ParseDuration(s); err == nil && d > 0 {
+			interval = d
+		}
+	}
 	slog.Info("vod processing job starting", slog.Duration("interval", interval))
 	// Kick an immediate run so we don't wait a full interval after boot.
-	if err := processOnce(ctx, dbc); err != nil { slog.Warn("process once", slog.Any("err", err)) }
+	if err := processOnce(ctx, dbc); err != nil {
+		slog.Warn("process once", slog.Any("err", err))
+	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -54,7 +70,9 @@ func StartVODProcessingJob(ctx context.Context, dbc *sql.DB) {
 			slog.Info("vod processing job stopped")
 			return
 		case <-ticker.C:
-			if err := processOnce(ctx, dbc); err != nil { slog.Warn("process once", slog.Any("err", err)) }
+			if err := processOnce(ctx, dbc); err != nil {
+				slog.Warn("process once", slog.Any("err", err))
+			}
 		}
 	}
 }
@@ -81,20 +99,28 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 		}
 	}
 	dataDir := os.Getenv("DATA_DIR")
-	if dataDir == "" { dataDir = "data" }
-	if err := os.MkdirAll(dataDir, 0o755); err != nil { return fmt.Errorf("mkdir data dir: %w", err) }
+	if dataDir == "" {
+		dataDir = "data"
+	}
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir data dir: %w", err)
+	}
 	// Best-effort cleanup: prune stale partial/tmp files to keep /data small
 	// Controlled via DATA_CLEANUP_MAX_AGE (default 24h). Set to 0 to disable.
 	maxAge := 24 * time.Hour
 	if s := os.Getenv("DATA_CLEANUP_MAX_AGE"); s != "" {
-		if d, err := time.ParseDuration(s); err == nil { maxAge = d }
+		if d, err := time.ParseDuration(s); err == nil {
+			maxAge = d
+		}
 	}
 	if maxAge > 0 {
 		now := time.Now()
 		if entries, err := os.ReadDir(dataDir); err == nil {
 			for _, e := range entries {
 				name := e.Name()
-				if !(strings.HasSuffix(name, ".part") || strings.HasSuffix(name, ".tmp") || strings.Contains(name, ".transcode.tmp.mp4")) { continue }
+				if !(strings.HasSuffix(name, ".part") || strings.HasSuffix(name, ".tmp") || strings.Contains(name, ".transcode.tmp.mp4")) {
+					continue
+				}
 				if fi, err := e.Info(); err == nil {
 					if now.Sub(fi.ModTime()) > maxAge {
 						_ = os.Remove(filepath.Join(dataDir, name))
@@ -116,19 +142,25 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 				defer rows.Close()
 				for rows.Next() {
 					var p string
-					if err := rows.Scan(&p); err == nil && p != "" { active[p] = struct{}{} }
+					if err := rows.Scan(&p); err == nil && p != "" {
+						active[p] = struct{}{}
+					}
 				}
 			}
 			if entries, err := os.ReadDir(dataDir); err == nil {
 				for _, e := range entries {
-					if e.IsDir() { continue }
+					if e.IsDir() {
+						continue
+					}
 					// Only consider video-like files for sweeping
 					name := e.Name()
 					if !(strings.HasSuffix(strings.ToLower(name), ".mp4") || strings.HasSuffix(strings.ToLower(name), ".mkv") || strings.HasSuffix(strings.ToLower(name), ".webm")) {
 						continue
 					}
 					path := filepath.Join(dataDir, name)
-					if _, ok := active[path]; ok { continue }
+					if _, ok := active[path]; ok {
+						continue
+					}
 					if fi, err := e.Info(); err == nil {
 						if fi.ModTime().Before(cutoff) {
 							if err := os.Remove(path); err == nil {
@@ -142,34 +174,55 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 			}
 		}
 	}
-	if err := DiscoverAndUpsert(ctx, dbc); err != nil { slog.Warn("discover vods", slog.Any("err", err), slog.String("component","vod_process")); return err }
+	if err := DiscoverAndUpsert(ctx, dbc); err != nil {
+		slog.Warn("discover vods", slog.Any("err", err), slog.String("component", "vod_process"))
+		return err
+	}
 	// Queue depth (unprocessed VODs)
 	var queueDepth int
 	_ = dbc.QueryRowContext(ctx, `SELECT COUNT(1) FROM vods WHERE COALESCE(processed,false)=false`).Scan(&queueDepth)
-	slog.Debug("processing cycle queue depth", slog.Int("queue_depth", queueDepth), slog.String("component","vod_process"))
+	slog.Debug("processing cycle queue depth", slog.Int("queue_depth", queueDepth), slog.String("component", "vod_process"))
 	telemetry.SetQueueDepth(queueDepth)
 	// Backfill upload throttling: limit back-catalog uploads per 24h window.
 	// Define back-catalog as VODs older than RETAIN_KEEP_NEWER_THAN_DAYS (default 7 days).
 	backfillDays := 7
-	if s := os.Getenv("RETAIN_KEEP_NEWER_THAN_DAYS"); s != "" { if n, err := strconv.Atoi(s); err == nil && n >= 0 { backfillDays = n } }
+	if s := os.Getenv("RETAIN_KEEP_NEWER_THAN_DAYS"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n >= 0 {
+			backfillDays = n
+		}
+	}
 	backfillCutoff := time.Now().Add(-time.Duration(backfillDays) * 24 * time.Hour)
 	dailyLimit := 10
-	if s := os.Getenv("BACKFILL_UPLOAD_DAILY_LIMIT"); s != "" { if n, err := strconv.Atoi(s); err == nil && n > 0 { dailyLimit = n } }
+	if s := os.Getenv("BACKFILL_UPLOAD_DAILY_LIMIT"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			dailyLimit = n
+		}
+	}
 	// Count successful uploads of back-catalog in past 24h
 	var backfillUploaded24 int
 	_ = dbc.QueryRowContext(ctx, `SELECT COUNT(1) FROM vods WHERE youtube_url IS NOT NULL AND date < $1 AND updated_at > (NOW() - INTERVAL '24 hours')`, backfillCutoff).Scan(&backfillUploaded24)
 	backfillThrottled := backfillUploaded24 >= dailyLimit
 	maxAttempts := 5
-	if s := os.Getenv("DOWNLOAD_MAX_ATTEMPTS"); s != "" { if n, err := strconv.Atoi(s); err == nil && n > 0 { maxAttempts = n } }
+	if s := os.Getenv("DOWNLOAD_MAX_ATTEMPTS"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			maxAttempts = n
+		}
+	}
 	cooldown := 600 * time.Second
-	if s := os.Getenv("PROCESSING_RETRY_COOLDOWN"); s != "" { if d, err := time.ParseDuration(s); err == nil && d > 0 { cooldown = d } }
+	if s := os.Getenv("PROCESSING_RETRY_COOLDOWN"); s != "" {
+		if d, err := time.ParseDuration(s); err == nil && d > 0 {
+			cooldown = d
+		}
+	}
 	// Select a small batch of candidates and pick the first eligible.
 	rows, err := dbc.Query(`SELECT twitch_vod_id, title, date FROM vods
 		WHERE COALESCE(processed,false)=false AND (
 			processing_error IS NULL OR processing_error='' OR (download_retries < $1 AND EXTRACT(EPOCH FROM (NOW() - COALESCE(updated_at, created_at))) >= $2)
 		)
 		ORDER BY priority DESC, date ASC LIMIT 20`, maxAttempts, int(cooldown.Seconds()))
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer rows.Close()
 	var id, title string
 	var date time.Time
@@ -177,7 +230,9 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 	for rows.Next() {
 		var cid, ctitle string
 		var cdate time.Time
-		if err := rows.Scan(&cid, &ctitle, &cdate); err != nil { return err }
+		if err := rows.Scan(&cid, &ctitle, &cdate); err != nil {
+			return err
+		}
 		isBackfill := cdate.Before(backfillCutoff)
 		if backfillThrottled && isBackfill {
 			// Skip back-catalog while throttled; continue searching for a newer (non-backfill) item.
@@ -191,12 +246,14 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 		if backfillThrottled {
 			slog.Info("backfill upload throttled for 24h window; no eligible non-backfill items", slog.Int("uploaded24h", backfillUploaded24), slog.Int("limit", dailyLimit))
 		} else {
-			slog.Debug("no vods ready for processing", slog.String("component","vod_process"))
+			slog.Debug("no vods ready for processing", slog.String("component", "vod_process"))
 		}
 		return nil
 	}
 	logger := slog.Default().With(slog.String("vod_id", id), slog.String("component", "vod_process"))
-	if corr := ctx.Value(struct{ string }{"corr"}); corr != nil { logger = logger.With(slog.Any("corr", corr)) }
+	if corr := ctx.Value(struct{ string }{"corr"}); corr != nil {
+		logger = logger.With(slog.Any("corr", corr))
+	}
 	logger.Info("processing candidate selected", slog.String("title", title), slog.Time("date", date), slog.Int("queue_depth", queueDepth))
 	// Metrics
 	telemetry.ProcessingCycles.Inc()
@@ -239,14 +296,22 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 	} else {
 		// Retry loop with exponential backoff + jitter for uploads
 		maxUp := 5
-		if s := os.Getenv("UPLOAD_MAX_ATTEMPTS"); s != "" { if n, err := strconv.Atoi(s); err == nil && n > 0 { maxUp = n } }
+		if s := os.Getenv("UPLOAD_MAX_ATTEMPTS"); s != "" {
+			if n, err := strconv.Atoi(s); err == nil && n > 0 {
+				maxUp = n
+			}
+		}
 		base := 2 * time.Second
-		if s := os.Getenv("UPLOAD_BACKOFF_BASE"); s != "" { if d, err := time.ParseDuration(s); err == nil && d > 0 { base = d } }
+		if s := os.Getenv("UPLOAD_BACKOFF_BASE"); s != "" {
+			if d, err := time.ParseDuration(s); err == nil && d > 0 {
+				base = d
+			}
+		}
 		var lastErr error
-	// Load any custom description set by user
-	var customDesc string
-	_ = dbc.QueryRowContext(ctx, `SELECT COALESCE(description,'') FROM vods WHERE twitch_vod_id=$1`, id).Scan(&customDesc)
-	for attempt := 0; attempt < maxUp; attempt++ {
+		// Load any custom description set by user
+		var customDesc string
+		_ = dbc.QueryRowContext(ctx, `SELECT COALESCE(description,'') FROM vods WHERE twitch_vod_id=$1`, id).Scan(&customDesc)
+		for attempt := 0; attempt < maxUp; attempt++ {
 			if attempt > 0 {
 				backoff := base * time.Duration(1<<attempt)
 				jitter := time.Duration(rand.Int63n(int64(base)))
@@ -273,7 +338,9 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 				break
 			}
 			// If context canceled, abort early
-			if ctx.Err() != nil { break }
+			if ctx.Err() != nil {
+				break
+			}
 		}
 		if ytURL == "" {
 			// Exhausted attempts; persist error and increment retries so global cooldown/limit logic applies
@@ -292,7 +359,11 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 	// BACKFILL_AUTOCLEAN: if not "0", delete local file for older VODs (back catalog) — legacy behavior
 	// RETAIN_KEEP_NEWER_THAN_DAYS: window to consider a VOD "new" (default 7)
 	keepDays := 7
-	if s := os.Getenv("RETAIN_KEEP_NEWER_THAN_DAYS"); s != "" { if n, err := strconv.Atoi(s); err == nil && n >= 0 { keepDays = n } }
+	if s := os.Getenv("RETAIN_KEEP_NEWER_THAN_DAYS"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n >= 0 {
+			keepDays = n
+		}
+	}
 	backfillAutoclean := os.Getenv("BACKFILL_AUTOCLEAN") != "0" // default on
 	cutoff := time.Now().Add(-time.Duration(keepDays) * 24 * time.Hour)
 	isBackfill := date.Before(cutoff)
@@ -312,10 +383,14 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 	// If we performed an upload in this run, we have upDur set; otherwise it may be zero for idempotent path
 	totalDur := time.Since(procStart)
 	telemetry.UploadsSucceeded.Inc()
-	if upDur > 0 { telemetry.UploadDuration.Observe(upDur.Seconds()) }
+	if upDur > 0 {
+		telemetry.UploadDuration.Observe(upDur.Seconds())
+	}
 	telemetry.TotalProcessDuration.Observe(totalDur.Seconds())
 	updateMovingAvg(ctx, dbc, "avg_download_ms", float64(dlDur.Milliseconds()))
-	if upDur > 0 { updateMovingAvg(ctx, dbc, "avg_upload_ms", float64(upDur.Milliseconds())) }
+	if upDur > 0 {
+		updateMovingAvg(ctx, dbc, "avg_upload_ms", float64(upDur.Milliseconds()))
+	}
 	updateMovingAvg(ctx, dbc, "avg_total_ms", float64(totalDur.Milliseconds()))
 	logger.Info("processed vod", slog.String("youtube_url", ytURL), slog.Duration("download_duration", dlDur), slog.Duration("upload_duration", upDur), slog.Duration("total_duration", totalDur), slog.Int("queue_depth", queueDepth-1))
 	telemetry.SetQueueDepth(queueDepth - 1)
@@ -335,7 +410,9 @@ func updateMovingAvg(ctx context.Context, db *sql.DB, key string, newVal float64
 		return
 	}
 	var old float64
-	if v, err := strconv.ParseFloat(existing, 64); err == nil { old = v }
+	if v, err := strconv.ParseFloat(existing, 64); err == nil {
+		old = v
+	}
 	ema := alpha*newVal + (1-alpha)*old
 	_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ($1,$2,NOW())
 		ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, key, fmt.Sprintf("%.0f", ema))
@@ -344,24 +421,36 @@ func updateMovingAvg(ctx context.Context, db *sql.DB, key string, newVal float64
 // uploadToYouTube uploads the given video file using stored OAuth token.
 func uploadToYouTube(ctx context.Context, path, title string, date time.Time) (string, error) {
 	dsn := os.Getenv("DB_DSN")
-	if dsn == "" { dsn = "postgres://vod:vod@postgres:5432/vod?sslmode=disable" }
+	if dsn == "" {
+		dsn = "postgres://vod:vod@postgres:5432/vod?sslmode=disable"
+	}
 	adb, err := sql.Open("pgx", dsn)
-	if err != nil { return "", err }
+	if err != nil {
+		return "", err
+	}
 	defer adb.Close()
 	ts := &db.TokenStoreAdapter{DB: adb}
 	cfg, _ := config.Load()
 	yts := youtubeapi.New(cfg, ts)
 	svc, err := yts.Client(ctx)
-	if err != nil { return "", fmt.Errorf("youtube client: %w", err) }
+	if err != nil {
+		return "", fmt.Errorf("youtube client: %w", err)
+	}
 	datePrefix := date.Format("2006-01-02")
 	// Sanitize and validate title: non-empty, trimmed, max 100 chars, no control chars
 	t := strings.TrimSpace(title)
-	if t == "" { t = "Twitch VOD" }
+	if t == "" {
+		t = "Twitch VOD"
+	}
 	// Remove control characters
 	clean := make([]rune, 0, len(t))
 	for _, r := range t {
-		if r == '\n' || r == '\r' || r == '\t' { continue }
-		if r < 0x20 { continue }
+		if r == '\n' || r == '\r' || r == '\t' {
+			continue
+		}
+		if r < 0x20 {
+			continue
+		}
 		clean = append(clean, r)
 	}
 	t = string(clean)

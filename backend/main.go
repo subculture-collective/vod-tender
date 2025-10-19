@@ -39,9 +39,12 @@ func main() {
 	// Configure logging (level + format). Defaults: level=info, format=text.
 	lvl := slog.LevelInfo
 	switch strings.ToLower(os.Getenv("LOG_LEVEL")) {
-	case "debug": lvl = slog.LevelDebug
-	case "warn": lvl = slog.LevelWarn
-	case "error": lvl = slog.LevelError
+	case "debug":
+		lvl = slog.LevelDebug
+	case "warn":
+		lvl = slog.LevelWarn
+	case "error":
+		lvl = slog.LevelError
 	case "info", "":
 		// keep default
 	default:
@@ -58,7 +61,7 @@ func main() {
 		handler = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: lvl})
 	}
 	slog.SetDefault(slog.New(handler))
-	slog.Info("logger initialized", slog.String("level", lvl.String()), slog.String("format", map[bool]string{true: "json", false: "text"}[format=="json"]))
+	slog.Info("logger initialized", slog.String("level", lvl.String()), slog.String("format", map[bool]string{true: "json", false: "text"}[format == "json"]))
 
 	// Config
 	cfg, err := config.Load()
@@ -113,16 +116,22 @@ func main() {
 	// Centralized OAuth token refreshers
 	oauth.StartRefresher(ctx, database, "twitch", 5*time.Minute, 15*time.Minute, func(rctx context.Context, refreshToken string) (string, string, time.Time, string, error) {
 		res, err := twitchapi.RefreshToken(rctx, cfg.TwitchClientID, cfg.TwitchClientSecret, refreshToken)
-		if err != nil { return "", "", time.Time{}, "", err }
+		if err != nil {
+			return "", "", time.Time{}, "", err
+		}
 		return res.AccessToken, res.RefreshToken, twitchapi.ComputeExpiry(res.ExpiresIn), strings.Join(res.Scope, " "), nil
 	})
 	oauth.StartRefresher(ctx, database, "youtube", 10*time.Minute, 20*time.Minute, func(rctx context.Context, refreshToken string) (string, string, time.Time, string, error) {
 		cfg2, _ := config.Load()
 		ts := &oauth2.Token{RefreshToken: refreshToken}
-		if cfg2.YTClientID == "" { return "", "", time.Time{}, "", context.Canceled }
+		if cfg2.YTClientID == "" {
+			return "", "", time.Time{}, "", context.Canceled
+		}
 		oc := &oauth2.Config{ClientID: cfg2.YTClientID, ClientSecret: cfg2.YTClientSecret, Endpoint: google.Endpoint, RedirectURL: cfg2.YTRedirectURI}
 		newTok, err := oc.TokenSource(rctx, ts).Token()
-		if err != nil { return "", "", time.Time{}, "", err }
+		if err != nil {
+			return "", "", time.Time{}, "", err
+		}
 		return newTok.AccessToken, newTok.RefreshToken, newTok.Expiry, "", nil
 	})
 
@@ -142,4 +151,3 @@ func main() {
 	<-ctx.Done()
 	slog.Info("shutting down")
 }
-

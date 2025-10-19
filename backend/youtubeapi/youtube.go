@@ -115,6 +115,7 @@ func UploadVideo(ctx context.Context, svc *yt.Service, path, title, description,
 	if privacy == "" {
 		privacy = "private"
 	}
+	//nolint:gosec // G304: Path is to downloaded VOD file in controlled data directory
 	f, err := os.Open(path)
 	if err != nil {
 		return "", fmt.Errorf("open file: %w", err)

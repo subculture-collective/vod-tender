@@ -13,7 +13,7 @@
 # - Consider setting an expiration date for temporary exceptions
 #
 # To ignore a vulnerability with expiration:
-# CVE-2023-12345 # expires: 2024-12-31 - Waiting for upstream fix
+# CVE-2023-12345 # expires: 2024-12-31 (not enforced by Trivy) - Waiting for upstream fix
 #
 # Documentation: https://aquasecurity.github.io/trivy/latest/docs/configuration/filtering/
 

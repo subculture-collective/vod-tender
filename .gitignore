@@ -140,3 +140,7 @@ vite.config.ts.timestamp-*
 
 # Local secrets (cookies, tokens, etc.)
 secrets/
+
+# Go test coverage
+*.out
+coverage.out

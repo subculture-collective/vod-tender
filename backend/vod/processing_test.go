@@ -48,11 +48,15 @@ func TestProcessOnceHappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
-	if err := dbpkg.Migrate(db); err != nil {
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("failed to close db: %v", err)
+		}
+	}()
+	if err := dbpkg.Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
-	_, _ = db.Exec(`INSERT INTO vods (twitch_vod_id,title,date,duration_seconds,created_at) VALUES ('123','Test',NOW(),60,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`)
+	_, _ = db.ExecContext(context.Background(), `INSERT INTO vods (twitch_vod_id,title,date,duration_seconds,created_at) VALUES ('123','Test',NOW(),60,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`)
 	oldD, oldU := downloader, uploader
 	downloader = mockDownloader{path: "/tmp/123.mp4"}
 	uploader = mockUploader{url: "https://youtu.be/abc"}
@@ -64,7 +68,7 @@ func TestProcessOnceHappyPath(t *testing.T) {
 	}
 	var processed bool
 	var yt string
-	_ = db.QueryRow(`SELECT processed,youtube_url FROM vods WHERE twitch_vod_id='123'`).Scan(&processed, &yt)
+	_ = db.QueryRowContext(context.Background(), `SELECT processed,youtube_url FROM vods WHERE twitch_vod_id='123'`).Scan(&processed, &yt)
 	if !processed || yt == "" {
 		t.Fatalf("expected processed=true and youtube_url set got %v %s", processed, yt)
 	}
@@ -79,11 +83,15 @@ func TestProcessOnceDownloadFail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
-	if err := dbpkg.Migrate(db); err != nil {
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("failed to close db: %v", err)
+		}
+	}()
+	if err := dbpkg.Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
-	_, _ = db.Exec(`INSERT INTO vods (twitch_vod_id,title,date,duration_seconds,created_at) VALUES ('d1','D','2024-01-01T00:00:00Z',30,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`)
+	_, _ = db.ExecContext(context.Background(), `INSERT INTO vods (twitch_vod_id,title,date,duration_seconds,created_at) VALUES ('d1','D','2024-01-01T00:00:00Z',30,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`)
 	oldD, oldU := downloader, uploader
 	downloader = mockDownloader{err: errors.New("boom")}
 	uploader = mockUploader{url: "ignored"}
@@ -94,7 +102,7 @@ func TestProcessOnceDownloadFail(t *testing.T) {
 		t.Fatal(err)
 	}
 	var perr string
-	_ = db.QueryRow(`SELECT processing_error FROM vods WHERE twitch_vod_id='d1'`).Scan(&perr)
+	_ = db.QueryRowContext(context.Background(), `SELECT processing_error FROM vods WHERE twitch_vod_id='d1'`).Scan(&perr)
 	if perr == "" {
 		t.Fatalf("expected processing_error set")
 	}
@@ -109,26 +117,36 @@ func TestCircuitBreakerTransitions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
-	if err := dbpkg.Migrate(db); err != nil {
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("failed to close db: %v", err)
+		}
+	}()
+	if err := dbpkg.Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
-	os.Setenv("CIRCUIT_FAILURE_THRESHOLD", "2")
-	defer os.Unsetenv("CIRCUIT_FAILURE_THRESHOLD")
+	if err := os.Setenv("CIRCUIT_FAILURE_THRESHOLD", "2"); err != nil {
+		t.Fatalf("failed to set env: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("CIRCUIT_FAILURE_THRESHOLD"); err != nil {
+			t.Errorf("failed to unset env: %v", err)
+		}
+	}()
 	ctx := context.Background()
 	updateCircuitOnFailure(ctx, db)
 	var v string
-	_ = db.QueryRow(`SELECT value FROM kv WHERE key='circuit_failures'`).Scan(&v)
+	_ = db.QueryRowContext(context.Background(), `SELECT value FROM kv WHERE key='circuit_failures'`).Scan(&v)
 	if v != "1" {
 		t.Fatalf("expected failures=1 got %s", v)
 	}
 	updateCircuitOnFailure(ctx, db)
-	_ = db.QueryRow(`SELECT value FROM kv WHERE key='circuit_state'`).Scan(&v)
+	_ = db.QueryRowContext(context.Background(), `SELECT value FROM kv WHERE key='circuit_state'`).Scan(&v)
 	if v != "open" {
 		t.Fatalf("expected state open got %s", v)
 	}
 	resetCircuit(ctx, db)
-	_ = db.QueryRow(`SELECT value FROM kv WHERE key='circuit_state'`).Scan(&v)
+	_ = db.QueryRowContext(context.Background(), `SELECT value FROM kv WHERE key='circuit_state'`).Scan(&v)
 	if v != "closed" {
 		t.Fatalf("expected state closed got %s", v)
 	}

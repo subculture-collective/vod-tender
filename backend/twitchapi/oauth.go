@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -67,7 +68,11 @@ func ExchangeAuthCode(ctx context.Context, clientID, clientSecret, code, redirec
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Warn("failed to close response body", slog.Any("err", err))
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("twitch auth code exchange failed: %s: %s", resp.Status, string(b))
@@ -106,7 +111,11 @@ func RefreshToken(ctx context.Context, clientID, clientSecret, refreshToken stri
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Warn("failed to close response body", slog.Any("err", err))
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("twitch refresh failed: %s: %s", resp.Status, string(b))

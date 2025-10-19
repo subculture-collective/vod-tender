@@ -15,15 +15,16 @@ import (
 func Connect() (*sql.DB, error) {
 	dsn := os.Getenv("DB_DSN")
 	if dsn == "" {
+		//nolint:gosec // G101: Default DSN for local development in Docker Compose, not production credentials
 		dsn = "postgres://vod:vod@postgres:5432/vod?sslmode=disable"
 	}
 	return sql.Open("pgx", dsn)
 }
 
 // Migrate applies idempotent schema changes for all required tables and indices.
-func Migrate(db *sql.DB) error { return migratePostgres(db) }
+func Migrate(ctx context.Context, db *sql.DB) error { return migratePostgres(ctx, db) }
 
-func migratePostgres(db *sql.DB) error {
+func migratePostgres(ctx context.Context, db *sql.DB) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS vods (
 			id SERIAL PRIMARY KEY,
@@ -82,7 +83,7 @@ func migratePostgres(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_vods_proc_pri_date ON vods(processed, priority, date)`,
 	}
 	for i, s := range stmts {
-		if _, err := db.Exec(s); err != nil {
+		if _, err := db.ExecContext(ctx, s); err != nil {
 			return fmt.Errorf("postgres migrate step %d failed: %w", i, err)
 		}
 	}

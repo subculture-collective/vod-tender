@@ -145,7 +145,7 @@ jobs:
                     echo "### Bundle Size Report" >> $GITHUB_STEP_SUMMARY
                     echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
                     du -sh dist >> $GITHUB_STEP_SUMMARY
-                    find dist -type f -name "*.js" -o -name "*.css" | xargs ls -lh >> $GITHUB_STEP_SUMMARY
+                    find dist -type f \( -name "*.js" -o -name "*.css" \) -print0 | xargs -0 ls -lh >> $GITHUB_STEP_SUMMARY
                     echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
                   fi
 

@@ -131,28 +131,28 @@ test_api() {
     echo "🔍 Testing API endpoints..."
     
     # Health endpoint
-    if docker compose exec -T api curl -f -s http://localhost:8080/healthz >/dev/null 2>&1; then
+    if curl -f -s http://localhost:8080/healthz >/dev/null 2>&1; then
         pass "Health endpoint responds"
     else
         fail "Health endpoint failed"
     fi
     
     # Status endpoint
-    if docker compose exec -T api curl -f -s http://localhost:8080/status >/dev/null 2>&1; then
+    if curl -f -s http://localhost:8080/status >/dev/null 2>&1; then
         pass "Status endpoint responds"
     else
         fail "Status endpoint failed"
     fi
     
     # Metrics endpoint
-    if docker compose exec -T api curl -f -s http://localhost:8080/metrics >/dev/null 2>&1; then
+    if curl -f -s http://localhost:8080/metrics >/dev/null 2>&1; then
         pass "Metrics endpoint responds"
     else
         fail "Metrics endpoint failed"
     fi
     
     # Check metrics content
-    METRICS=$(docker compose exec -T api curl -s http://localhost:8080/metrics)
+    METRICS=$(curl -s http://localhost:8080/metrics)
     if echo "$METRICS" | grep -q "go_goroutines"; then
         pass "Metrics contain Go runtime stats"
     else

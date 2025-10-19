@@ -197,6 +197,7 @@ Simple CORS is enabled for dev (Access-Control-Allow-Origin: \*). For production
 
 - OAuth tokens are stored in plaintext in Postgres for convenience. For production, consider encrypting at rest or using a dedicated secret store.
 - Avoid enabling `YTDLP_VERBOSE=1` when passing cookies; secrets may leak in verbose output.
+- Container images are automatically scanned for vulnerabilities using Trivy in CI. Builds fail on CRITICAL/HIGH severity issues. Scan reports are available as CI artifacts.
 
 
 # feature ideas

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 )
 
@@ -42,7 +43,11 @@ func (hc *HelixClient) GetUserID(ctx context.Context, login string) (string, err
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Warn("failed to close response body", slog.Any("err", err))
+		}
+	}()
 	var body struct {
 		Data []struct {
 			ID string `json:"id"`
@@ -86,7 +91,11 @@ func (hc *HelixClient) ListVideos(ctx context.Context, userID, after string, fir
 	if err != nil {
 		return nil, "", err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Warn("failed to close response body", slog.Any("err", err))
+		}
+	}()
 	var body struct {
 		Data []struct {
 			ID, Title, Duration string

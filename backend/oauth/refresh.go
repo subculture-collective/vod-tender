@@ -27,6 +27,7 @@ func StartRefresher(ctx context.Context, db *sql.DB, provider string, interval, 
 		window = 15 * time.Minute
 	}
 	// Randomize initial delay to spread load across instances.
+	//nolint:gosec // G404: math/rand is sufficient for scheduling jitter, not used for security
 	initialJitter := time.Duration(rand.Int63n(int64(interval / 2)))
 	go func() {
 		select {
@@ -37,6 +38,7 @@ func StartRefresher(ctx context.Context, db *sql.DB, provider string, interval, 
 		for {
 			// Add per-iteration jitter (±20% of interval) for scheduling diversity.
 			jitterRange := int64(interval / 5)
+			//nolint:gosec // G404: math/rand is sufficient for scheduling jitter, not used for security
 			jitter := time.Duration(rand.Int63n(jitterRange*2) - jitterRange)
 			nextSleep := interval + jitter
 			if nextSleep < interval/2 {
@@ -61,11 +63,12 @@ func StartRefresher(ctx context.Context, db *sql.DB, provider string, interval, 
 				continue
 			}
 			// Small pre-refresh jitter to avoid stampedes when many pods see same expiry
+			//nolint:gosec // G404: math/rand is sufficient for jitter, not used for security
 			pre := time.Duration(rand.Int63n(int64(5 * time.Second)))
 			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(pre):
+				case <-ctx.Done():
+					return
+				case <-time.After(pre):
 			}
 			ctx2, cancel := context.WithTimeout(ctx, 15*time.Second)
 			newAT, newRT, newExp, newScope, err := fn(ctx2, rt)

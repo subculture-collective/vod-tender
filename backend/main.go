@@ -91,8 +91,15 @@ func main() {
 		slog.Error("failed to open db", slog.Any("err", err))
 		os.Exit(1)
 	}
-	defer database.Close()
-	if err := db.Migrate(database); err != nil {
+	defer func() {
+		if err := database.Close(); err != nil {
+			slog.Error("failed to close database", slog.Any("err", err))
+		}
+	}()
+	
+	// Create a context for migration
+	migrationCtx := context.Background()
+	if err := db.Migrate(migrationCtx, database); err != nil {
 		slog.Error("failed to migrate db", slog.Any("err", err))
 		os.Exit(1)
 	}

@@ -99,7 +99,7 @@ func NewMux(db *sql.DB) http.Handler {
 			return
 		}
 		// persist tokens
-		_, err = db.Exec(`INSERT INTO oauth_tokens (provider, access_token, refresh_token, expires_at, scope, updated_at) VALUES ($1,$2,$3,$4,$5,NOW())
+		_, err = db.ExecContext(ctx, `INSERT INTO oauth_tokens (provider, access_token, refresh_token, expires_at, scope, updated_at) VALUES ($1,$2,$3,$4,$5,NOW())
             ON CONFLICT(provider) DO UPDATE SET access_token=EXCLUDED.access_token, refresh_token=EXCLUDED.refresh_token, expires_at=EXCLUDED.expires_at, scope=EXCLUDED.scope, updated_at=NOW()`,
 			"twitch", res.AccessToken, res.RefreshToken, twitchapi.ComputeExpiry(res.ExpiresIn), strings.Join(res.Scope, " "))
 		if err != nil {
@@ -107,7 +107,9 @@ func NewMux(db *sql.DB) http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"status": "ok", "scopes": res.Scope, "expires_in": res.ExpiresIn})
+		if err := json.NewEncoder(w).Encode(map[string]any{"status": "ok", "scopes": res.Scope, "expires_in": res.ExpiresIn}); err != nil {
+			slog.Warn("failed to encode JSON response", slog.Any("err", err))
+		}
 	})
 
 	// YouTube OAuth start
@@ -155,7 +157,9 @@ func NewMux(db *sql.DB) http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"status": "ok", "expiry": tok.Expiry, "access_token_present": tok.AccessToken != "", "refresh_token_present": tok.RefreshToken != ""})
+		if err := json.NewEncoder(w).Encode(map[string]any{"status": "ok", "expiry": tok.Expiry, "access_token_present": tok.AccessToken != "", "refresh_token_present": tok.RefreshToken != ""}); err != nil {
+			slog.Warn("failed to encode JSON response", slog.Any("err", err))
+		}
 	})
 
 	// Health
@@ -294,7 +298,11 @@ func NewMux(db *sql.DB) http.Handler {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		defer rows.Close()
+		defer func() {
+			if err := rows.Close(); err != nil {
+				slog.Warn("failed to close rows", slog.Any("err", err))
+			}
+		}()
 		type vod struct {
 			ID        string    `json:"id"`
 			Title     string    `json:"title"`
@@ -481,15 +489,6 @@ func NewMux(db *sql.DB) http.Handler {
 }
 
 // cfgGet returns an override value from kv for a given key (with cfg: prefix) or falls back to env.
-func cfgGet(ctx context.Context, db *sql.DB, key string) string {
-	var v string
-	_ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key=$1`, "cfg:"+key).Scan(&v)
-	if v != "" {
-		return v
-	}
-	return os.Getenv(key)
-}
-
 // Start runs the HTTP server and shuts down gracefully on context cancellation.
 func Start(ctx context.Context, db *sql.DB, addr string) error {
 	srv := &http.Server{
@@ -503,7 +502,8 @@ func Start(ctx context.Context, db *sql.DB, addr string) error {
 	// Shutdown goroutine
 	go func() {
 		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// Use WithoutCancel to inherit context values but allow shutdown to complete
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			slog.Error("http server shutdown error", slog.Any("err", err))
@@ -655,7 +655,11 @@ func handleChatJSON(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID st
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Warn("failed to close rows", slog.Any("err", err))
+		}
+	}()
 	type msg struct {
 		User   string    `json:"username"`
 		Text   string    `json:"message"`
@@ -700,7 +704,11 @@ func handleChatSSE(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID str
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Warn("failed to close rows", slog.Any("err", err))
+		}
+	}()
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -715,7 +723,7 @@ func handleChatSSE(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID str
 		Emotes string
 		Color  string
 	}
-	var prev float64 = from
+	prev := from
 	enc := json.NewEncoder(w)
 	for rows.Next() {
 		var m row
@@ -732,7 +740,10 @@ func handleChatSSE(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID str
 			}
 		}
 		// write SSE event
-		w.Write([]byte("data: "))
+		if _, err := w.Write([]byte("data: ")); err != nil {
+			slog.Warn("failed to write SSE data prefix", slog.Any("err", err))
+			return
+		}
 		_ = enc.Encode(map[string]any{
 			"username":      m.User,
 			"message":       m.Text,
@@ -742,7 +753,10 @@ func handleChatSSE(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID str
 			"emotes":        m.Emotes,
 			"color":         m.Color,
 		})
-		w.Write([]byte("\n"))
+		if _, err := w.Write([]byte("\n")); err != nil {
+			slog.Warn("failed to write SSE newline", slog.Any("err", err))
+			return
+		}
 		flusher.Flush()
 		prev = m.Rel
 	}

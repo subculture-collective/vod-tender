@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -119,7 +120,7 @@ func TestTokenSource_GetMissingCredentials(t *testing.T) {
 	if err == nil {
 		t.Error("Get() with missing credentials should return error")
 	}
-	if !contains(err.Error(), "missing client id/secret") {
+	if !strings.Contains(err.Error(), "missing client id/secret") {
 		t.Errorf("Get() error = %v, want error about missing credentials", err)
 	}
 }
@@ -168,7 +169,7 @@ func TestTokenSource_GetEmptyToken(t *testing.T) {
 	if err == nil {
 		t.Error("Get() with empty access_token should return error")
 	}
-	if !contains(err.Error(), "empty access_token") {
+	if !strings.Contains(err.Error(), "empty access_token") {
 		t.Errorf("Get() error = %v, want error about empty access_token", err)
 	}
 }

@@ -100,6 +100,8 @@ Full configuration reference and operational guidance:
 - Architecture: `docs/ARCHITECTURE.md`
 - Configuration: `docs/CONFIG.md`
 - Operations / Runbook: `docs/OPERATIONS.md`
+- CI/CD Pipeline: `docs/CICD.md`
+- CI/CD Quick Reference: `docs/CICD-QUICK-REFERENCE.md`
 
 ## End-to-end overview
 

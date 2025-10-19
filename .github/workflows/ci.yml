@@ -116,7 +116,7 @@ jobs:
                   $(go env GOPATH)/bin/govulncheck ./...
 
             - name: Lint
-              uses: golangci/golangci-lint-action@v6
+              uses: golangci/golangci-lint-action@v8
               with:
                   version: latest
                   working-directory: backend

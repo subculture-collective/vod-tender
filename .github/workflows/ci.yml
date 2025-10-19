@@ -344,16 +344,16 @@ jobs:
               run: |
                   # Test API endpoints
                   echo "Testing API health endpoint..."
-                  docker compose exec -T api curl -f http://localhost:8080/healthz || exit 1
+                  curl -f http://localhost:8080/healthz || exit 1
                   
                   echo "Testing API status endpoint..."
-                  docker compose exec -T api curl -f http://localhost:8080/status || exit 1
+                  curl -f http://localhost:8080/status || exit 1
                   
                   echo "Testing API metrics endpoint..."
-                  docker compose exec -T api curl -f http://localhost:8080/metrics || exit 1
+                  curl -f http://localhost:8080/metrics || exit 1
                   
                   echo "Testing frontend..."
-                  docker compose exec -T frontend wget -q -O - http://localhost/ > /dev/null || exit 1
+                  wget -q -O - http://localhost:8081/ > /dev/null || exit 1
 
             - name: Show service logs on failure
               if: failure()

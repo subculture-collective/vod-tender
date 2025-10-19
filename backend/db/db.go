@@ -15,6 +15,7 @@ import (
 func Connect() (*sql.DB, error) {
 	dsn := os.Getenv("DB_DSN")
 	if dsn == "" {
+		//nolint:gosec // G101: Default DSN for local development in Docker Compose, not production credentials
 		dsn = "postgres://vod:vod@postgres:5432/vod?sslmode=disable"
 	}
 	return sql.Open("pgx", dsn)

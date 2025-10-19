@@ -135,6 +135,7 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 	}
 	if cf != "" {
 		// Create a private temp copy
+		//nolint:gosec // G304: Path is from environment variable TWITCH_COOKIES_FILE, operator-controlled
 		f, err := os.Open(cf)
 		if err == nil {
 			defer func() {
@@ -190,6 +191,7 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 		logger.Debug("download attempt", slog.Int("attempt", attempt+1), slog.Int("max", maxAttempts))
 		if attempt > 0 {
 			backoff := baseBackoff * time.Duration(1<<attempt)
+			//nolint:gosec // G404: math/rand is sufficient for exponential backoff jitter, not used for security
 			jitter := time.Duration(rand.Int63n(int64(baseBackoff))) // up to baseBackoff extra
 			backoff += jitter
 			logger.Warn("retrying download", slog.Int("attempt", attempt), slog.Duration("backoff", backoff))
@@ -198,6 +200,7 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 			delete(activeCancels, id)
 			activeMu.Unlock()
 		}
+		//nolint:gosec // G204: ytDLP command path is from environment variable or hardcoded constant, args are controlled
 		cmd := exec.CommandContext(ctx, ytDLP, args...)
 		stderr, errPipe := cmd.StderrPipe()
 		if errPipe != nil {

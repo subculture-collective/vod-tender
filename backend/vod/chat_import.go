@@ -225,6 +225,7 @@ func buildTwitchCookieHeader() string {
 		return ""
 	}
 	// Limit read size to avoid huge files
+	//nolint:gosec // G304: Path is from environment variable TWITCH_COOKIES_FILE, operator-controlled
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return ""

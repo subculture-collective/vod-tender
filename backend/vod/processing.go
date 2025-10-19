@@ -102,7 +102,7 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 	if dataDir == "" {
 		dataDir = "data"
 	}
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+	if err := os.MkdirAll(dataDir, 0o750); err != nil {
 		return fmt.Errorf("mkdir data dir: %w", err)
 	}
 	// Best-effort cleanup: prune stale partial/tmp files to keep /data small
@@ -321,6 +321,7 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 		for attempt := 0; attempt < maxUp; attempt++ {
 			if attempt > 0 {
 				backoff := base * time.Duration(1<<attempt)
+				//nolint:gosec // G404: math/rand is sufficient for exponential backoff jitter, not used for security
 				jitter := time.Duration(rand.Int63n(int64(base)))
 				backoff += jitter
 				logger.Warn("retrying upload", slog.Int("attempt", attempt), slog.Int("max", maxUp), slog.Duration("backoff", backoff))
@@ -429,6 +430,7 @@ func updateMovingAvg(ctx context.Context, db *sql.DB, key string, newVal float64
 func uploadToYouTube(ctx context.Context, path, title string, date time.Time) (string, error) {
 	dsn := os.Getenv("DB_DSN")
 	if dsn == "" {
+		//nolint:gosec // G101: Default DSN for local development in Docker Compose, not production credentials
 		dsn = "postgres://vod:vod@postgres:5432/vod?sslmode=disable"
 	}
 	adb, err := sql.Open("pgx", dsn)

@@ -138,7 +138,11 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 			active := map[string]struct{}{}
 			rows, err := dbc.QueryContext(ctx, `SELECT downloaded_path FROM vods WHERE downloaded_path IS NOT NULL`)
 			if err == nil {
-				defer rows.Close()
+				defer func() {
+					if err := rows.Close(); err != nil {
+						slog.Warn("failed to close rows", slog.Any("err", err))
+					}
+				}()
 				for rows.Next() {
 					var p string
 					if err := rows.Scan(&p); err == nil && p != "" {
@@ -222,7 +226,11 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Warn("failed to close rows", slog.Any("err", err))
+		}
+	}()
 	var id, title string
 	var date time.Time
 	picked := false
@@ -427,7 +435,11 @@ func uploadToYouTube(ctx context.Context, path, title string, date time.Time) (s
 	if err != nil {
 		return "", err
 	}
-	defer adb.Close()
+	defer func() {
+		if err := adb.Close(); err != nil {
+			slog.Warn("failed to close auxiliary database connection", slog.Any("err", err))
+		}
+	}()
 	ts := &db.TokenStoreAdapter{DB: adb}
 	cfg, _ := config.Load()
 	yts := youtubeapi.New(cfg, ts)

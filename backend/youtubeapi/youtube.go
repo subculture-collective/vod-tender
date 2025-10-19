@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -118,7 +119,11 @@ func UploadVideo(ctx context.Context, svc *yt.Service, path, title, description,
 	if err != nil {
 		return "", fmt.Errorf("open file: %w", err)
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			slog.Warn("failed to close video file", slog.Any("err", err))
+		}
+	}()
 	snippet := &yt.VideoSnippet{Title: title, Description: description}
 	status := &yt.VideoStatus{PrivacyStatus: privacy}
 	video := &yt.Video{Snippet: snippet, Status: status}

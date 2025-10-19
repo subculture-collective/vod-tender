@@ -20,7 +20,11 @@ func TestReprocess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("failed to close db: %v", err)
+		}
+	}()
 	if err := dbpkg.Migrate(db); err != nil {
 		t.Fatal(err)
 	}

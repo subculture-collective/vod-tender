@@ -48,7 +48,11 @@ func TestProcessOnceHappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("failed to close db: %v", err)
+		}
+	}()
 	if err := dbpkg.Migrate(db); err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +83,11 @@ func TestProcessOnceDownloadFail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("failed to close db: %v", err)
+		}
+	}()
 	if err := dbpkg.Migrate(db); err != nil {
 		t.Fatal(err)
 	}
@@ -109,12 +117,22 @@ func TestCircuitBreakerTransitions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("failed to close db: %v", err)
+		}
+	}()
 	if err := dbpkg.Migrate(db); err != nil {
 		t.Fatal(err)
 	}
-	os.Setenv("CIRCUIT_FAILURE_THRESHOLD", "2")
-	defer os.Unsetenv("CIRCUIT_FAILURE_THRESHOLD")
+	if err := os.Setenv("CIRCUIT_FAILURE_THRESHOLD", "2"); err != nil {
+		t.Fatalf("failed to set env: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("CIRCUIT_FAILURE_THRESHOLD"); err != nil {
+			t.Errorf("failed to unset env: %v", err)
+		}
+	}()
 	ctx := context.Background()
 	updateCircuitOnFailure(ctx, db)
 	var v string

@@ -107,7 +107,9 @@ func NewMux(db *sql.DB) http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"status": "ok", "scopes": res.Scope, "expires_in": res.ExpiresIn})
+		if err := json.NewEncoder(w).Encode(map[string]any{"status": "ok", "scopes": res.Scope, "expires_in": res.ExpiresIn}); err != nil {
+			slog.Warn("failed to encode JSON response", slog.Any("err", err))
+		}
 	})
 
 	// YouTube OAuth start
@@ -155,7 +157,9 @@ func NewMux(db *sql.DB) http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"status": "ok", "expiry": tok.Expiry, "access_token_present": tok.AccessToken != "", "refresh_token_present": tok.RefreshToken != ""})
+		if err := json.NewEncoder(w).Encode(map[string]any{"status": "ok", "expiry": tok.Expiry, "access_token_present": tok.AccessToken != "", "refresh_token_present": tok.RefreshToken != ""}); err != nil {
+			slog.Warn("failed to encode JSON response", slog.Any("err", err))
+		}
 	})
 
 	// Health
@@ -294,7 +298,11 @@ func NewMux(db *sql.DB) http.Handler {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		defer rows.Close()
+		defer func() {
+			if err := rows.Close(); err != nil {
+				slog.Warn("failed to close rows", slog.Any("err", err))
+			}
+		}()
 		type vod struct {
 			ID        string    `json:"id"`
 			Title     string    `json:"title"`
@@ -647,7 +655,11 @@ func handleChatJSON(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID st
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Warn("failed to close rows", slog.Any("err", err))
+		}
+	}()
 	type msg struct {
 		User   string    `json:"username"`
 		Text   string    `json:"message"`
@@ -692,7 +704,11 @@ func handleChatSSE(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID str
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Warn("failed to close rows", slog.Any("err", err))
+		}
+	}()
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -724,7 +740,10 @@ func handleChatSSE(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID str
 			}
 		}
 		// write SSE event
-		w.Write([]byte("data: "))
+		if _, err := w.Write([]byte("data: ")); err != nil {
+			slog.Warn("failed to write SSE data prefix", slog.Any("err", err))
+			return
+		}
 		_ = enc.Encode(map[string]any{
 			"username":      m.User,
 			"message":       m.Text,
@@ -734,7 +753,10 @@ func handleChatSSE(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID str
 			"emotes":        m.Emotes,
 			"color":         m.Color,
 		})
-		w.Write([]byte("\n"))
+		if _, err := w.Write([]byte("\n")); err != nil {
+			slog.Warn("failed to write SSE newline", slog.Any("err", err))
+			return
+		}
 		flusher.Flush()
 		prev = m.Rel
 	}

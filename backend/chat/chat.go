@@ -59,7 +59,9 @@ func StartTwitchChatRecorder(ctx context.Context, db *sql.DB, vodID string, vodS
 	done := make(chan struct{})
 	go func() {
 		<-ctx.Done()
-		client.Disconnect()
+		if err := client.Disconnect(); err != nil {
+			slog.Warn("failed to disconnect twitch chat client", slog.Any("err", err))
+		}
 		close(done)
 	}()
 

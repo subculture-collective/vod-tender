@@ -88,7 +88,11 @@ func StartAutoChatRecorder(ctx context.Context, db *sql.DB) {
 				slog.Debug("auto chat: streams req", slog.Any("err", err))
 				return
 			}
-			defer resp.Body.Close()
+			defer func() {
+				if err := resp.Body.Close(); err != nil {
+					slog.Warn("failed to close response body", slog.Any("err", err))
+				}
+			}()
 			var body struct {
 				Data []struct {
 					Title     string    `json:"title"`

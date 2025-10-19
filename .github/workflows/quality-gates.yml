@@ -1,0 +1,123 @@
+name: quality-gates
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  benchmarks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Run benchmarks
+        working-directory: backend
+        run: |
+          go test -bench=. -benchmem -run=^$ ./... | tee benchmark-results.txt
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: backend/benchmark-results.txt
+          retention-days: 30
+
+      - name: Compare benchmarks (PR only)
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "## Benchmark Results 📊" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Benchmark comparison would go here" >> $GITHUB_STEP_SUMMARY
+          echo "In production, this would compare against baseline from main branch" >> $GITHUB_STEP_SUMMARY
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Run tests with coverage
+        working-directory: backend
+        run: |
+          go test -coverprofile=coverage.out -covermode=atomic ./...
+          go tool cover -func=coverage.out | tee coverage.txt
+
+      - name: Calculate coverage percentage
+        id: coverage
+        working-directory: backend
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          echo "percentage=$COVERAGE" >> $GITHUB_OUTPUT
+          echo "Coverage: $COVERAGE%"
+
+      - name: Coverage report
+        run: |
+          echo "## Test Coverage 📈" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total Coverage:** ${{ steps.coverage.outputs.percentage }}%" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if (( $(echo "${{ steps.coverage.outputs.percentage }} < 70" | bc -l) )); then
+            echo "⚠️ Coverage is below 70% target" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ Coverage meets 70% target" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload coverage to artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            backend/coverage.out
+            backend/coverage.txt
+          retention-days: 30
+
+  security-scorecard:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      id-token: write
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Run OSSF Scorecard
+        uses: ossf/scorecard-action@v2
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+
+      - name: Upload SARIF results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+
+      - name: Upload scorecard results
+        uses: actions/upload-artifact@v4
+        with:
+          name: ossf-scorecard-results
+          path: results.sarif
+          retention-days: 30

@@ -52,7 +52,7 @@ jobs:
               run: docker build -t vod-tender-frontend:${{ github.sha }} ./frontend
 
             - name: Run Trivy vulnerability scanner on backend
-              uses: aquasecurity/trivy-action@master
+              uses: aquasecurity/trivy-action@0.33.1
               with:
                   image-ref: 'vod-tender-backend:${{ github.sha }}'
                   format: 'sarif'
@@ -68,7 +68,7 @@ jobs:
                   category: 'trivy-backend'
 
             - name: Run Trivy vulnerability scanner on backend (JSON report)
-              uses: aquasecurity/trivy-action@master
+              uses: aquasecurity/trivy-action@0.33.1
               if: always()
               with:
                   image-ref: 'vod-tender-backend:${{ github.sha }}'
@@ -77,7 +77,7 @@ jobs:
                   severity: 'CRITICAL,HIGH,MEDIUM,LOW'
 
             - name: Run Trivy vulnerability scanner on frontend
-              uses: aquasecurity/trivy-action@master
+              uses: aquasecurity/trivy-action@0.33.1
               with:
                   image-ref: 'vod-tender-frontend:${{ github.sha }}'
                   format: 'sarif'
@@ -93,7 +93,7 @@ jobs:
                   category: 'trivy-frontend'
 
             - name: Run Trivy vulnerability scanner on frontend (JSON report)
-              uses: aquasecurity/trivy-action@master
+              uses: aquasecurity/trivy-action@0.33.1
               if: always()
               with:
                   image-ref: 'vod-tender-frontend:${{ github.sha }}'

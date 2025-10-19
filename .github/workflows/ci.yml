@@ -135,11 +135,17 @@ jobs:
               with:
                   node-version: '20'
                   cache: 'npm'
-                  cache-dependency-path: frontend/npm-lock.yaml
+                  cache-dependency-path: |
+                    frontend/package-lock.json
+                    frontend/package.json
 
             - name: Install dependencies
               working-directory: frontend
-              run: npm install
+              run: npm ci
+
+            - name: TypeScript type checking
+              working-directory: frontend
+              run: npx tsc --noEmit
 
             - name: Build
               working-directory: frontend
@@ -148,11 +154,49 @@ jobs:
             - name: Lint
               working-directory: frontend
               run: npm run lint
+
+            - name: Track bundle size
+              working-directory: frontend
+              run: |
+                  if [ -d dist ]; then
+                    echo "### Bundle Size Report" >> $GITHUB_STEP_SUMMARY
+                    echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+                    du -sh dist >> $GITHUB_STEP_SUMMARY
+                    find dist -type f \( -name "*.js" -o -name "*.css" \) -print0 | xargs -0 ls -lh >> $GITHUB_STEP_SUMMARY
+                    echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+                  fi
+
+    docker-images:
+        runs-on: ubuntu-latest
+        needs: [build-test-lint, frontend]
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v3
+
             - name: Build backend Docker image
-              run: docker build -t vod-tender-backend:${{ github.sha }} ./backend
+              uses: docker/build-push-action@v5
+              with:
+                  context: ./backend
+                  platforms: linux/amd64
+                  push: false
+                  tags: vod-tender-backend:${{ github.sha }}
+                  cache-from: type=gha
+                  cache-to: type=gha,mode=max
+                  load: true
 
             - name: Build frontend Docker image
-              run: docker build -t vod-tender-frontend:${{ github.sha }} ./frontend
+              uses: docker/build-push-action@v5
+              with:
+                  context: ./frontend
+                  platforms: linux/amd64
+                  push: false
+                  tags: vod-tender-frontend:${{ github.sha }}
+                  cache-from: type=gha
+                  cache-to: type=gha,mode=max
+                  load: true
 
             - name: Run Trivy vulnerability scanner on backend
               uses: aquasecurity/trivy-action@0.33.1
@@ -215,3 +259,123 @@ jobs:
                       trivy-frontend-results.json
                       trivy-frontend-results.sarif
                   retention-days: 30
+
+    database-migration-tests:
+        runs-on: ubuntu-latest
+        services:
+            postgres:
+                image: postgres:16
+                env:
+                    POSTGRES_DB: vod_test
+                    POSTGRES_USER: vod_test
+                    POSTGRES_PASSWORD: vod_test
+                options: >-
+                    --health-cmd pg_isready
+                    --health-interval 10s
+                    --health-timeout 5s
+                    --health-retries 5
+                ports:
+                    - 5432:5432
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: '1.23.x'
+                  cache: true
+                  cache-dependency-path: backend/go.sum
+
+            - name: Run migration tests
+              working-directory: backend
+              env:
+                  TEST_PG_DSN: postgres://vod_test:vod_test@localhost:5432/vod_test?sslmode=disable
+              run: go test ./db -v
+
+            - name: Verify schema integrity
+              run: |
+                  PGPASSWORD=vod_test psql -h localhost -U vod_test -d vod_test -c "\dt" || true
+
+    integration-tests:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Create docker network
+              run: docker network create web || true
+
+            - name: Create test environment file
+              run: |
+                  cat > .env << EOF
+                  STACK_NAME=ci-test
+                  WEB_NETWORK=web
+                  TWITCH_CHANNEL=test-channel
+                  API_PORT=8080
+                  FRONTEND_PORT=8081
+                  DB_NAME=vod
+                  DB_USER=vod
+                  DB_PASSWORD=vod
+                  DB_HOST=postgres
+                  BACKEND_ENV_FILE=./backend/.env.example
+                  SECRETS_DIR=./secrets
+                  YTDLP_COOKIES_PATH=/run/cookies/twitch-cookies.txt
+                  EOF
+
+            - name: Create backend env file
+              run: |
+                  mkdir -p backend
+                  cat > backend/.env << EOF
+                  LOG_LEVEL=info
+                  LOG_FORMAT=text
+                  HTTP_ADDR=:8080
+                  EOF
+
+            - name: Create secrets directory
+              run: mkdir -p secrets
+
+            - name: Start stack
+              run: docker compose up -d --build
+              timeout-minutes: 10
+
+            - name: Wait for postgres to be healthy
+              run: |
+                  echo "Waiting for postgres to be healthy..."
+                  timeout 90 bash -c 'until docker compose ps postgres | grep -q "healthy"; do sleep 2; done'
+
+            - name: Wait for API to be healthy
+              run: |
+                  echo "Waiting for API to be healthy..."
+                  timeout 120 bash -c 'until docker compose ps api | grep -q "healthy"; do sleep 2; done'
+
+            - name: Wait for frontend to be healthy
+              run: |
+                  echo "Waiting for frontend to be healthy..."
+                  timeout 120 bash -c 'until docker compose ps frontend | grep -q "healthy"; do sleep 2; done'
+
+            - name: Show running services
+              run: docker compose ps
+
+            - name: Run smoke tests
+              run: |
+                  # Test API endpoints
+                  echo "Testing API health endpoint..."
+                  curl -f http://localhost:8080/healthz || exit 1
+                  
+                  echo "Testing API status endpoint..."
+                  curl -f http://localhost:8080/status || exit 1
+                  
+                  echo "Testing API metrics endpoint..."
+                  curl -f http://localhost:8080/metrics || exit 1
+                  
+                  echo "Testing frontend..."
+                  wget -q -O - http://localhost:8081/ > /dev/null || exit 1
+
+            - name: Show service logs on failure
+              if: failure()
+              run: docker compose logs
+
+            - name: Cleanup
+              if: always()
+              run: docker compose down -v

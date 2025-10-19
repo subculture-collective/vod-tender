@@ -47,10 +47,7 @@ func FetchAllChannelVODs(ctx context.Context, db *sql.DB, maxCount int, maxAge t
 		_ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key='catalog_after'`).Scan(&after)
 	}
 	collected := []VOD{}
-	for {
-		if maxCount > 0 && len(collected) >= maxCount {
-			break
-		}
+	for maxCount == 0 || len(collected) < maxCount {
 		videos, cursor, err := client.ListVideos(ctx, userID, after, pageSize)
 		if err != nil {
 			return nil, err

@@ -183,10 +183,8 @@ func doFetchRechat(ctx context.Context, urlStr string, offset int, cookieHeader 
 			user = a.Message.User.UserLogin
 		}
 		rel := a.Offset
-		if rel == 0 {
-			// derive relative from timestamp diff if possible (best-effort)
-			// caller will adjust using VOD start; leave as 0 here
-		}
+		// if rel == 0, derive relative from timestamp diff if possible (best-effort)
+		// caller will adjust using VOD start; leave as 0 here
 		out = append(out, rechatMessage{
 			ID:   a.ID,
 			User: user,

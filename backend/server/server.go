@@ -481,15 +481,6 @@ func NewMux(db *sql.DB) http.Handler {
 }
 
 // cfgGet returns an override value from kv for a given key (with cfg: prefix) or falls back to env.
-func cfgGet(ctx context.Context, db *sql.DB, key string) string {
-	var v string
-	_ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key=$1`, "cfg:"+key).Scan(&v)
-	if v != "" {
-		return v
-	}
-	return os.Getenv(key)
-}
-
 // Start runs the HTTP server and shuts down gracefully on context cancellation.
 func Start(ctx context.Context, db *sql.DB, addr string) error {
 	srv := &http.Server{
@@ -503,7 +494,8 @@ func Start(ctx context.Context, db *sql.DB, addr string) error {
 	// Shutdown goroutine
 	go func() {
 		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// Use WithoutCancel to inherit context values but allow shutdown to complete
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			slog.Error("http server shutdown error", slog.Any("err", err))
@@ -715,7 +707,7 @@ func handleChatSSE(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID str
 		Emotes string
 		Color  string
 	}
-	var prev float64 = from
+	prev := from
 	enc := json.NewEncoder(w)
 	for rows.Next() {
 		var m row

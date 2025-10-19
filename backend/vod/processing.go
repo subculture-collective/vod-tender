@@ -118,12 +118,11 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 		if entries, err := os.ReadDir(dataDir); err == nil {
 			for _, e := range entries {
 				name := e.Name()
-				if !(strings.HasSuffix(name, ".part") || strings.HasSuffix(name, ".tmp") || strings.Contains(name, ".transcode.tmp.mp4")) {
-					continue
-				}
-				if fi, err := e.Info(); err == nil {
-					if now.Sub(fi.ModTime()) > maxAge {
-						_ = os.Remove(filepath.Join(dataDir, name))
+				if strings.HasSuffix(name, ".part") || strings.HasSuffix(name, ".tmp") || strings.Contains(name, ".transcode.tmp.mp4") {
+					if fi, err := e.Info(); err == nil {
+						if now.Sub(fi.ModTime()) > maxAge {
+							_ = os.Remove(filepath.Join(dataDir, name))
+						}
 					}
 				}
 			}
@@ -154,19 +153,19 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 					}
 					// Only consider video-like files for sweeping
 					name := e.Name()
-					if !(strings.HasSuffix(strings.ToLower(name), ".mp4") || strings.HasSuffix(strings.ToLower(name), ".mkv") || strings.HasSuffix(strings.ToLower(name), ".webm")) {
-						continue
-					}
-					path := filepath.Join(dataDir, name)
-					if _, ok := active[path]; ok {
-						continue
-					}
-					if fi, err := e.Info(); err == nil {
-						if fi.ModTime().Before(cutoff) {
-							if err := os.Remove(path); err == nil {
-								slog.Info("sweeper removed orphaned file", slog.String("path", path))
-							} else {
-								slog.Warn("sweeper failed to remove orphaned file", slog.String("path", path), slog.Any("err", err))
+					nameLower := strings.ToLower(name)
+					if strings.HasSuffix(nameLower, ".mp4") || strings.HasSuffix(nameLower, ".mkv") || strings.HasSuffix(nameLower, ".webm") {
+						path := filepath.Join(dataDir, name)
+						if _, ok := active[path]; ok {
+							continue
+						}
+						if fi, err := e.Info(); err == nil {
+							if fi.ModTime().Before(cutoff) {
+								if err := os.Remove(path); err == nil {
+									slog.Info("sweeper removed orphaned file", slog.String("path", path))
+								} else {
+									slog.Warn("sweeper failed to remove orphaned file", slog.String("path", path), slog.Any("err", err))
+								}
 							}
 						}
 					}

@@ -71,9 +71,7 @@ func StartAutoChatRecorder(ctx context.Context, db *sql.DB) {
 		}
 		func() {
 			// If we're running, check if stream still live; if not, stop recorder and reconcile.
-			if running {
-				// We'll re-check live status below; logic continues after fetch.
-			}
+			// (no-op check removed - logic continues to fetch live status)
 			tok, err := getAppToken(ctx)
 			if err != nil {
 				slog.Debug("auto chat: get app token", slog.Any("err", err))

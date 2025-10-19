@@ -14,6 +14,7 @@ import (
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
+	"google.golang.org/api/option"
 	yt "google.golang.org/api/youtube/v3"
 
 	"github.com/onnwee/vod-tender/backend/config"
@@ -102,7 +103,7 @@ func (s *Service) Client(ctx context.Context) (*yt.Service, error) {
 		return nil, err
 	}
 	client := s.oauth.Client(ctx, tok)
-	return yt.New(client)
+	return yt.NewService(ctx, option.WithHTTPClient(client))
 }
 
 // UploadVideo uploads a video file at path with given title/description/privacy using provided YouTube service.

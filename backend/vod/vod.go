@@ -3,7 +3,6 @@
 package vod
 
 import (
-	"bufio"
 	"context"
 	"database/sql"
 	"fmt"
@@ -335,45 +334,6 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 	return "", lastErr
 }
 
-// buildCookieHeaderFromNetscape constructs a Cookie header from a Netscape cookies file.
-func buildCookieHeaderFromNetscape(path string, domainSuffix string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	pairs := make([]string, 0, 16)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		parts := strings.Split(line, "\t")
-		if len(parts) < 7 {
-			parts = strings.Fields(line)
-		}
-		if len(parts) < 7 {
-			continue
-		}
-		dom, name, val := parts[0], parts[5], parts[6]
-		if !strings.HasSuffix(strings.ToLower(dom), strings.ToLower(domainSuffix)) {
-			continue
-		}
-		if strings.EqualFold(name, "#httponly_"+name) {
-			name = strings.TrimPrefix(name, "#HttpOnly_")
-		}
-		if name == "" {
-			continue
-		}
-		pairs = append(pairs, fmt.Sprintf("%s=%s", name, val))
-	}
-	if err := sc.Err(); err != nil {
-		return "", err
-	}
-	return strings.Join(pairs, "; "), nil
-}
-
 // uploadToYouTube uploads the given video file using stored OAuth token.
 // (moved uploadToYouTube implementation to processing.go)
 
@@ -393,13 +353,9 @@ func updateCircuitOnFailure(ctx context.Context, db *sql.DB) {
 	var val string
 	_ = row.Scan(&val)
 	if val != "" {
-		_ = func() error {
-			n, e := strconv.Atoi(val)
-			if e == nil {
-				fails = n
-			}
-			return nil
-		}()
+		if n, err := strconv.Atoi(val); err == nil {
+			fails = n
+		}
 	}
 	fails++
 	_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_failures',$1,NOW())

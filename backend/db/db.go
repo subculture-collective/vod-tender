@@ -14,7 +14,9 @@ import (
 // Connect opens a Postgres connection using DB_DSN (or a sane default when running in Docker compose).
 func Connect() (*sql.DB, error) {
 	dsn := os.Getenv("DB_DSN")
-	if dsn == "" { dsn = "postgres://vod:vod@postgres:5432/vod?sslmode=disable" }
+	if dsn == "" {
+		dsn = "postgres://vod:vod@postgres:5432/vod?sslmode=disable"
+	}
 	return sql.Open("pgx", dsn)
 }
 
@@ -80,7 +82,9 @@ func migratePostgres(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_vods_proc_pri_date ON vods(processed, priority, date)`,
 	}
 	for i, s := range stmts {
-		if _, err := db.Exec(s); err != nil { return fmt.Errorf("postgres migrate step %d failed: %w", i, err) }
+		if _, err := db.Exec(s); err != nil {
+			return fmt.Errorf("postgres migrate step %d failed: %w", i, err)
+		}
 	}
 	return nil
 }
@@ -98,12 +102,14 @@ func UpsertOAuthToken(ctx context.Context, dbx *sql.DB, provider, access, refres
 func GetOAuthToken(ctx context.Context, dbx *sql.DB, provider string) (access, refresh string, expiry time.Time, scope string, err error) {
 	row := dbx.QueryRowContext(ctx, `SELECT access_token, refresh_token, expires_at, scope FROM oauth_tokens WHERE provider = $1`, provider)
 	err = row.Scan(&access, &refresh, &expiry, &scope)
-	if err == sql.ErrNoRows { return "", "", time.Time{}, "", nil }
+	if err == sql.ErrNoRows {
+		return "", "", time.Time{}, "", nil
+	}
 	return
 }
 
 // TokenStoreAdapter implements youtubeapi.TokenStore and reuses the table structure here.
-type TokenStoreAdapter struct { DB *sql.DB }
+type TokenStoreAdapter struct{ DB *sql.DB }
 
 func (t *TokenStoreAdapter) UpsertOAuthToken(ctx context.Context, provider string, accessToken string, refreshToken string, expiry time.Time, raw string) error {
 	return UpsertOAuthToken(ctx, t.DB, provider, accessToken, refreshToken, expiry, raw, "")

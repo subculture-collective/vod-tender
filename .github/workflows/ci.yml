@@ -12,7 +12,50 @@ concurrency:
 
 jobs:
     backend:
+    gitleaks:
         runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            actions: read
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - name: Run Gitleaks
+              uses: gitleaks/gitleaks-action@v2
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GITLEAKS_ENABLE_SUMMARY: true
+              # Fails on any secret findings. Use .gitleaks.toml for baseline suppressions.
+
+    govulncheck:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: '1.22.x'
+                  cache: true
+
+            - name: Install govulncheck
+              run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+            - name: Run govulncheck
+              working-directory: backend
+              run: govulncheck ./...
+              # Fails on any known vulnerabilities affecting this code. Go vuln DB is curated for exploitable vulns.
+
+    build-test-lint:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
         steps:
             - name: Checkout
               uses: actions/checkout@v4
@@ -88,3 +131,54 @@ jobs:
             - name: Lint
               working-directory: frontend
               run: npm run lint
+            - name: Build backend Docker image
+              run: docker build -t vod-tender-backend:${{ github.sha }} ./backend
+
+            - name: Build frontend Docker image
+              run: docker build -t vod-tender-frontend:${{ github.sha }} ./frontend
+
+            # Use a matrix to scan both backend and frontend images with Trivy
+            - name: Run Trivy vulnerability scanner
+              uses: aquasecurity/trivy-action@master
+              with:
+                  image-ref: 'vod-tender-${{ matrix.target }}:${{ github.sha }}'
+                  format: 'sarif'
+                  output: 'trivy-${{ matrix.target }}-results.sarif'
+                  severity: 'CRITICAL,HIGH'
+                  exit-code: '1'
+              strategy:
+                  matrix:
+                      target: [backend, frontend]
+
+            - name: Upload Trivy SARIF results to GitHub Security
+              uses: github/codeql-action/upload-sarif@v3
+              if: always()
+              with:
+                  sarif_file: 'trivy-${{ matrix.target }}-results.sarif'
+                  category: 'trivy-${{ matrix.target }}'
+              strategy:
+                  matrix:
+                      target: [backend, frontend]
+
+            - name: Run Trivy vulnerability scanner (JSON report)
+              uses: aquasecurity/trivy-action@master
+              if: always()
+              with:
+                  image-ref: 'vod-tender-${{ matrix.target }}:${{ github.sha }}'
+                  format: 'json'
+                  output: 'trivy-${{ matrix.target }}-results.json'
+                  severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+              strategy:
+                  matrix:
+                      target: [backend, frontend]
+            - name: Upload Trivy scan reports
+              uses: actions/upload-artifact@v4
+              if: always()
+              with:
+                  name: trivy-reports
+                  path: |
+                      trivy-backend-results.json
+                      trivy-backend-results.sarif
+                      trivy-frontend-results.json
+                      trivy-frontend-results.sarif
+                  retention-days: 30

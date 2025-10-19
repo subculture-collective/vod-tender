@@ -30,7 +30,11 @@ func newTestDB(t *testing.T) *sql.DB {
 
 func TestHealthzOK(t *testing.T) {
 	db := newTestDB(t)
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("failed to close db: %v", err)
+		}
+	})
 
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rr := httptest.NewRecorder()
@@ -48,7 +52,11 @@ func TestHealthzOK(t *testing.T) {
 
 func TestStartAndShutdown(t *testing.T) {
 	db := newTestDB(t)
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("failed to close db: %v", err)
+		}
+	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

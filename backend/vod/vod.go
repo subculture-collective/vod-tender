@@ -137,7 +137,11 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 		// Create a private temp copy
 		f, err := os.Open(cf)
 		if err == nil {
-			defer f.Close()
+			defer func() {
+				if err := f.Close(); err != nil {
+					slog.Warn("failed to close cookies file", slog.Any("err", err))
+				}
+			}()
 			tf, terr := os.CreateTemp("", fmt.Sprintf("yt_cookies_%s_*.txt", id))
 			if terr == nil {
 				tmpCookiesPath = tf.Name()
@@ -219,7 +223,9 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 					continue
 				}
 			}
-			fmt.Sscanf(val, "%f", &f)
+			if _, err := fmt.Sscanf(val, "%f", &f); err != nil {
+				slog.Debug("failed to parse download size", slog.String("val", val), slog.Any("err", err))
+			}
 			mult := float64(1)
 			switch strings.ToUpper(unit) {
 			case "KIB":

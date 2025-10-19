@@ -33,7 +33,11 @@ func ImportChat(ctx context.Context, db *sql.DB, vodID string) error {
 	if err != nil {
 		return fmt.Errorf("prepare insert chat: %w", err)
 	}
-	defer stmt.Close()
+	defer func() {
+		if err := stmt.Close(); err != nil {
+			slog.Warn("failed to close prepared statement", slog.Any("err", err))
+		}
+	}()
 
 	// Iterate over offsets
 	step := 30 // seconds per page
@@ -149,7 +153,11 @@ func doFetchRechat(ctx context.Context, urlStr string, offset int, cookieHeader 
 	if err != nil {
 		return nil, offset, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Warn("failed to close response body", slog.Any("err", err))
+		}
+	}()
 	if resp.StatusCode != 200 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		return nil, offset, fmt.Errorf("rechat status %d: %s", resp.StatusCode, string(b))

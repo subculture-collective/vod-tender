@@ -17,7 +17,11 @@ func TestMigrate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("failed to close db: %v", err)
+		}
+	}()
 	if err := Migrate(db); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}

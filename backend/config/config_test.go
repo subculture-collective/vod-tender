@@ -29,7 +29,9 @@ func TestValidateChatReady(t *testing.T) {
 	if err := cfg.ValidateChatReady(); err != nil {
 		t.Errorf("expected valid chat config, got %v", err)
 	}
-	os.Unsetenv("TWITCH_CHANNEL")
+	if err := os.Unsetenv("TWITCH_CHANNEL"); err != nil {
+		t.Fatalf("failed to unset TWITCH_CHANNEL: %v", err)
+	}
 	cfg, _ = Load()
 	if err := cfg.ValidateChatReady(); err == nil {
 		t.Errorf("expected error when missing twitch envs")

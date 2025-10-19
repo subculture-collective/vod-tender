@@ -102,7 +102,7 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 	if dataDir == "" {
 		dataDir = "data"
 	}
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+	if err := os.MkdirAll(dataDir, 0o750); err != nil {
 		return fmt.Errorf("mkdir data dir: %w", err)
 	}
 	// Best-effort cleanup: prune stale partial/tmp files to keep /data small
@@ -118,12 +118,11 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 		if entries, err := os.ReadDir(dataDir); err == nil {
 			for _, e := range entries {
 				name := e.Name()
-				if !(strings.HasSuffix(name, ".part") || strings.HasSuffix(name, ".tmp") || strings.Contains(name, ".transcode.tmp.mp4")) {
-					continue
-				}
-				if fi, err := e.Info(); err == nil {
-					if now.Sub(fi.ModTime()) > maxAge {
-						_ = os.Remove(filepath.Join(dataDir, name))
+				if strings.HasSuffix(name, ".part") || strings.HasSuffix(name, ".tmp") || strings.Contains(name, ".transcode.tmp.mp4") {
+					if fi, err := e.Info(); err == nil {
+						if now.Sub(fi.ModTime()) > maxAge {
+							_ = os.Remove(filepath.Join(dataDir, name))
+						}
 					}
 				}
 			}
@@ -139,7 +138,11 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 			active := map[string]struct{}{}
 			rows, err := dbc.QueryContext(ctx, `SELECT downloaded_path FROM vods WHERE downloaded_path IS NOT NULL`)
 			if err == nil {
-				defer rows.Close()
+				defer func() {
+					if err := rows.Close(); err != nil {
+						slog.Warn("failed to close rows", slog.Any("err", err))
+					}
+				}()
 				for rows.Next() {
 					var p string
 					if err := rows.Scan(&p); err == nil && p != "" {
@@ -154,19 +157,19 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 					}
 					// Only consider video-like files for sweeping
 					name := e.Name()
-					if !(strings.HasSuffix(strings.ToLower(name), ".mp4") || strings.HasSuffix(strings.ToLower(name), ".mkv") || strings.HasSuffix(strings.ToLower(name), ".webm")) {
-						continue
-					}
-					path := filepath.Join(dataDir, name)
-					if _, ok := active[path]; ok {
-						continue
-					}
-					if fi, err := e.Info(); err == nil {
-						if fi.ModTime().Before(cutoff) {
-							if err := os.Remove(path); err == nil {
-								slog.Info("sweeper removed orphaned file", slog.String("path", path))
-							} else {
-								slog.Warn("sweeper failed to remove orphaned file", slog.String("path", path), slog.Any("err", err))
+					nameLower := strings.ToLower(name)
+					if strings.HasSuffix(nameLower, ".mp4") || strings.HasSuffix(nameLower, ".mkv") || strings.HasSuffix(nameLower, ".webm") {
+						path := filepath.Join(dataDir, name)
+						if _, ok := active[path]; ok {
+							continue
+						}
+						if fi, err := e.Info(); err == nil {
+							if fi.ModTime().Before(cutoff) {
+								if err := os.Remove(path); err == nil {
+									slog.Info("sweeper removed orphaned file", slog.String("path", path))
+								} else {
+									slog.Warn("sweeper failed to remove orphaned file", slog.String("path", path), slog.Any("err", err))
+								}
 							}
 						}
 					}
@@ -215,7 +218,7 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 		}
 	}
 	// Select a small batch of candidates and pick the first eligible.
-	rows, err := dbc.Query(`SELECT twitch_vod_id, title, date FROM vods
+	rows, err := dbc.QueryContext(ctx, `SELECT twitch_vod_id, title, date FROM vods
 		WHERE COALESCE(processed,false)=false AND (
 			processing_error IS NULL OR processing_error='' OR (download_retries < $1 AND EXTRACT(EPOCH FROM (NOW() - COALESCE(updated_at, created_at))) >= $2)
 		)
@@ -223,7 +226,11 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Warn("failed to close rows", slog.Any("err", err))
+		}
+	}()
 	var id, title string
 	var date time.Time
 	picked := false
@@ -266,13 +273,13 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 		if strings.Contains(lower, "subscriber-only") || strings.Contains(lower, "must be logged into") || strings.Contains(lower, "login required") {
 			logger.Warn("skipping vod: auth required (subscriber-only)")
 			// Mark non-retriable by setting retries to maxAttempts
-			_, _ = dbc.Exec(`UPDATE vods SET processing_error=$1, download_retries=$2, updated_at=NOW() WHERE twitch_vod_id=$3`, "auth-required: subscriber-only", maxAttempts, id)
+			_, _ = dbc.ExecContext(ctx, `UPDATE vods SET processing_error=$1, download_retries=$2, updated_at=NOW() WHERE twitch_vod_id=$3`, "auth-required: subscriber-only", maxAttempts, id)
 			return nil
 		}
 		// Otherwise count as a failure and trip the circuit
 		logger.Error("download failed", slog.Any("err", err), slog.Duration("download_duration", time.Since(dlStart)), slog.Int("queue_depth", queueDepth))
 		telemetry.DownloadsFailed.Inc()
-		_, _ = dbc.Exec(`UPDATE vods SET processing_error=$1, updated_at=NOW() WHERE twitch_vod_id=$2`, err.Error(), id)
+		_, _ = dbc.ExecContext(ctx, `UPDATE vods SET processing_error=$1, updated_at=NOW() WHERE twitch_vod_id=$2`, err.Error(), id)
 		updateCircuitOnFailure(ctx, dbc)
 		telemetry.UpdateCircuitGauge(true)
 		return nil
@@ -282,7 +289,7 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 	telemetry.DownloadDuration.Observe(dlDur.Seconds())
 	logger.Info("download complete", slog.String("path", filePath), slog.Duration("download_duration", dlDur))
 	resetCircuit(ctx, dbc)
-	_, _ = dbc.Exec(`UPDATE vods SET downloaded_path=$1, updated_at=NOW() WHERE twitch_vod_id=$2`, filePath, id)
+	_, _ = dbc.ExecContext(ctx, `UPDATE vods SET downloaded_path=$1, updated_at=NOW() WHERE twitch_vod_id=$2`, filePath, id)
 	// Idempotency: if a YouTube URL already exists, skip upload to prevent duplicates.
 	var preYT string
 	_ = dbc.QueryRowContext(ctx, `SELECT COALESCE(youtube_url,'' ) FROM vods WHERE twitch_vod_id=$1`, id).Scan(&preYT)
@@ -292,7 +299,7 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 		ytURL = preYT
 		slog.Info("skipping upload; youtube_url already present", slog.String("youtube_url", ytURL))
 		// Ensure processed is marked; we'll still perform post-success cleanup below.
-		_, _ = dbc.Exec(`UPDATE vods SET processed=TRUE, updated_at=NOW() WHERE twitch_vod_id=$1`, id)
+		_, _ = dbc.ExecContext(ctx, `UPDATE vods SET processed=TRUE, updated_at=NOW() WHERE twitch_vod_id=$1`, id)
 	} else {
 		// Retry loop with exponential backoff + jitter for uploads
 		maxUp := 5
@@ -314,6 +321,7 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 		for attempt := 0; attempt < maxUp; attempt++ {
 			if attempt > 0 {
 				backoff := base * time.Duration(1<<attempt)
+				//nolint:gosec // G404: math/rand is sufficient for exponential backoff jitter, not used for security
 				jitter := time.Duration(rand.Int63n(int64(base)))
 				backoff += jitter
 				logger.Warn("retrying upload", slog.Int("attempt", attempt), slog.Int("max", maxUp), slog.Duration("backoff", backoff))
@@ -345,13 +353,13 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 		if ytURL == "" {
 			// Exhausted attempts; persist error and increment retries so global cooldown/limit logic applies
 			logger.Error("upload exhausted retries", slog.Any("err", lastErr))
-			_, _ = dbc.Exec(`UPDATE vods SET processing_error=$1, download_retries = COALESCE(download_retries,0)+1, updated_at=NOW() WHERE twitch_vod_id=$2`,
+			_, _ = dbc.ExecContext(ctx, `UPDATE vods SET processing_error=$1, download_retries = COALESCE(download_retries,0)+1, updated_at=NOW() WHERE twitch_vod_id=$2`,
 				fmt.Sprintf("upload: %v", lastErr), id)
 			telemetry.UploadsFailed.Inc()
 			return nil
 		}
 		// Record YouTube URL and mark processed now
-		_, _ = dbc.Exec(`UPDATE vods SET youtube_url=$1, processed=TRUE, processing_error=NULL, updated_at=NOW() WHERE twitch_vod_id=$2`, ytURL, id)
+		_, _ = dbc.ExecContext(ctx, `UPDATE vods SET youtube_url=$1, processed=TRUE, processing_error=NULL, updated_at=NOW() WHERE twitch_vod_id=$2`, ytURL, id)
 	}
 
 	// Clean up local file after successful upload (both backfill and new items)
@@ -377,7 +385,7 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 			} else {
 				logger.Info("removed local file after upload", slog.String("path", filePath))
 			}
-			_, _ = dbc.Exec(`UPDATE vods SET downloaded_path=NULL, updated_at=NOW() WHERE twitch_vod_id=$1`, id)
+			_, _ = dbc.ExecContext(ctx, `UPDATE vods SET downloaded_path=NULL, updated_at=NOW() WHERE twitch_vod_id=$1`, id)
 		}
 	}
 	// If we performed an upload in this run, we have upDur set; otherwise it may be zero for idempotent path
@@ -422,13 +430,18 @@ func updateMovingAvg(ctx context.Context, db *sql.DB, key string, newVal float64
 func uploadToYouTube(ctx context.Context, path, title string, date time.Time) (string, error) {
 	dsn := os.Getenv("DB_DSN")
 	if dsn == "" {
+		//nolint:gosec // G101: Default DSN for local development in Docker Compose, not production credentials
 		dsn = "postgres://vod:vod@postgres:5432/vod?sslmode=disable"
 	}
 	adb, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return "", err
 	}
-	defer adb.Close()
+	defer func() {
+		if err := adb.Close(); err != nil {
+			slog.Warn("failed to close auxiliary database connection", slog.Any("err", err))
+		}
+	}()
 	ts := &db.TokenStoreAdapter{DB: adb}
 	cfg, _ := config.Load()
 	yts := youtubeapi.New(cfg, ts)

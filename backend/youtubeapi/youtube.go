@@ -8,12 +8,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
+	"google.golang.org/api/option"
 	yt "google.golang.org/api/youtube/v3"
 
 	"github.com/onnwee/vod-tender/backend/config"
@@ -102,7 +104,7 @@ func (s *Service) Client(ctx context.Context) (*yt.Service, error) {
 		return nil, err
 	}
 	client := s.oauth.Client(ctx, tok)
-	return yt.New(client)
+	return yt.NewService(ctx, option.WithHTTPClient(client))
 }
 
 // UploadVideo uploads a video file at path with given title/description/privacy using provided YouTube service.
@@ -113,11 +115,16 @@ func UploadVideo(ctx context.Context, svc *yt.Service, path, title, description,
 	if privacy == "" {
 		privacy = "private"
 	}
+	//nolint:gosec // G304: Path is to downloaded VOD file in controlled data directory
 	f, err := os.Open(path)
 	if err != nil {
 		return "", fmt.Errorf("open file: %w", err)
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			slog.Warn("failed to close video file", slog.Any("err", err))
+		}
+	}()
 	snippet := &yt.VideoSnippet{Title: title, Description: description}
 	status := &yt.VideoStatus{PrivacyStatus: privacy}
 	video := &yt.Video{Snippet: snippet, Status: status}

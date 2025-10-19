@@ -99,7 +99,7 @@ func NewMux(db *sql.DB) http.Handler {
 			return
 		}
 		// persist tokens
-		_, err = db.Exec(`INSERT INTO oauth_tokens (provider, access_token, refresh_token, expires_at, scope, updated_at) VALUES ($1,$2,$3,$4,$5,NOW())
+		_, err = db.ExecContext(ctx, `INSERT INTO oauth_tokens (provider, access_token, refresh_token, expires_at, scope, updated_at) VALUES ($1,$2,$3,$4,$5,NOW())
             ON CONFLICT(provider) DO UPDATE SET access_token=EXCLUDED.access_token, refresh_token=EXCLUDED.refresh_token, expires_at=EXCLUDED.expires_at, scope=EXCLUDED.scope, updated_at=NOW()`,
 			"twitch", res.AccessToken, res.RefreshToken, twitchapi.ComputeExpiry(res.ExpiresIn), strings.Join(res.Scope, " "))
 		if err != nil {

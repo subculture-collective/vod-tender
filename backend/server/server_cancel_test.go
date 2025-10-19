@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
@@ -25,7 +26,7 @@ func TestCancelNoActive(t *testing.T) {
 			t.Errorf("failed to close db: %v", err)
 		}
 	}()
-	if err := dbpkg.Migrate(db); err != nil {
+	if err := dbpkg.Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 

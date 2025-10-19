@@ -49,7 +49,7 @@ func StartTwitchChatRecorder(ctx context.Context, db *sql.DB, vodID string, vodS
 		}
 		color := msg.User.Color
 		// Reply metadata not available with current twitch.PrivateMessage version; leave empty
-		if _, err := db.Exec(`INSERT INTO chat_messages (vod_id, username, message, abs_timestamp, rel_timestamp, badges, emotes, color, reply_to_id, reply_to_username, reply_to_message) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '', '', '')`,
+		if _, err := db.ExecContext(ctx, `INSERT INTO chat_messages (vod_id, username, message, abs_timestamp, rel_timestamp, badges, emotes, color, reply_to_id, reply_to_username, reply_to_message) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '', '', '')`,
 			vodID, msg.User.Name, msg.Message, absTime, relTime, badges, emotes, color); err != nil {
 			slog.Error("failed to insert chat message", slog.Any("err", err))
 		}

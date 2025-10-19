@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"os"
 	"testing"
@@ -22,7 +23,7 @@ func TestMigrate(t *testing.T) {
 			t.Errorf("failed to close db: %v", err)
 		}
 	}()
-	if err := Migrate(db); err != nil {
+	if err := Migrate(context.Background(), db); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 }

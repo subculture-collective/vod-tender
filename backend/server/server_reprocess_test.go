@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
@@ -25,10 +26,10 @@ func TestReprocess(t *testing.T) {
 			t.Errorf("failed to close db: %v", err)
 		}
 	}()
-	if err := dbpkg.Migrate(db); err != nil {
+	if err := dbpkg.Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
-	_, err = db.Exec(`INSERT INTO vods (twitch_vod_id, processed, processing_error, youtube_url, downloaded_path, download_state, download_retries, download_bytes, download_total, created_at) VALUES ('123', TRUE, 'err', 'yt', 'path', 'state', 2, 100, 200, NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`)
+	_, err = db.ExecContext(context.Background(), `INSERT INTO vods (twitch_vod_id, processed, processing_error, youtube_url, downloaded_path, download_state, download_retries, download_bytes, download_total, created_at) VALUES ('123', TRUE, 'err', 'yt', 'path', 'state', 2, 100, 200, NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +41,7 @@ func TestReprocess(t *testing.T) {
 		t.Fatalf("expected 204, got %d", rr.Code)
 	}
 
-	row := db.QueryRow(`SELECT processed, processing_error, youtube_url, downloaded_path, download_state, download_retries, download_bytes, download_total FROM vods WHERE twitch_vod_id='123'`)
+	row := db.QueryRowContext(context.Background(), `SELECT processed, processing_error, youtube_url, downloaded_path, download_state, download_retries, download_bytes, download_total FROM vods WHERE twitch_vod_id='123'`)
 	var processed bool
 	var processingError, youtubeURL, downloadedPath, downloadState *string
 	var retries, bytes, total int

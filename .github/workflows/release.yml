@@ -108,8 +108,8 @@ jobs:
         run: |
           GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w -X main.Version=${{ steps.version.outputs.version }}" -o ../vod-tender-backend-linux-amd64 .
           GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w -X main.Version=${{ steps.version.outputs.version }}" -o ../vod-tender-backend-linux-arm64 .
-          GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags="-s -w -X main.Version=${{ steps.version.outputs.version }}" -o ../vod-tender-backend-darwin-amd64 .
-          GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="-s -w -X main.Version=${{ steps.version.outputs.version }}" -o ../vod-tender-backend-darwin-arm64 .
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags="-s -w -X main.Version=${{ steps.version.outputs.version }}" -o ../vod-tender-backend-darwin-amd64 .
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="-s -w -X main.Version=${{ steps.version.outputs.version }}" -o ../vod-tender-backend-darwin-arm64 .
 
       - name: Generate checksums
         run: |

@@ -1,5 +1,9 @@
 # vod-tender
 
+[![CI](https://github.com/subculture-collective/vod-tender/actions/workflows/ci.yml/badge.svg)](https://github.com/subculture-collective/vod-tender/actions/workflows/ci.yml)
+[![Quality Gates](https://github.com/subculture-collective/vod-tender/actions/workflows/quality-gates.yml/badge.svg)](https://github.com/subculture-collective/vod-tender/actions/workflows/quality-gates.yml)
+[![Release](https://github.com/subculture-collective/vod-tender/actions/workflows/release.yml/badge.svg)](https://github.com/subculture-collective/vod-tender/actions/workflows/release.yml)
+
 Small Go service that discovers Twitch VODs for a channel, downloads them with yt-dlp, records live chat tied to VODs, and optionally uploads to YouTube. It ships with a minimal API and a small frontend for browsing VODs and chat replay.
 
 ## Quick start

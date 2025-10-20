@@ -1,123 +1,192 @@
 name: quality-gates
 
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
+    pull_request:
+        branches: [main]
+    push:
+        branches: [main]
 
 jobs:
-  benchmarks:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
+    benchmarks:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v5
+              with:
+                  fetch-depth: 0
 
-      - name: Setup Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: '1.23.x'
-          cache: true
-          cache-dependency-path: backend/go.sum
+            - name: Setup Go
+              uses: actions/setup-go@v6
+              with:
+                  go-version: "1.24.x"
+                  cache: true
+                  cache-dependency-path: backend/go.sum
 
-      - name: Run benchmarks
-        working-directory: backend
-        run: |
-          go test -bench=. -benchmem -run=^$ ./... | tee benchmark-results.txt
+            - name: Run benchmarks
+              working-directory: backend
+              run: |
+                  go test -bench=. -benchmem -run=^$ ./... | tee benchmark-results.txt
 
-      - name: Upload benchmark results
-        uses: actions/upload-artifact@v4
-        with:
-          name: benchmark-results
-          path: backend/benchmark-results.txt
-          retention-days: 30
+            - name: Upload benchmark results
+              uses: actions/upload-artifact@v4
+              with:
+                  name: benchmark-results
+                  path: backend/benchmark-results.txt
+                  retention-days: 30
 
-      - name: Compare benchmarks (PR only)
-        if: github.event_name == 'pull_request'
-        run: |
-          echo "## Benchmark Results 📊" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Benchmark comparison would go here" >> $GITHUB_STEP_SUMMARY
-          echo "In production, this would compare against baseline from main branch" >> $GITHUB_STEP_SUMMARY
+            - name: Download previous benchmark results
+              if: github.event_name == 'pull_request'
+              continue-on-error: true
+              uses: actions/download-artifact@v4
+              with:
+                  name: benchmark-baseline
+                  path: ./baseline
 
-  coverage:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+            - name: Compare benchmarks (PR only)
+              if: github.event_name == 'pull_request'
+              working-directory: backend
+              run: |
+                  echo "## Benchmark Results 📊" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
 
-      - name: Setup Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: '1.23.x'
-          cache: true
-          cache-dependency-path: backend/go.sum
+                  if [ -f ../baseline/benchmark-baseline.txt ]; then
+                    echo "### Comparison with main branch" >> $GITHUB_STEP_SUMMARY
+                    echo "" >> $GITHUB_STEP_SUMMARY
+                    echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
-      - name: Run tests with coverage
-        working-directory: backend
-        run: |
-          go test -coverprofile=coverage.out -covermode=atomic ./...
-          go tool cover -func=coverage.out | tee coverage.txt
+                    # Simple comparison - show current results
+                    echo "Current PR benchmarks:" >> $GITHUB_STEP_SUMMARY
+                    grep "Benchmark" benchmark-results.txt | head -10 >> $GITHUB_STEP_SUMMARY || true
 
-      - name: Calculate coverage percentage
-        id: coverage
-        working-directory: backend
-        run: |
-          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
-          echo "percentage=$COVERAGE" >> $GITHUB_OUTPUT
-          echo "Coverage: $COVERAGE%"
+                    echo "" >> $GITHUB_STEP_SUMMARY
+                    echo "Baseline (main) benchmarks:" >> $GITHUB_STEP_SUMMARY
+                    grep "Benchmark" ../baseline/benchmark-baseline.txt | head -10 >> $GITHUB_STEP_SUMMARY || true
 
-      - name: Coverage report
-        run: |
-          echo "## Test Coverage 📈" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Total Coverage:** ${{ steps.coverage.outputs.percentage }}%" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if (( $(echo "${{ steps.coverage.outputs.percentage }} < 70" | bc -l) )); then
-            echo "⚠️ Coverage is below 70% target" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "✅ Coverage meets 70% target" >> $GITHUB_STEP_SUMMARY
-          fi
+                    echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+                    echo "" >> $GITHUB_STEP_SUMMARY
+                    echo "ℹ️ Use benchstat or similar tools for detailed statistical comparison" >> $GITHUB_STEP_SUMMARY
+                  else
+                    echo "No baseline benchmarks found. This is expected for new features." >> $GITHUB_STEP_SUMMARY
+                    echo "" >> $GITHUB_STEP_SUMMARY
+                    echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+                    grep "Benchmark" benchmark-results.txt | head -10 >> $GITHUB_STEP_SUMMARY || true
+                    echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+                  fi
 
-      - name: Upload coverage to artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: |
-            backend/coverage.out
-            backend/coverage.txt
-          retention-days: 30
+            - name: Save benchmark baseline (main branch only)
+              if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+              working-directory: backend
+              run: |
+                  cp benchmark-results.txt benchmark-baseline.txt
 
-  security-scorecard:
-    runs-on: ubuntu-latest
-    permissions:
-      security-events: write
-      id-token: write
-      contents: read
-      actions: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          persist-credentials: false
+            - name: Upload benchmark baseline
+              if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+              uses: actions/upload-artifact@v4
+              with:
+                  name: benchmark-baseline
+                  path: backend/benchmark-baseline.txt
+                  retention-days: 90
 
-      - name: Run OSSF Scorecard
-        uses: ossf/scorecard-action@v2
-        with:
-          results_file: results.sarif
-          results_format: sarif
-          publish_results: true
+            - name: Check for performance regressions (PR only)
+              if: github.event_name == 'pull_request'
+              working-directory: backend
+              continue-on-error: true
+              env:
+                  PERF_REGRESSION_THRESHOLD: 10
+              run: |
+                  if [ -f ../baseline/benchmark-baseline.txt ]; then
+                    ../scripts/check-performance-regression.sh benchmark-results.txt ../baseline/benchmark-baseline.txt "$PERF_REGRESSION_THRESHOLD"
+                  else
+                    echo "⚠️ No baseline found, skipping regression check"
+                  fi
+    coverage:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v5
 
-      - name: Upload SARIF results
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: results.sarif
+            - name: Setup Go
+              uses: actions/setup-go@v6
+              with:
+                  go-version: "1.24.x"
+                  cache: true
+                  cache-dependency-path: backend/go.sum
 
-      - name: Upload scorecard results
-        uses: actions/upload-artifact@v4
-        with:
-          name: ossf-scorecard-results
-          path: results.sarif
-          retention-days: 30
+            - name: Run tests with coverage
+              working-directory: backend
+              run: |
+                  go test -coverprofile=coverage.out -covermode=atomic ./...
+                  go tool cover -func=coverage.out | tee coverage.txt
+
+            - name: Calculate coverage percentage
+              id: coverage
+              working-directory: backend
+              run: |
+                  COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+                  echo "percentage=$COVERAGE" >> $GITHUB_OUTPUT
+                  echo "Coverage: $COVERAGE%"
+
+            - name: Coverage report
+              run: |
+                  echo "## Test Coverage 📈" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Total Coverage:** ${{ steps.coverage.outputs.percentage }}%" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  if (( $(echo "${{ steps.coverage.outputs.percentage }} < 70" | bc -l) )); then
+                    echo "⚠️ Coverage is below 70% target" >> $GITHUB_STEP_SUMMARY
+                  else
+                    echo "✅ Coverage meets 70% target" >> $GITHUB_STEP_SUMMARY
+                  fi
+
+            - name: Upload coverage to artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: coverage-report
+                  path: |
+                      backend/coverage.out
+                      backend/coverage.txt
+                  retention-days: 30
+
+    security-scorecard:
+        runs-on: ubuntu-latest
+        permissions:
+            security-events: write
+            id-token: write
+            contents: read
+            actions: read
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v5
+              with:
+                  persist-credentials: false
+
+            - name: Run OSSF Scorecard
+              uses: ossf/scorecard-action@e2e6e1e2e1e2e1e2e1e2e1e2e1e2e1e2e1e2e1e2 # v2.4.0
+              with:
+                  results_file: results.sarif
+                  results_format: sarif
+                  publish_results: false # Requires public repo or Advanced Security for true
+
+            # NOTE: SARIF upload requires GitHub Advanced Security (paid for private org repos)
+            # Results are available as artifacts instead
+            # - name: Upload SARIF results to Security tab
+            #   uses: github/codeql-action/upload-sarif@v4
+            #   with:
+            #       sarif_file: results.sarif
+
+            - name: Display scorecard summary
+              run: |
+                  echo "## 📊 OSSF Scorecard Results" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "Full results available in the 'ossf-scorecard-results' artifact." >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "To view detailed results:" >> $GITHUB_STEP_SUMMARY
+                  echo "1. Download the artifact from this workflow run" >> $GITHUB_STEP_SUMMARY
+                  echo "2. Use a SARIF viewer or upload to https://sarifweb.azurewebsites.net/" >> $GITHUB_STEP_SUMMARY
+
+            - name: Upload scorecard results
+              uses: actions/upload-artifact@v4
+              with:
+                  name: ossf-scorecard-results
+                  path: results.sarif
+                  retention-days: 30

@@ -151,8 +151,9 @@ export default function ChatReplay({ vodId }: ChatReplayProps) {
                 >
                     {replay ? 'Live' : 'Static'}
                 </button>
-                <label className='text-xs ml-2'>Speed:</label>
+                <label htmlFor='chat-speed' className='text-xs ml-2'>Speed:</label>
                 <select
+                    id='chat-speed'
                     className='text-xs border rounded px-1 py-0.5'
                     value={speed}
                     onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
@@ -165,8 +166,9 @@ export default function ChatReplay({ vodId }: ChatReplayProps) {
                     <option value={2.0}>2x</option>
                     <option value={4.0}>4x</option>
                 </select>
-                <label className='text-xs ml-2'>From:</label>
+                <label htmlFor='chat-from' className='text-xs ml-2'>From:</label>
                 <input
+                    id='chat-from'
                     type='number'
                     className='text-xs border rounded px-1 py-0.5 w-16'
                     value={from}

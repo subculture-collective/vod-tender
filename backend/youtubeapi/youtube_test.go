@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"subculture-collective/vod-tender/backend/config"
+	"github.com/onnwee/vod-tender/backend/config"
 )
 
 // mockTokenStore implements TokenStore for testing

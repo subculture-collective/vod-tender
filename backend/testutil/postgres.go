@@ -1,6 +1,7 @@
 package testutil
 
 import (
+	"context"
 	"database/sql"
 	"os"
 	"testing"
@@ -21,7 +22,8 @@ func SetupTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	if err := db.Migrate(database); err != nil {
+	ctx := context.Background()
+	if err := db.Migrate(ctx, database); err != nil {
 		database.Close()
 		t.Fatalf("failed to run migrations: %v", err)
 	}

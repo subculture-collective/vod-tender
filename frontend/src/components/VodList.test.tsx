@@ -33,7 +33,7 @@ describe('VodList', () => {
     // Check processed status
     const processedElements = screen.getAllByText('Processed')
     const pendingElements = screen.getAllByText('Pending')
-    
+
     expect(processedElements.length).toBeGreaterThan(0)
     expect(pendingElements.length).toBeGreaterThan(0)
   })
@@ -48,9 +48,12 @@ describe('VodList', () => {
     // Check for YouTube link
     const youtubeLinks = screen.getAllByRole('link', { name: /youtube/i })
     expect(youtubeLinks.length).toBeGreaterThan(0)
-    
+
     // First link should be for Test VOD 1
-    expect(youtubeLinks[0]).toHaveAttribute('href', 'https://youtube.com/watch?v=test1')
+    expect(youtubeLinks[0]).toHaveAttribute(
+      'href',
+      'https://youtube.com/watch?v=test1'
+    )
   })
 
   it('displays error message on API failure', async () => {
@@ -79,7 +82,7 @@ describe('VodList', () => {
     // Click on the first VOD row
     const vodRow = screen.getByText('Test VOD 1').closest('tr')
     expect(vodRow).toBeInTheDocument()
-    
+
     vodRow?.click()
 
     expect(onVodSelect).toHaveBeenCalledWith('1')

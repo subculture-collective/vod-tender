@@ -12,12 +12,14 @@ describe('App', () => {
   it('renders the footer with current year', () => {
     render(<App />)
     const currentYear = new Date().getFullYear()
-    expect(screen.getByText(new RegExp(currentYear.toString()))).toBeInTheDocument()
+    expect(
+      screen.getByText(new RegExp(currentYear.toString()))
+    ).toBeInTheDocument()
   })
 
   it('initially shows VOD list', async () => {
     render(<App />)
-    
+
     // Wait for VOD list to load
     await waitFor(() => {
       expect(screen.getByText('Twitch VODs')).toBeInTheDocument()
@@ -36,7 +38,7 @@ describe('App', () => {
     // Click on a VOD
     const vodRow = screen.getByText('Test VOD 1').closest('tr')
     expect(vodRow).toBeInTheDocument()
-    
+
     if (vodRow) {
       await user.click(vodRow)
     }

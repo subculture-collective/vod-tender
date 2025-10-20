@@ -10,7 +10,7 @@ RUN if [ -f package-lock.json ]; then npm ci; else npm install --include=dev --n
 COPY . .
 RUN npm run build
 
-FROM nginx:1.27-alpine AS runtime
+FROM nginx:1.29-alpine AS runtime
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80
 # Healthcheck: ensure index served

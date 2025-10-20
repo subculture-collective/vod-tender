@@ -48,7 +48,7 @@ while IFS= read -r line; do
     
     if [ -n "$DELTA" ]; then
         # Compare with threshold using bc
-        if awk "BEGIN {exit !($DELTA > $THRESHOLD)}"; then
+        if awk "BEGIN {exit ($DELTA > $THRESHOLD)}"; then
             echo "❌ Performance regression detected: $line"
             REGRESSION_FOUND=1
         fi

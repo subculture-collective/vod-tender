@@ -37,7 +37,7 @@ jobs:
       url: https://vod-tender.example.com
     steps:
       - name: Checkout at tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ inputs.version }}
 

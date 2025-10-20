@@ -125,8 +125,8 @@ export default function ChatReplay({ vodId }: ChatReplayProps) {
             behavior: 'smooth',
           })
         }, 10)
-      } catch {
-        console.log(error)
+      } catch (parseError) {
+        console.error('Failed to parse chat message:', parseError)
       }
     }
     es.onerror = () => {

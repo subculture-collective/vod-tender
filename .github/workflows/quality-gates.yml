@@ -34,13 +34,69 @@ jobs:
           path: backend/benchmark-results.txt
           retention-days: 30
 
+      - name: Download previous benchmark results
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: benchmark-baseline
+          path: ./baseline
+
       - name: Compare benchmarks (PR only)
         if: github.event_name == 'pull_request'
+        working-directory: backend
         run: |
           echo "## Benchmark Results 📊" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Benchmark comparison would go here" >> $GITHUB_STEP_SUMMARY
-          echo "In production, this would compare against baseline from main branch" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f ../baseline/benchmark-baseline.txt ]; then
+            echo "### Comparison with main branch" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            
+            # Simple comparison - show current results
+            echo "Current PR benchmarks:" >> $GITHUB_STEP_SUMMARY
+            grep "Benchmark" benchmark-results.txt | head -10 >> $GITHUB_STEP_SUMMARY || true
+            
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Baseline (main) benchmarks:" >> $GITHUB_STEP_SUMMARY
+            grep "Benchmark" ../baseline/benchmark-baseline.txt | head -10 >> $GITHUB_STEP_SUMMARY || true
+            
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "ℹ️ Use benchstat or similar tools for detailed statistical comparison" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No baseline benchmarks found. This is expected for new features." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            grep "Benchmark" benchmark-results.txt | head -10 >> $GITHUB_STEP_SUMMARY || true
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Save benchmark baseline (main branch only)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        working-directory: backend
+        run: |
+          cp benchmark-results.txt benchmark-baseline.txt
+
+      - name: Upload benchmark baseline
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-baseline
+          path: backend/benchmark-baseline.txt
+          retention-days: 90
+
+      - name: Check for performance regressions (PR only)
+        if: github.event_name == 'pull_request'
+        working-directory: backend
+        continue-on-error: true
+        run: |
+          if [ -f ../baseline/benchmark-baseline.txt ]; then
+            ../scripts/check-performance-regression.sh benchmark-results.txt ../baseline/benchmark-baseline.txt 10
+          else
+            echo "⚠️ No baseline found, skipping regression check"
+          fi
 
   coverage:
     runs-on: ubuntu-latest

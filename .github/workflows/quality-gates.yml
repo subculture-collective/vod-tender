@@ -91,13 +91,14 @@ jobs:
         if: github.event_name == 'pull_request'
         working-directory: backend
         continue-on-error: true
+        env:
+          PERF_REGRESSION_THRESHOLD: 10
         run: |
           if [ -f ../baseline/benchmark-baseline.txt ]; then
-            ../scripts/check-performance-regression.sh benchmark-results.txt ../baseline/benchmark-baseline.txt 10
+            ../scripts/check-performance-regression.sh benchmark-results.txt ../baseline/benchmark-baseline.txt "$PERF_REGRESSION_THRESHOLD"
           else
             echo "⚠️ No baseline found, skipping regression check"
           fi
-
   coverage:
     runs-on: ubuntu-latest
     steps:

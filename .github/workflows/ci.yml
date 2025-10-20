@@ -41,7 +41,7 @@ jobs:
             - name: Setup Go
               uses: actions/setup-go@v6
               with:
-                  go-version: '1.22.x'
+                  go-version: "1.24.x"
                   cache: true
 
             - name: Install govulncheck
@@ -66,7 +66,7 @@ jobs:
             - name: Setup Go
               uses: actions/setup-go@v6
               with:
-                  go-version: '1.23.x'
+                  go-version: "1.24.x"
                   cache: true
                   cache-dependency-path: backend/go.sum
 
@@ -135,11 +135,11 @@ jobs:
                   EOF
                   )
                   echo "Total coverage: ${COVERAGE}%"
-                  
+
                   # Note: Coverage threshold is currently relaxed to 50% to allow gradual improvement
                   # Target is 70% as per project standards
                   THRESHOLD=50
-                  
+
                   if (( $(echo "$COVERAGE < $THRESHOLD" | bc -l) )); then
                       echo "❌ Coverage ${COVERAGE}% is below ${THRESHOLD}% threshold"
                       echo "Target coverage is 70%, current threshold is ${THRESHOLD}%"
@@ -176,11 +176,11 @@ jobs:
             - name: Setup Node.js
               uses: actions/setup-node@v6
               with:
-                  node-version: '20'
-                  cache: 'npm'
+                  node-version: "20"
+                  cache: "npm"
                   cache-dependency-path: |
-                    frontend/package-lock.json
-                    frontend/package.json
+                      frontend/package-lock.json
+                      frontend/package.json
 
             - name: Install dependencies
               working-directory: frontend
@@ -257,16 +257,16 @@ jobs:
             - name: Setup Node.js
               uses: actions/setup-node@v6
               with:
-                  node-version: '20'
-                  cache: 'npm'
+                  node-version: "20"
+                  cache: "npm"
                   cache-dependency-path: |
-                    frontend/package-lock.json
-                    frontend/package.json
+                      frontend/package-lock.json
+                      frontend/package.json
 
             - name: Setup Go
               uses: actions/setup-go@v6
               with:
-                  go-version: '1.23.x'
+                  go-version: "1.24.x"
                   cache: true
                   cache-dependency-path: backend/go.sum
 
@@ -286,7 +286,7 @@ jobs:
               working-directory: backend
               env:
                   DB_DSN: postgres://vod_test:vod_test@localhost:5432/vod_test?sslmode=disable
-                  HTTP_ADDR: ':8080'
+                  HTTP_ADDR: ":8080"
                   LOG_LEVEL: info
               run: |
                   ./vod-tender &
@@ -362,52 +362,52 @@ jobs:
             - name: Run Trivy vulnerability scanner on backend
               uses: aquasecurity/trivy-action@0.33.1
               with:
-                  image-ref: 'vod-tender-backend:${{ github.sha }}'
-                  format: 'sarif'
-                  output: 'trivy-backend-results.sarif'
-                  severity: 'CRITICAL,HIGH'
-                  exit-code: '1'
+                  image-ref: "vod-tender-backend:${{ github.sha }}"
+                  format: "sarif"
+                  output: "trivy-backend-results.sarif"
+                  severity: "CRITICAL,HIGH"
+                  exit-code: "1"
 
             - name: Upload backend Trivy results to GitHub Security
               uses: github/codeql-action/upload-sarif@v4
               if: always()
               with:
-                  sarif_file: 'trivy-backend-results.sarif'
-                  category: 'trivy-backend'
+                  sarif_file: "trivy-backend-results.sarif"
+                  category: "trivy-backend"
 
             - name: Run Trivy vulnerability scanner on backend (JSON report)
               uses: aquasecurity/trivy-action@0.33.1
               if: always()
               with:
-                  image-ref: 'vod-tender-backend:${{ github.sha }}'
-                  format: 'json'
-                  output: 'trivy-backend-results.json'
-                  severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+                  image-ref: "vod-tender-backend:${{ github.sha }}"
+                  format: "json"
+                  output: "trivy-backend-results.json"
+                  severity: "CRITICAL,HIGH,MEDIUM,LOW"
 
             - name: Run Trivy vulnerability scanner on frontend
               uses: aquasecurity/trivy-action@0.33.1
               with:
-                  image-ref: 'vod-tender-frontend:${{ github.sha }}'
-                  format: 'sarif'
-                  output: 'trivy-frontend-results.sarif'
-                  severity: 'CRITICAL,HIGH'
-                  exit-code: '1'
+                  image-ref: "vod-tender-frontend:${{ github.sha }}"
+                  format: "sarif"
+                  output: "trivy-frontend-results.sarif"
+                  severity: "CRITICAL,HIGH"
+                  exit-code: "1"
 
             - name: Upload frontend Trivy results to GitHub Security
               uses: github/codeql-action/upload-sarif@v4
               if: always()
               with:
-                  sarif_file: 'trivy-frontend-results.sarif'
-                  category: 'trivy-frontend'
+                  sarif_file: "trivy-frontend-results.sarif"
+                  category: "trivy-frontend"
 
             - name: Run Trivy vulnerability scanner on frontend (JSON report)
               uses: aquasecurity/trivy-action@0.33.1
               if: always()
               with:
-                  image-ref: 'vod-tender-frontend:${{ github.sha }}'
-                  format: 'json'
-                  output: 'trivy-frontend-results.json'
-                  severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+                  image-ref: "vod-tender-frontend:${{ github.sha }}"
+                  format: "json"
+                  output: "trivy-frontend-results.json"
+                  severity: "CRITICAL,HIGH,MEDIUM,LOW"
 
             - name: Upload Trivy scan reports
               uses: actions/upload-artifact@v4
@@ -474,7 +474,7 @@ jobs:
             - name: Setup Go
               uses: actions/setup-go@v6
               with:
-                  go-version: '1.23.x'
+                  go-version: "1.24.x"
                   cache: true
                   cache-dependency-path: backend/go.sum
 
@@ -553,13 +553,13 @@ jobs:
                   # Test API endpoints
                   echo "Testing API health endpoint..."
                   curl -f http://localhost:8080/healthz || exit 1
-                  
+
                   echo "Testing API status endpoint..."
                   curl -f http://localhost:8080/status || exit 1
-                  
+
                   echo "Testing API metrics endpoint..."
                   curl -f http://localhost:8080/metrics || exit 1
-                  
+
                   echo "Testing frontend..."
                   wget -q -O - http://localhost:8081/ > /dev/null || exit 1
 

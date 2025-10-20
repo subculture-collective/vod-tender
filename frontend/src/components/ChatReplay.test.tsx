@@ -34,7 +34,9 @@ describe('ChatReplay', () => {
     })
 
     // Check for badge images (broadcaster and subscriber)
-    const badges = screen.getAllByRole('img', { name: /broadcaster|subscriber/i })
+    const badges = screen.getAllByRole('img', {
+      name: /broadcaster|subscriber/i,
+    })
     expect(badges.length).toBeGreaterThan(0)
   })
 
@@ -91,7 +93,10 @@ describe('ChatReplay', () => {
       OPEN: 1,
       CLOSED: 2,
     }
-    vi.stubGlobal('EventSource', vi.fn(() => mockEventSource))
+    vi.stubGlobal(
+      'EventSource',
+      vi.fn(() => mockEventSource)
+    )
 
     // Click to switch to live mode
     await screen.findByText('Static')
@@ -138,7 +143,9 @@ describe('ChatReplay', () => {
     render(<ChatReplay vodId="1" />)
 
     await waitFor(() => {
-      expect(screen.getByText(/unexpected end of json input/i)).toBeInTheDocument()
+      expect(
+        screen.getByText(/unexpected end of json input/i)
+      ).toBeInTheDocument()
     })
   })
 
@@ -168,7 +175,7 @@ describe('ChatReplay', () => {
     })
 
     const speedSelect = screen.getByLabelText(/speed/i)
-    
+
     // Should be disabled in static mode
     expect(speedSelect).toBeDisabled()
   })
@@ -198,20 +205,20 @@ describe('ChatReplay', () => {
     })
 
     // Check for emote image
-    const emoteImages = screen.getAllByRole('img').filter(img => 
-      img.getAttribute('src')?.includes('emoticons')
-    )
+    const emoteImages = screen
+      .getAllByRole('img')
+      .filter((img) => img.getAttribute('src')?.includes('emoticons'))
     expect(emoteImages.length).toBeGreaterThan(0)
   })
 
   it('respects from parameter in API request', async () => {
     let capturedFrom = 0
-    
+
     server.use(
       http.get('/vods/1/chat', ({ request }) => {
         const url = new URL(request.url)
         capturedFrom = parseInt(url.searchParams.get('from') || '0', 10)
-        
+
         return HttpResponse.json([
           {
             username: 'testuser1',

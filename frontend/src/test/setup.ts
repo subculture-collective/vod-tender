@@ -85,7 +85,7 @@ export const handlers = [
   http.get('/vods/:id/chat', ({ request }) => {
     const url = new URL(request.url)
     const from = parseInt(url.searchParams.get('from') || '0', 10)
-    
+
     return HttpResponse.json([
       {
         username: 'testuser1',

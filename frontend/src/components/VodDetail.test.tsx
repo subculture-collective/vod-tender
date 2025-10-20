@@ -32,7 +32,7 @@ describe('VodDetail', () => {
     // Check for progress bar
     const progressBar = screen.getByText(/downloading/i)
     expect(progressBar).toBeInTheDocument()
-    
+
     // Check percentage display
     expect(screen.getByText(/45\.5%/)).toBeInTheDocument()
   })
@@ -45,7 +45,10 @@ describe('VodDetail', () => {
     })
 
     const youtubeLink = screen.getByText('Watch on YouTube')
-    expect(youtubeLink).toHaveAttribute('href', 'https://youtube.com/watch?v=test1')
+    expect(youtubeLink).toHaveAttribute(
+      'href',
+      'https://youtube.com/watch?v=test1'
+    )
   })
 
   it('does not display YouTube link when not available', async () => {
@@ -85,7 +88,9 @@ describe('VodDetail', () => {
     render(<VodDetail vodId="3" onBack={mockOnBack} />)
 
     await waitFor(() => {
-      expect(screen.getByText(/unexpected end of json input/i)).toBeInTheDocument()
+      expect(
+        screen.getByText(/unexpected end of json input/i)
+      ).toBeInTheDocument()
     })
   })
 
@@ -95,7 +100,9 @@ describe('VodDetail', () => {
     await waitFor(() => {
       // When a 404 is returned with no body, .json() fails and shows parse error
       // This is acceptable behavior - we're showing an error to the user
-      expect(screen.getByText(/unexpected end of json input/i)).toBeInTheDocument()
+      expect(
+        screen.getByText(/unexpected end of json input/i)
+      ).toBeInTheDocument()
     })
   })
 

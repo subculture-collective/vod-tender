@@ -15,7 +15,7 @@ describe('getApiBase', () => {
 
   it('maps vod-tender domain to vod-api domain', () => {
     vi.stubEnv('VITE_API_BASE_URL', '')
-    
+
     // Mock window.location
     Object.defineProperty(window, 'location', {
       value: {
@@ -32,7 +32,7 @@ describe('getApiBase', () => {
 
   it('returns same-origin URL when not vod-tender domain', () => {
     vi.stubEnv('VITE_API_BASE_URL', '')
-    
+
     // Mock window.location
     Object.defineProperty(window, 'location', {
       value: {
@@ -49,7 +49,7 @@ describe('getApiBase', () => {
 
   it('handles http protocol', () => {
     vi.stubEnv('VITE_API_BASE_URL', '')
-    
+
     // Mock window.location
     Object.defineProperty(window, 'location', {
       value: {
@@ -72,7 +72,7 @@ describe('getApiBase', () => {
 
   it('ignores empty VITE_API_BASE_URL and uses domain mapping', () => {
     vi.stubEnv('VITE_API_BASE_URL', '   ')
-    
+
     // Mock window.location
     Object.defineProperty(window, 'location', {
       value: {

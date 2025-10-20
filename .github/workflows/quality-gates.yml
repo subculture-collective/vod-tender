@@ -48,20 +48,20 @@ jobs:
         run: |
           echo "## Benchmark Results 📊" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
+
           if [ -f ../baseline/benchmark-baseline.txt ]; then
             echo "### Comparison with main branch" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            
+
             # Simple comparison - show current results
             echo "Current PR benchmarks:" >> $GITHUB_STEP_SUMMARY
             grep "Benchmark" benchmark-results.txt | head -10 >> $GITHUB_STEP_SUMMARY || true
-            
+
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "Baseline (main) benchmarks:" >> $GITHUB_STEP_SUMMARY
             grep "Benchmark" ../baseline/benchmark-baseline.txt | head -10 >> $GITHUB_STEP_SUMMARY || true
-            
+
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "ℹ️ Use benchstat or similar tools for detailed statistical comparison" >> $GITHUB_STEP_SUMMARY

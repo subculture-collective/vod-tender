@@ -44,7 +44,7 @@ while IFS= read -r line; do
     fi
     
     # Extract percentage (e.g., "+12.5%" -> "12.5")
-    DELTA=$(echo "$line" | grep -oP '\+\K[0-9.]+(?=%)')
+    DELTA=$(echo "$line" | sed -n 's/.*+\([0-9.][0-9.]*\)%.*/\1/p')
     
     if [ -n "$DELTA" ]; then
         # Compare with threshold using bc

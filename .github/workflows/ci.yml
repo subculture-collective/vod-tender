@@ -97,43 +97,7 @@ jobs:
             - name: Check coverage threshold
               working-directory: backend
               run: |
-                  COVERAGE=$(go run - <<EOF
-                  package main
-                  import (
-                      "bufio"
-                      "fmt"
-                      "os"
-                      "strings"
-                  )
-                  func main() {
-                      f, err := os.Open("coverage.out")
-                      if err != nil {
-                          fmt.Println("0")
-                          return
-                      }
-                      defer f.Close()
-                      // Run go tool cover -func=coverage.out and parse output
-                      cmd := "go tool cover -func=coverage.out"
-                      out, err := os.popen(cmd)
-                      if err != nil {
-                          fmt.Println("0")
-                          return
-                      }
-                      scanner := bufio.NewScanner(out)
-                      for scanner.Scan() {
-                          line := scanner.Text()
-                          if strings.HasPrefix(line, "total:") {
-                              fields := strings.Fields(line)
-                              if len(fields) >= 3 {
-                                  fmt.Println(strings.TrimSuffix(fields[2], "%"))
-                                  return
-                              }
-                          }
-                      }
-                      fmt.Println("0")
-                  }
-                  EOF
-                  )
+                  COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
                   echo "Total coverage: ${COVERAGE}%"
 
                   # Note: Coverage threshold is currently relaxed to 50% to allow gradual improvement

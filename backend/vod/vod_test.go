@@ -66,22 +66,24 @@ func TestVODStructFields(t *testing.T) {
 	}
 }
 
+type mockDownloaderTest struct{}
+
+func (m *mockDownloaderTest) Download(ctx context.Context, dbc *sql.DB, id, dataDir string) (string, error) {
+	return "/tmp/test.mp4", nil
+}
+
 func TestDownloaderInterface(t *testing.T) {
 	// Verify we can create a mock downloader that implements the interface
-	type mockDownloaderTest struct{}
-	func (m *mockDownloaderTest) Download(ctx context.Context, dbc *sql.DB, id, dataDir string) (string, error) {
-		return "/tmp/test.mp4", nil
-	}
-	
 	var _ Downloader = (*mockDownloaderTest)(nil) // Compile-time interface check
+}
+
+type mockUploaderTest struct{}
+
+func (m *mockUploaderTest) Upload(ctx context.Context, path, title string, date time.Time) (string, error) {
+	return "https://youtube.com/watch?v=123", nil
 }
 
 func TestUploaderInterface(t *testing.T) {
 	// Verify we can create a mock uploader that implements the interface
-	type mockUploaderTest struct{}
-	func (m *mockUploaderTest) Upload(ctx context.Context, path, title string, date time.Time) (string, error) {
-		return "https://youtube.com/watch?v=123", nil
-	}
-	
 	var _ Uploader = (*mockUploaderTest)(nil) // Compile-time interface check
 }

@@ -56,11 +56,11 @@ func TestUpsertAndGetOAuthToken(t *testing.T) {
 	}
 	defer db.Close()
 
-	if err := Migrate(db); err != nil {
+	ctx := context.Background()
+
+	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
-
-	ctx := context.Background()
 	provider := "test-provider"
 	expiry := time.Now().Add(1 * time.Hour)
 
@@ -125,11 +125,11 @@ func TestGetOAuthToken_NotFound(t *testing.T) {
 	}
 	defer db.Close()
 
-	if err := Migrate(db); err != nil {
+	ctx := context.Background()
+
+	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
-
-	ctx := context.Background()
 	access, refresh, exp, scope, err := GetOAuthToken(ctx, db, "nonexistent-provider")
 	
 	// Should return zero values without error
@@ -161,12 +161,13 @@ func TestTokenStoreAdapter(t *testing.T) {
 	}
 	defer db.Close()
 
-	if err := Migrate(db); err != nil {
+	ctx := context.Background()
+
+	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
 
 	adapter := &TokenStoreAdapter{DB: db}
-	ctx := context.Background()
 	expiry := time.Now().Add(1 * time.Hour)
 
 	// Test UpsertOAuthToken through adapter
@@ -176,7 +177,7 @@ func TestTokenStoreAdapter(t *testing.T) {
 	}
 
 	// Test GetOAuthToken through adapter
-	access, refresh, exp, raw, err := adapter.GetOAuthToken(ctx, "adapter-test")
+	access, refresh, _, raw, err := adapter.GetOAuthToken(ctx, "adapter-test")
 	if err != nil {
 		t.Fatalf("adapter.GetOAuthToken() error = %v", err)
 	}

@@ -165,12 +165,24 @@ jobs:
               with:
                   results_file: results.sarif
                   results_format: sarif
-                  publish_results: true
+                  publish_results: false # Requires public repo or Advanced Security for true
 
-            - name: Upload SARIF results
-              uses: github/codeql-action/upload-sarif@v4
-              with:
-                  sarif_file: results.sarif
+            # NOTE: SARIF upload requires GitHub Advanced Security (paid for private org repos)
+            # Results are available as artifacts instead
+            # - name: Upload SARIF results to Security tab
+            #   uses: github/codeql-action/upload-sarif@v4
+            #   with:
+            #       sarif_file: results.sarif
+
+            - name: Display scorecard summary
+              run: |
+                  echo "## 📊 OSSF Scorecard Results" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "Full results available in the 'ossf-scorecard-results' artifact." >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "To view detailed results:" >> $GITHUB_STEP_SUMMARY
+                  echo "1. Download the artifact from this workflow run" >> $GITHUB_STEP_SUMMARY
+                  echo "2. Use a SARIF viewer or upload to https://sarifweb.azurewebsites.net/" >> $GITHUB_STEP_SUMMARY
 
             - name: Upload scorecard results
               uses: actions/upload-artifact@v4

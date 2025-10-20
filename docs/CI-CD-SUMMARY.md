@@ -211,27 +211,33 @@ make test-integration
 After release, images are available for:
 
 ```bash
-# Backend
+# Backend (exact paths from release.yml workflow)
 docker pull ghcr.io/subculture-collective/vod-tender/backend:latest
 docker pull ghcr.io/subculture-collective/vod-tender/backend:v1.2.3
 
-# Frontend  
+# Frontend (exact paths from release.yml workflow)
 docker pull ghcr.io/subculture-collective/vod-tender/frontend:latest
 docker pull ghcr.io/subculture-collective/vod-tender/frontend:v1.2.3
 
-# Verify signature (optional)
-cosign verify ghcr.io/subculture-collective/vod-tender/backend:v1.2.3
+# Verify signature (requires keyless verification parameters)
+# See: https://docs.sigstore.dev/cosign/verify/
+cosign verify \
+  --certificate-identity-regexp "^https://github.com/subculture-collective/vod-tender" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  ghcr.io/subculture-collective/vod-tender/backend:v1.2.3
 ```
 
 ## Metrics & Thresholds
 
 | Metric | Current | Target | Status |
 |--------|---------|--------|--------|
-| Code Coverage | Variable | 70% | ⚠️ 50% enforced |
+| Code Coverage | Enforced: 50% | Target: 70% | ⚠️ Gradual increase |
 | CI Execution Time | ~8 min | <10 min | ✅ |
 | Performance Regression | - | <10% | ✅ Monitored |
 | Security Scans | Pass | Pass | ✅ |
 | Multi-arch Support | ✅ | ✅ | ✅ |
+
+**Note:** Coverage is currently enforced at 50% to allow gradual improvement. The long-term target is 70% as documented in project standards.
 
 ## Migration Notes
 

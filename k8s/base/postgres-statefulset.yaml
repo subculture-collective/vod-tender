@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: vod-tender
+  labels:
+    app: vod-tender
+    component: postgres
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vod-tender
+      component: postgres
+  template:
+    metadata:
+      labels:
+        app: vod-tender
+        component: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:17-alpine
+        ports:
+        - containerPort: 5432
+          name: postgres
+          protocol: TCP
+        
+        env:
+        - name: POSTGRES_USER
+          value: vod
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: vod-tender-secrets
+              key: postgres-password
+        - name: POSTGRES_DB
+          value: vod
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+        
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - vod
+            - -d
+            - vod
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 3
+        
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - vod
+            - -d
+            - vod
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+      
+      securityContext:
+        fsGroup: 70
+        runAsNonRoot: true
+        runAsUser: 70
+  
+  volumeClaimTemplates:
+  - metadata:
+      name: postgres-data
+      labels:
+        app: vod-tender
+        component: postgres
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 20Gi
+      # storageClassName: standard  # Update based on cloud provider

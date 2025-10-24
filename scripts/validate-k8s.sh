@@ -32,18 +32,27 @@ print_info() {
 
 # Check prerequisites
 print_info "Checking prerequisites..."
-command -v kind >/dev/null 2>&1 || { echo "kind is required but not installed. Aborting."; exit 1; }
-command -v kubectl >/dev/null 2>&1 || { echo "kubectl is required but not installed. Aborting."; exit 1; }
-command -v helm >/dev/null 2>&1 || { echo "helm is required but not installed. Aborting."; exit 1; }
+if ! command -v kind >/dev/null 2>&1; then
+    print_status 1 "kind is required but not installed"
+fi
+if ! command -v kubectl >/dev/null 2>&1; then
+    print_status 1 "kubectl is required but not installed"
+fi
+if ! command -v helm >/dev/null 2>&1; then
+    print_status 1 "helm is required but not installed"
+fi
 print_status 0 "Prerequisites installed"
 
+# Cluster configuration
+CLUSTER_TIMEOUT="${CLUSTER_TIMEOUT:-10m}"  # Configurable via environment variable
+
 # Create kind cluster
-print_info "Creating kind cluster: $CLUSTER_NAME"
+print_info "Creating kind cluster: $CLUSTER_NAME (timeout: $CLUSTER_TIMEOUT)"
 if kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
     print_info "Cluster already exists, deleting..."
     kind delete cluster --name "$CLUSTER_NAME"
 fi
-kind create cluster --name "$CLUSTER_NAME" --wait 5m
+kind create cluster --name "$CLUSTER_NAME" --wait "$CLUSTER_TIMEOUT"
 print_status $? "Kind cluster created"
 
 # Test 1: Validate kustomize build

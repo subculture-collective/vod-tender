@@ -659,7 +659,52 @@ For distributed tracing, integrate with Jaeger or Tempo.
 
 ### Database Backups
 
-**Option 1: Automated CronJob**
+**Option 1: Automated CronJob (Recommended)**
+
+The Kubernetes manifests and Helm chart include an optional automated backup CronJob that runs pg_dump daily and optionally uploads to S3.
+
+**Using Kustomize:**
+
+Uncomment the backup resources in `k8s/base/kustomization.yaml`:
+
+```yaml
+resources:
+  # ... other resources ...
+  - backup-pvc.yaml
+  - backup-cronjob.yaml
+```
+
+Then apply:
+
+```bash
+kubectl apply -k k8s/overlays/production
+```
+
+**Using Helm:**
+
+Enable backups in your values file:
+
+```yaml
+postgres:
+  backup:
+    enabled: true
+    schedule: "0 2 * * *"  # Daily at 2 AM UTC
+    retentionDays: 7  # Keep last 7 days
+    
+    # Optional: Enable S3 uploads
+    s3:
+      enabled: true
+      bucket: "my-backup-bucket"
+      region: "us-east-1"
+```
+
+Then deploy with:
+
+```bash
+helm upgrade vod-tender ./charts/vod-tender -f values.yaml
+```
+
+**Manual backup example:**
 
 ```yaml
 apiVersion: batch/v1

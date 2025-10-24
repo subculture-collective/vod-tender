@@ -14,3 +14,11 @@ resources:
   - services.yaml
   - ingress.yaml
   - networkpolicy.yaml
+  # Optional: Uncomment to enable automated backups
+  # - backup-pvc.yaml
+  # - backup-cronjob.yaml
+  # Optional: Uncomment to enable Grafana dashboard
+  # - grafana-dashboard.yaml
+  # Optional: Use External Secrets Operator instead of secret.yaml
+  # See external-secret.yaml.example for configuration
+  # - external-secret.yaml

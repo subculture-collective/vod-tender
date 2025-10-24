@@ -1,0 +1,117 @@
+{{- if and .Values.postgres.enabled .Values.postgres.backup.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "vod-tender.fullname" . }}-postgres-backup
+  labels:
+    {{- include "vod-tender.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  schedule: {{ .Values.postgres.backup.schedule | quote }}
+  successfulJobsHistoryLimit: {{ .Values.postgres.backup.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.postgres.backup.failedJobsHistoryLimit }}
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.postgres.backup.backoffLimit }}
+      template:
+        metadata:
+          labels:
+            {{- include "vod-tender.labels" . | nindent 12 }}
+            app.kubernetes.io/component: backup
+        spec:
+          restartPolicy: OnFailure
+          
+          containers:
+          - name: postgres-backup
+            image: "{{ .Values.image.postgres.repository }}:{{ .Values.image.postgres.tag }}"
+            imagePullPolicy: {{ .Values.image.postgres.pullPolicy }}
+            
+            command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "Starting backup at $(date)"
+              
+              # Create backup directory
+              BACKUP_DIR="/backups"
+              BACKUP_FILE="${BACKUP_DIR}/vod_backup_$(date +%Y%m%d_%H%M%S).sql.gz"
+              
+              # Perform backup with compression
+              pg_dump "$DB_DSN" | gzip > "$BACKUP_FILE"
+              
+              echo "Backup completed: $BACKUP_FILE ($(du -h "$BACKUP_FILE" | cut -f1))"
+              
+              {{- if .Values.postgres.backup.s3.enabled }}
+              # Upload to S3 (requires AWS CLI)
+              if command -v aws >/dev/null 2>&1; then
+                echo "Uploading to S3..."
+                aws s3 cp "$BACKUP_FILE" "s3://{{ .Values.postgres.backup.s3.bucket }}/postgres-backups/$(basename $BACKUP_FILE)"
+                echo "Upload completed"
+              else
+                echo "WARNING: AWS CLI not available, skipping S3 upload"
+              fi
+              {{- end }}
+              
+              # Clean up old backups (keep last N days)
+              find "$BACKUP_DIR" -name "vod_backup_*.sql.gz" -mtime +{{ .Values.postgres.backup.retentionDays }} -delete
+              
+              echo "Backup process finished at $(date)"
+            
+            env:
+            - name: DB_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vod-tender.fullname" . }}-secrets
+                  key: db-dsn
+            
+            {{- if .Values.postgres.backup.s3.enabled }}
+            - name: AWS_REGION
+              value: {{ .Values.postgres.backup.s3.region | quote }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vod-tender.fullname" . }}-secrets
+                  key: aws-access-key-id
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vod-tender.fullname" . }}-secrets
+                  key: aws-secret-access-key
+            {{- end }}
+            
+            volumeMounts:
+            - name: backups
+              mountPath: /backups
+            
+            resources:
+              {{- toYaml .Values.postgres.backup.resources | nindent 14 }}
+          
+          volumes:
+          - name: backups
+            persistentVolumeClaim:
+              claimName: {{ include "vod-tender.fullname" . }}-postgres-backups
+          
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 70  # postgres user
+            fsGroup: 70
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "vod-tender.fullname" . }}-postgres-backups
+  labels:
+    {{- include "vod-tender.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.postgres.backup.persistence.size }}
+  {{- if .Values.postgres.backup.persistence.storageClass }}
+  storageClassName: {{ .Values.postgres.backup.persistence.storageClass }}
+  {{- end }}
+{{- end }}

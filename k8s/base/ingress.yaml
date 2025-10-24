@@ -1,0 +1,42 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vod-tender-ingress
+  namespace: vod-tender
+  labels:
+    app: vod-tender
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"  # No upload size limit
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - vod-tender.example.com
+    - vod-api.example.com
+    secretName: vod-tender-tls
+  rules:
+  # Frontend
+  - host: vod-tender.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: vod-tender-frontend
+            port:
+              number: 80
+  
+  # API
+  - host: vod-api.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: vod-tender-api
+            port:
+              number: 8080

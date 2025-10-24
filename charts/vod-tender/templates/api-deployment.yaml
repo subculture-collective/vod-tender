@@ -1,0 +1,224 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vod-tender.fullname" . }}-api
+  labels:
+    {{- include "vod-tender.api.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.api.replicas }}
+  strategy:
+    type: {{ .Values.api.strategy.type }}
+  selector:
+    matchLabels:
+      {{- include "vod-tender.api.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.api.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "vod-tender.api.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.api.securityContext | nindent 8 }}
+      
+      {{- if .Values.postgres.enabled }}
+      initContainers:
+      - name: wait-for-postgres
+        image: "{{ .Values.image.postgres.repository }}:{{ .Values.image.postgres.tag }}"
+        imagePullPolicy: {{ .Values.image.postgres.pullPolicy }}
+        command:
+        - sh
+        - -c
+        - |
+          until pg_isready -h {{ include "vod-tender.fullname" . }}-postgres -U {{ .Values.postgres.username }}; do
+            echo "Waiting for postgres...";
+            sleep 2;
+          done
+      {{- end }}
+      
+      containers:
+      - name: api
+        image: "{{ .Values.image.api.repository }}:{{ .Values.image.api.tag }}"
+        imagePullPolicy: {{ .Values.image.api.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        
+        env:
+        # Database connection
+        - name: DB_DSN
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "vod-tender.secretName" . }}
+              key: db-dsn
+        
+        # Twitch OAuth
+        - name: TWITCH_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "vod-tender.secretName" . }}
+              key: twitch-client-id
+        - name: TWITCH_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "vod-tender.secretName" . }}
+              key: twitch-client-secret
+        - name: TWITCH_OAUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "vod-tender.secretName" . }}
+              key: twitch-oauth-token
+        - name: TWITCH_REDIRECT_URI
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "vod-tender.secretName" . }}
+              key: twitch-redirect-uri
+        - name: TWITCH_SCOPES
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "vod-tender.secretName" . }}
+              key: twitch-scopes
+        
+        # YouTube OAuth
+        - name: YT_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "vod-tender.secretName" . }}
+              key: yt-client-id
+        - name: YT_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "vod-tender.secretName" . }}
+              key: yt-client-secret
+        - name: YT_REDIRECT_URI
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "vod-tender.secretName" . }}
+              key: yt-redirect-uri
+        - name: YT_SCOPES
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "vod-tender.secretName" . }}
+              key: yt-scopes
+        
+        # Configuration from ConfigMap
+        - name: TWITCH_CHANNEL
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "vod-tender.fullname" . }}-config
+              key: TWITCH_CHANNEL
+        - name: TWITCH_BOT_USERNAME
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "vod-tender.fullname" . }}-config
+              key: TWITCH_BOT_USERNAME
+        - name: CHAT_AUTO_START
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "vod-tender.fullname" . }}-config
+              key: CHAT_AUTO_START
+        - name: VOD_CATALOG_BACKFILL_INTERVAL
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "vod-tender.fullname" . }}-config
+              key: VOD_CATALOG_BACKFILL_INTERVAL
+        - name: VOD_PROCESS_INTERVAL
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "vod-tender.fullname" . }}-config
+              key: VOD_PROCESS_INTERVAL
+        - name: PROCESSING_RETRY_COOLDOWN
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "vod-tender.fullname" . }}-config
+              key: PROCESSING_RETRY_COOLDOWN
+        - name: DOWNLOAD_MAX_ATTEMPTS
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "vod-tender.fullname" . }}-config
+              key: DOWNLOAD_MAX_ATTEMPTS
+        - name: DOWNLOAD_BACKOFF_BASE
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "vod-tender.fullname" . }}-config
+              key: DOWNLOAD_BACKOFF_BASE
+        - name: UPLOAD_MAX_ATTEMPTS
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "vod-tender.fullname" . }}-config
+              key: UPLOAD_MAX_ATTEMPTS
+        - name: UPLOAD_BACKOFF_BASE
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "vod-tender.fullname" . }}-config
+              key: UPLOAD_BACKOFF_BASE
+        - name: CIRCUIT_OPEN_COOLDOWN
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "vod-tender.fullname" . }}-config
+              key: CIRCUIT_OPEN_COOLDOWN
+        - name: DATA_DIR
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "vod-tender.fullname" . }}-config
+              key: DATA_DIR
+        - name: BACKFILL_AUTOCLEAN
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "vod-tender.fullname" . }}-config
+              key: BACKFILL_AUTOCLEAN
+        - name: RETAIN_KEEP_NEWER_THAN_DAYS
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "vod-tender.fullname" . }}-config
+              key: RETAIN_KEEP_NEWER_THAN_DAYS
+        - name: BACKFILL_UPLOAD_DAILY_LIMIT
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "vod-tender.fullname" . }}-config
+              key: BACKFILL_UPLOAD_DAILY_LIMIT
+        - name: CHAT_AUTO_POLL_INTERVAL
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "vod-tender.fullname" . }}-config
+              key: CHAT_AUTO_POLL_INTERVAL
+        - name: VOD_RECONCILE_DELAY
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "vod-tender.fullname" . }}-config
+              key: VOD_RECONCILE_DELAY
+        
+        # HTTP server
+        - name: HTTP_ADDR
+          value: ":8080"
+        
+        {{- if .Values.persistence.data.enabled }}
+        volumeMounts:
+        - name: data
+          mountPath: {{ .Values.config.dataDir }}
+        {{- end }}
+        
+        resources:
+          {{- toYaml .Values.api.resources | nindent 10 }}
+        
+        readinessProbe:
+          {{- toYaml .Values.api.readinessProbe | nindent 10 }}
+        
+        livenessProbe:
+          {{- toYaml .Values.api.livenessProbe | nindent 10 }}
+      
+      {{- if .Values.persistence.data.enabled }}
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: {{ include "vod-tender.fullname" . }}-data
+      {{- end }}

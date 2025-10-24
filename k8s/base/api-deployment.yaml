@@ -1,0 +1,231 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vod-tender-api
+  namespace: vod-tender
+  labels:
+    app: vod-tender
+    component: api
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate  # Single-channel concurrency model: prevent concurrent instances
+  selector:
+    matchLabels:
+      app: vod-tender
+      component: api
+  template:
+    metadata:
+      labels:
+        app: vod-tender
+        component: api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      initContainers:
+      - name: wait-for-postgres
+        image: postgres:17-alpine
+        command: ['sh', '-c', 'until pg_isready -h postgres -U vod; do echo "Waiting for postgres..."; sleep 2; done']
+      
+      containers:
+      - name: api
+        image: ghcr.io/subculture-collective/vod-tender-api:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        
+        env:
+        # Database connection
+        - name: DB_DSN
+          valueFrom:
+            secretKeyRef:
+              name: vod-tender-secrets
+              key: db-dsn
+        
+        # Twitch OAuth credentials
+        - name: TWITCH_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: vod-tender-secrets
+              key: twitch-client-id
+        - name: TWITCH_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: vod-tender-secrets
+              key: twitch-client-secret
+        - name: TWITCH_OAUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: vod-tender-secrets
+              key: twitch-oauth-token
+        - name: TWITCH_REDIRECT_URI
+          valueFrom:
+            secretKeyRef:
+              name: vod-tender-secrets
+              key: twitch-redirect-uri
+        - name: TWITCH_SCOPES
+          valueFrom:
+            secretKeyRef:
+              name: vod-tender-secrets
+              key: twitch-scopes
+        
+        # YouTube OAuth credentials
+        - name: YT_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: vod-tender-secrets
+              key: yt-client-id
+        - name: YT_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: vod-tender-secrets
+              key: yt-client-secret
+        - name: YT_REDIRECT_URI
+          valueFrom:
+            secretKeyRef:
+              name: vod-tender-secrets
+              key: yt-redirect-uri
+        - name: YT_SCOPES
+          valueFrom:
+            secretKeyRef:
+              name: vod-tender-secrets
+              key: yt-scopes
+        
+        # Configuration from ConfigMap
+        - name: TWITCH_CHANNEL
+          valueFrom:
+            configMapKeyRef:
+              name: vod-tender-config
+              key: TWITCH_CHANNEL
+        - name: TWITCH_BOT_USERNAME
+          valueFrom:
+            configMapKeyRef:
+              name: vod-tender-config
+              key: TWITCH_BOT_USERNAME
+        - name: CHAT_AUTO_START
+          valueFrom:
+            configMapKeyRef:
+              name: vod-tender-config
+              key: CHAT_AUTO_START
+        - name: VOD_CATALOG_BACKFILL_INTERVAL
+          valueFrom:
+            configMapKeyRef:
+              name: vod-tender-config
+              key: VOD_CATALOG_BACKFILL_INTERVAL
+        - name: VOD_PROCESS_INTERVAL
+          valueFrom:
+            configMapKeyRef:
+              name: vod-tender-config
+              key: VOD_PROCESS_INTERVAL
+        - name: PROCESSING_RETRY_COOLDOWN
+          valueFrom:
+            configMapKeyRef:
+              name: vod-tender-config
+              key: PROCESSING_RETRY_COOLDOWN
+        - name: DOWNLOAD_MAX_ATTEMPTS
+          valueFrom:
+            configMapKeyRef:
+              name: vod-tender-config
+              key: DOWNLOAD_MAX_ATTEMPTS
+        - name: DOWNLOAD_BACKOFF_BASE
+          valueFrom:
+            configMapKeyRef:
+              name: vod-tender-config
+              key: DOWNLOAD_BACKOFF_BASE
+        - name: UPLOAD_MAX_ATTEMPTS
+          valueFrom:
+            configMapKeyRef:
+              name: vod-tender-config
+              key: UPLOAD_MAX_ATTEMPTS
+        - name: UPLOAD_BACKOFF_BASE
+          valueFrom:
+            configMapKeyRef:
+              name: vod-tender-config
+              key: UPLOAD_BACKOFF_BASE
+        - name: CIRCUIT_OPEN_COOLDOWN
+          valueFrom:
+            configMapKeyRef:
+              name: vod-tender-config
+              key: CIRCUIT_OPEN_COOLDOWN
+        - name: DATA_DIR
+          valueFrom:
+            configMapKeyRef:
+              name: vod-tender-config
+              key: DATA_DIR
+        - name: BACKFILL_AUTOCLEAN
+          valueFrom:
+            configMapKeyRef:
+              name: vod-tender-config
+              key: BACKFILL_AUTOCLEAN
+        - name: RETAIN_KEEP_NEWER_THAN_DAYS
+          valueFrom:
+            configMapKeyRef:
+              name: vod-tender-config
+              key: RETAIN_KEEP_NEWER_THAN_DAYS
+        - name: BACKFILL_UPLOAD_DAILY_LIMIT
+          valueFrom:
+            configMapKeyRef:
+              name: vod-tender-config
+              key: BACKFILL_UPLOAD_DAILY_LIMIT
+        - name: CHAT_AUTO_POLL_INTERVAL
+          valueFrom:
+            configMapKeyRef:
+              name: vod-tender-config
+              key: CHAT_AUTO_POLL_INTERVAL
+        - name: VOD_RECONCILE_DELAY
+          valueFrom:
+            configMapKeyRef:
+              name: vod-tender-config
+              key: VOD_RECONCILE_DELAY
+        
+        # HTTP server address
+        - name: HTTP_ADDR
+          value: ":8080"
+        
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+        
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 3
+        
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+      
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: vod-tender-data
+      
+      securityContext:
+        fsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000

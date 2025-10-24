@@ -1,0 +1,18 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: vod-tender-api
+  namespace: vod-tender
+  labels:
+    app: vod-tender
+    component: api
+spec:
+  selector:
+    matchLabels:
+      app: vod-tender
+      component: api
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 30s
+    scrapeTimeout: 10s

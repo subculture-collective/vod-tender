@@ -1,0 +1,82 @@
+# Production environment values
+# Use with: helm install vod-tender ./charts/vod-tender -f charts/vod-tender/values-production.yaml
+
+image:
+  api:
+    tag: "1.0.0"  # Use specific version tags in production
+    pullPolicy: IfNotPresent
+  frontend:
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+
+config:
+  chatAutoStart: "1"
+  backfillAutoclean: "1"
+  retainKeepNewerThanDays: "14"
+  backfillUploadDailyLimit: "10"
+
+secrets:
+  create: false  # Use External Secrets Operator in production
+  existingSecret: vod-tender-secrets
+
+api:
+  resources:
+    requests:
+      memory: 1Gi
+      cpu: 1000m
+    limits:
+      memory: 4Gi
+      cpu: 4000m
+
+frontend:
+  replicas: 3
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 75
+    targetMemoryUtilizationPercentage: 80
+
+postgres:
+  persistence:
+    size: 50Gi
+    storageClass: "fast-ssd"  # Use faster storage class
+  resources:
+    requests:
+      memory: 512Mi
+      cpu: 500m
+    limits:
+      memory: 2Gi
+      cpu: 2000m
+
+persistence:
+  data:
+    size: 500Gi
+    storageClass: "standard"
+
+ingress:
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+  frontend:
+    host: vod-tender.example.com
+  api:
+    host: vod-api.example.com
+
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: 15s
+
+networkPolicy:
+  enabled: true
+
+externalSecrets:
+  enabled: true
+  refreshInterval: 1h
+  secretStoreRef:
+    name: aws-secrets-manager
+    kind: ClusterSecretStore

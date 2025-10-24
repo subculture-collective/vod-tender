@@ -1,8 +1,7 @@
 #!/bin/bash
+set -euo pipefail
 # Kubernetes Deployment Validation Script
 # Tests vod-tender K8s manifests and Helm chart in a local kind cluster
-
-set -e
 
 echo "=== vod-tender Kubernetes Deployment Validation ==="
 echo ""

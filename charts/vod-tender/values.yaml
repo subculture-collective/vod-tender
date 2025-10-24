@@ -267,6 +267,35 @@ postgres:
   podDisruptionBudget:
     enabled: true
     maxUnavailable: 0
+  
+  # Automated backup configuration
+  backup:
+    enabled: false  # Set to true to enable automated backups
+    schedule: "0 2 * * *"  # Daily at 2 AM UTC
+    retentionDays: 7  # Keep backups for 7 days
+    successfulJobsHistoryLimit: 3
+    failedJobsHistoryLimit: 3
+    backoffLimit: 2
+    
+    # Backup storage
+    persistence:
+      size: 10Gi
+      storageClass: ""  # Use default StorageClass
+    
+    # S3 upload configuration (optional)
+    s3:
+      enabled: false
+      bucket: ""  # S3 bucket name
+      region: us-east-1
+    
+    # Resource limits for backup job
+    resources:
+      requests:
+        memory: 128Mi
+        cpu: 100m
+      limits:
+        memory: 512Mi
+        cpu: 500m
 
 # Persistent storage for VOD data
 persistence:
@@ -316,6 +345,10 @@ monitoring:
     enabled: true
     interval: 30s
     scrapeTimeout: 10s
+  
+  # Grafana dashboard
+  grafana:
+    enabled: true  # Deploy Grafana dashboard ConfigMap
 
 # External Secrets Operator integration
 externalSecrets:

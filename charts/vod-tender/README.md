@@ -244,6 +244,24 @@ The following table lists the configurable parameters of the vod-tender chart an
 | `monitoring.serviceMonitor.enabled` | Enable ServiceMonitor | `true` |
 | `monitoring.serviceMonitor.interval` | Scrape interval | `30s` |
 | `monitoring.serviceMonitor.scrapeTimeout` | Scrape timeout | `10s` |
+| `monitoring.grafana.enabled` | Deploy Grafana dashboard ConfigMap | `true` |
+
+### Backup Configuration
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `postgres.backup.enabled` | Enable automated database backups | `false` |
+| `postgres.backup.schedule` | Backup schedule (cron format) | `"0 2 * * *"` |
+| `postgres.backup.retentionDays` | Days to retain backups | `7` |
+| `postgres.backup.persistence.size` | Backup storage size | `10Gi` |
+| `postgres.backup.persistence.storageClass` | Storage class for backups | `""` |
+| `postgres.backup.s3.enabled` | Enable S3 upload | `false` |
+| `postgres.backup.s3.bucket` | S3 bucket name | `""` |
+| `postgres.backup.s3.region` | AWS region | `us-east-1` |
+| `postgres.backup.resources.requests.memory` | Memory request | `128Mi` |
+| `postgres.backup.resources.requests.cpu` | CPU request | `100m` |
+| `postgres.backup.resources.limits.memory` | Memory limit | `512Mi` |
+| `postgres.backup.resources.limits.cpu` | CPU limit | `500m` |
 
 ### Network Policy Configuration
 

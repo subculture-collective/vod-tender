@@ -1,0 +1,16 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vod-tender-data
+  namespace: vod-tender
+  labels:
+    app: vod-tender
+    component: storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+  # storageClassName: standard  # Update based on cloud provider (gp3, pd-standard, etc.)

@@ -4,4 +4,3 @@ metadata:
   name: vod-tender
   labels:
     app: vod-tender
-    environment: production

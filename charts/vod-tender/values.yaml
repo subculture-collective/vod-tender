@@ -74,14 +74,14 @@ secrets:
     clientId: ""
     clientSecret: ""
     oauthToken: ""
-    redirectUri: "https://vod-api.example.com/auth/twitch/callback"
+    redirectUri: ""  # If empty, derived from ingress.api.host
     scopes: "chat:read chat:edit"
   
   # YouTube OAuth credentials
   youtube:
     clientId: ""
     clientSecret: ""
-    redirectUri: "https://vod-api.example.com/auth/youtube/callback"
+    redirectUri: ""  # If empty, derived from ingress.api.host
     scopes: "https://www.googleapis.com/auth/youtube.upload"
   
   # Postgres password

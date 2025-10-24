@@ -40,7 +40,7 @@ frontend:
 postgres:
   persistence:
     size: 50Gi
-    storageClass: "fast-ssd"  # Use faster storage class
+    storageClass: ""  # Use default or set to your cluster's SSD storage class (e.g., gp3, pd-ssd)
   resources:
     requests:
       memory: 512Mi

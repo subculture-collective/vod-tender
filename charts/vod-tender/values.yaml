@@ -348,7 +348,7 @@ monitoring:
   
   # Grafana dashboard
   grafana:
-    enabled: true  # Set to true to deploy Grafana dashboard ConfigMap
+    enabled: true  # Deploy Grafana dashboard ConfigMap
 
 # External Secrets Operator integration
 externalSecrets:

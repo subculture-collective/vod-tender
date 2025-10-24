@@ -1,0 +1,7 @@
+# Ignore local secret overrides
+*-secrets.yaml
+local-*.yaml
+
+# Ignore rendered manifests
+rendered/
+output/

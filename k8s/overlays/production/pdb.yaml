@@ -1,0 +1,47 @@
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: vod-tender-frontend-pdb
+  namespace: vod-tender
+  labels:
+    app: vod-tender
+    component: frontend
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: vod-tender
+      component: frontend
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: vod-tender-api-pdb
+  namespace: vod-tender
+  labels:
+    app: vod-tender
+    component: api
+spec:
+  maxUnavailable: 0  # API uses Recreate strategy, prevent disruption during updates
+  selector:
+    matchLabels:
+      app: vod-tender
+      component: api
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: postgres-pdb
+  namespace: vod-tender
+  labels:
+    app: vod-tender
+    component: postgres
+spec:
+  maxUnavailable: 0  # Postgres should not be disrupted
+  selector:
+    matchLabels:
+      app: vod-tender
+      component: postgres

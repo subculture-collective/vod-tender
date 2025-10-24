@@ -1,0 +1,33 @@
+apiVersion: v2
+name: vod-tender
+description: A Helm chart for vod-tender - Twitch VOD archival and chat recorder
+
+# This is the chart version. This version number should be incremented each time you make changes
+# to the chart and its templates, including the app version.
+# Versions are expected to follow Semantic Versioning (https://semver.org/)
+version: 0.1.0
+
+# This is the version number of the application being deployed. This version number should be
+# incremented each time you make changes to the application. Versions are expected to follow
+# Semantic Versioning. It is recommended to use it with quotes.
+appVersion: "1.0.0"
+
+keywords:
+  - twitch
+  - vod
+  - archival
+  - chat
+  - recorder
+  - youtube
+
+home: https://github.com/subculture-collective/vod-tender
+sources:
+  - https://github.com/subculture-collective/vod-tender
+
+maintainers:
+  - name: vod-tender team
+    url: https://github.com/subculture-collective/vod-tender
+
+icon: https://raw.githubusercontent.com/subculture-collective/vod-tender/main/frontend/public/favicon.ico
+
+dependencies: []

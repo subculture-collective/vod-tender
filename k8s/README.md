@@ -120,6 +120,50 @@ Three NetworkPolicies for defense-in-depth:
    - Ingress: From API only (port 5432)
    - Egress: DNS (53)
 
+#### backup-pvc.yaml (Optional)
+PersistentVolumeClaim for Postgres backups:
+- Default: 10Gi
+- Access mode: ReadWriteOnce
+- Stores compressed pg_dump files
+
+**To enable**: Uncomment in `kustomization.yaml`
+
+#### backup-cronjob.yaml (Optional)
+Automated daily database backups:
+- **Schedule**: Daily at 2 AM UTC (configurable)
+- **Retention**: 7 days (configurable)
+- **Compression**: gzip for space efficiency
+- **S3 Upload**: Optional (requires AWS credentials)
+- **Resources**: 128Mi-512Mi memory, 100m-500m CPU
+
+**To enable**: Uncomment in `kustomization.yaml`
+
+#### grafana-dashboard.yaml (Optional)
+Grafana dashboard ConfigMap with pre-configured panels:
+- VOD download metrics (rates, success/failure)
+- Queue depth gauge
+- Download duration percentiles (p50, p95, p99)
+- Circuit breaker state
+- Pod memory usage
+
+**To enable**: Uncomment in `kustomization.yaml`
+
+**Label**: `grafana_dashboard: "1"` enables auto-discovery by Grafana sidecar
+
+#### external-secret.yaml.example (Optional)
+Example configuration for External Secrets Operator:
+- AWS Secrets Manager integration
+- HashiCorp Vault integration
+- Auto-refresh every 1 hour
+- Replaces `secret.yaml` for production
+
+**To use**:
+1. Copy `external-secret.yaml.example` to `external-secret.yaml`
+2. Configure your SecretStore
+3. Update data mappings for your secret structure
+4. Comment out `secret.yaml` in `kustomization.yaml`
+5. Uncomment `external-secret.yaml` in `kustomization.yaml`
+
 ### Overlays
 
 #### dev/

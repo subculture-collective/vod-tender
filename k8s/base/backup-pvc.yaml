@@ -1,0 +1,16 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-backups
+  namespace: vod-tender
+  labels:
+    app: vod-tender
+    component: backup
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  # storageClassName: standard  # Update based on cloud provider

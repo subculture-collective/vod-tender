@@ -48,6 +48,20 @@ postgres:
     limits:
       memory: 2Gi
       cpu: 2000m
+  
+  # Enable automated backups in production
+  backup:
+    enabled: true
+    schedule: "0 2 * * *"  # 2 AM UTC daily
+    retentionDays: 14
+    persistence:
+      size: 20Gi
+      storageClass: ""
+    # Optional: Enable S3 uploads for off-site backups
+    # s3:
+    #   enabled: true
+    #   bucket: "my-production-backups"
+    #   region: "us-east-1"
 
 persistence:
   data:
@@ -70,6 +84,8 @@ monitoring:
   serviceMonitor:
     enabled: true
     interval: 15s
+  grafana:
+    enabled: true  # Deploy Grafana dashboard ConfigMap
 
 networkPolicy:
   enabled: true

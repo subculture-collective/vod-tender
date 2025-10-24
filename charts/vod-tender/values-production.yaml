@@ -58,10 +58,11 @@ postgres:
       size: 20Gi
       storageClass: ""
     # Optional: Enable S3 uploads for off-site backups
+    # IMPORTANT: Replace placeholder values with your actual S3 configuration
     # s3:
     #   enabled: true
-    #   bucket: "my-production-backups"
-    #   region: "us-east-1"
+    #   bucket: "YOUR-PRODUCTION-BACKUP-BUCKET"
+    #   region: "YOUR-AWS-REGION"  # e.g., us-east-1
 
 persistence:
   data:

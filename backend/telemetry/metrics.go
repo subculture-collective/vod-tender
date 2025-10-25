@@ -30,22 +30,105 @@ var (
 	// Gauges
 	QueueDepthGauge  prometheus.Gauge
 	CircuitOpenGauge prometheus.Gauge // 1=open,0=closed
+
+	// Enhanced metrics
+	ChatMessagesRecorded        *prometheus.CounterVec
+	ChatReconnections           prometheus.Counter
+	OAuthTokenRefresh           *prometheus.CounterVec
+	HelixAPICalls               *prometheus.CounterVec
+	CircuitBreakerStateChanges  *prometheus.CounterVec
+	ProcessingStepDuration      *prometheus.HistogramVec
+	DatabaseConnectionPoolSize  prometheus.Gauge
+	DatabaseConnectionPoolInUse prometheus.Gauge
 )
 
 // Init registers metrics (idempotent).
 func Init() {
 	once.Do(func() {
+		// Existing metrics
 		DownloadsStarted = promauto.NewCounter(prometheus.CounterOpts{Name: "vod_downloads_started_total", Help: "Number of VOD downloads started"})
 		DownloadsFailed = promauto.NewCounter(prometheus.CounterOpts{Name: "vod_downloads_failed_total", Help: "Number of VOD downloads failed"})
 		DownloadsSucceeded = promauto.NewCounter(prometheus.CounterOpts{Name: "vod_downloads_succeeded_total", Help: "Number of VOD downloads succeeded"})
 		UploadsSucceeded = promauto.NewCounter(prometheus.CounterOpts{Name: "vod_uploads_succeeded_total", Help: "Number of VOD uploads succeeded"})
 		UploadsFailed = promauto.NewCounter(prometheus.CounterOpts{Name: "vod_uploads_failed_total", Help: "Number of VOD uploads failed"})
 		ProcessingCycles = promauto.NewCounter(prometheus.CounterOpts{Name: "vod_processing_cycles_total", Help: "Number of processing cycles (processOnce invocations)"})
-		DownloadDuration = promauto.NewHistogram(prometheus.HistogramOpts{Name: "vod_download_duration_seconds", Help: "Download duration seconds", Buckets: prometheus.DefBuckets})
-		UploadDuration = promauto.NewHistogram(prometheus.HistogramOpts{Name: "vod_upload_duration_seconds", Help: "Upload duration seconds", Buckets: prometheus.DefBuckets})
-		TotalProcessDuration = promauto.NewHistogram(prometheus.HistogramOpts{Name: "vod_processing_total_duration_seconds", Help: "Total processing cycle duration seconds", Buckets: prometheus.DefBuckets})
+		
+		// Tuned histogram buckets for realistic VOD durations (1m to 2h)
+		DownloadDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+			Name:    "vod_download_duration_seconds",
+			Help:    "Download duration seconds",
+			Buckets: []float64{60, 300, 600, 1800, 3600, 7200}, // 1m, 5m, 10m, 30m, 1h, 2h
+		})
+		UploadDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+			Name:    "vod_upload_duration_seconds",
+			Help:    "Upload duration seconds",
+			Buckets: []float64{30, 60, 120, 300, 600, 1800}, // 30s, 1m, 2m, 5m, 10m, 30m
+		})
+		TotalProcessDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+			Name:    "vod_processing_total_duration_seconds",
+			Help:    "Total processing cycle duration seconds",
+			Buckets: []float64{60, 300, 900, 1800, 3600, 7200}, // 1m to 2h
+		})
+		
 		QueueDepthGauge = promauto.NewGauge(prometheus.GaugeOpts{Name: "vod_queue_depth", Help: "Current number of unprocessed VODs"})
 		CircuitOpenGauge = promauto.NewGauge(prometheus.GaugeOpts{Name: "vod_circuit_open", Help: "Circuit breaker open=1 closed=0"})
+
+		// Enhanced metrics
+		ChatMessagesRecorded = promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "chat_messages_recorded_total",
+				Help: "Total number of chat messages recorded",
+			},
+			[]string{"channel"},
+		)
+		
+		ChatReconnections = promauto.NewCounter(prometheus.CounterOpts{
+			Name: "chat_reconnections_total",
+			Help: "Total number of chat reconnections",
+		})
+
+		OAuthTokenRefresh = promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "oauth_token_refresh_total",
+				Help: "Total OAuth token refresh attempts",
+			},
+			[]string{"provider", "status"},
+		)
+
+		HelixAPICalls = promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "helix_api_calls_total",
+				Help: "Total Twitch Helix API calls",
+			},
+			[]string{"endpoint", "status"},
+		)
+
+		CircuitBreakerStateChanges = promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "circuit_breaker_state_changes_total",
+				Help: "Circuit breaker state transitions",
+			},
+			[]string{"from", "to"},
+		)
+
+		ProcessingStepDuration = promauto.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "vod_processing_step_duration_seconds",
+				Help:    "Duration of individual processing steps",
+				Buckets: []float64{60, 300, 600, 1800, 3600, 7200},
+			},
+			[]string{"step"},
+		)
+
+		DatabaseConnectionPoolSize = promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "database_connection_pool_size",
+			Help: "Maximum database connection pool size",
+		})
+
+		DatabaseConnectionPoolInUse = promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "database_connection_pool_in_use",
+			Help: "Current number of database connections in use",
+		})
 	})
 }
 
@@ -76,6 +159,23 @@ func TimeFunc(obs prometheus.Observer, fn func()) time.Duration {
 		obs.Observe(d.Seconds())
 	}
 	return d
+}
+
+// UpdateDatabasePoolMetrics updates the database connection pool metrics.
+func UpdateDatabasePoolMetrics(maxOpen, inUse int) {
+	if DatabaseConnectionPoolSize != nil {
+		DatabaseConnectionPoolSize.Set(float64(maxOpen))
+	}
+	if DatabaseConnectionPoolInUse != nil {
+		DatabaseConnectionPoolInUse.Set(float64(inUse))
+	}
+}
+
+// RecordCircuitStateChange records a state transition in the circuit breaker.
+func RecordCircuitStateChange(from, to string) {
+	if CircuitBreakerStateChanges != nil {
+		CircuitBreakerStateChanges.WithLabelValues(from, to).Inc()
+	}
 }
 
 // Correlation ID helpers ----------------------------------------------------

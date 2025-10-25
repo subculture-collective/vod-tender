@@ -12,6 +12,8 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"strings"
@@ -65,12 +67,21 @@ func main() {
 
 	// Config
 	cfg, err := config.Load()
-	// Metrics / telemetry init
-	telemetry.Init()
 	if err != nil {
 		slog.Error("config load failed", slog.Any("err", err))
 		os.Exit(1)
 	}
+	
+	// Metrics / telemetry init
+	telemetry.Init()
+	
+	// Initialize OpenTelemetry tracing (optional; requires OTEL_EXPORTER_OTLP_ENDPOINT)
+	shutdown, err := telemetry.InitTracing("vod-tender", "1.0.0")
+	if err != nil {
+		slog.Error("tracing initialization failed", slog.Any("err", err))
+		os.Exit(1)
+	}
+	defer shutdown()
 
 	// Best-effort: fetch a Twitch app access token (client-credentials) if client id/secret provided.
 	// This token is used for Helix API calls (discovery, auto-chat polling). It is NOT used for IRC chat.
@@ -141,6 +152,20 @@ func main() {
 		}
 		return newTok.AccessToken, newTok.RefreshToken, newTok.Expiry, "", nil
 	})
+
+	// Enable pprof profiling endpoints in debug mode (ENABLE_PPROF=1)
+	if os.Getenv("ENABLE_PPROF") == "1" {
+		pprofAddr := os.Getenv("PPROF_ADDR")
+		if pprofAddr == "" {
+			pprofAddr = "localhost:6060"
+		}
+		go func() {
+			slog.Info("pprof profiling enabled", slog.String("addr", pprofAddr))
+			if err := http.ListenAndServe(pprofAddr, nil); err != nil {
+				slog.Error("pprof server error", slog.Any("err", err))
+			}
+		}()
+	}
 
 	// HTTP server (health/status/metrics)
 	// Allow config override via kv (cfg:HTTP_ADDR) if set through the admin API

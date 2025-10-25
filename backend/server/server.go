@@ -20,6 +20,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/onnwee/vod-tender/backend/config"
+	dbpkg "github.com/onnwee/vod-tender/backend/db"
 	"github.com/onnwee/vod-tender/backend/telemetry"
 	"github.com/onnwee/vod-tender/backend/twitchapi"
 	vodpkg "github.com/onnwee/vod-tender/backend/vod"
@@ -30,17 +31,13 @@ import (
 type oauthTokenStore struct{ db *sql.DB }
 
 func (o *oauthTokenStore) UpsertOAuthToken(ctx context.Context, provider string, accessToken string, refreshToken string, expiry time.Time, raw string) error {
-	_, err := o.db.ExecContext(ctx, `INSERT INTO oauth_tokens(provider, access_token, refresh_token, expires_at, scope, updated_at) VALUES ($1,$2,$3,$4,$5,NOW())
-        ON CONFLICT(provider) DO UPDATE SET access_token=EXCLUDED.access_token, refresh_token=EXCLUDED.refresh_token, expires_at=EXCLUDED.expires_at, updated_at=NOW()`, provider, accessToken, refreshToken, expiry, "")
-	return err
+	// Use dbpkg.UpsertOAuthToken which handles encryption automatically
+	return dbpkg.UpsertOAuthToken(ctx, o.db, provider, accessToken, refreshToken, expiry, raw, "")
 }
 func (o *oauthTokenStore) GetOAuthToken(ctx context.Context, provider string) (accessToken string, refreshToken string, expiry time.Time, raw string, err error) {
-	row := o.db.QueryRowContext(ctx, `SELECT access_token, refresh_token, expires_at FROM oauth_tokens WHERE provider=$1`, provider)
-	err = row.Scan(&accessToken, &refreshToken, &expiry)
-	if err == sql.ErrNoRows {
-		return "", "", time.Time{}, "", nil
-	}
-	return
+	// Use dbpkg.GetOAuthToken which handles decryption automatically
+	access, refresh, exp, scope, dbErr := dbpkg.GetOAuthToken(ctx, o.db, provider)
+	return access, refresh, exp, scope, dbErr
 }
 
 // NewMux returns the HTTP handler with all routes.
@@ -98,12 +95,11 @@ func NewMux(db *sql.DB) http.Handler {
 			http.Error(w, err.Error(), 500)
 			return
 		}
-		// persist tokens
-		_, err = db.ExecContext(ctx, `INSERT INTO oauth_tokens (provider, access_token, refresh_token, expires_at, scope, updated_at) VALUES ($1,$2,$3,$4,$5,NOW())
-            ON CONFLICT(provider) DO UPDATE SET access_token=EXCLUDED.access_token, refresh_token=EXCLUDED.refresh_token, expires_at=EXCLUDED.expires_at, scope=EXCLUDED.scope, updated_at=NOW()`,
-			"twitch", res.AccessToken, res.RefreshToken, twitchapi.ComputeExpiry(res.ExpiresIn), strings.Join(res.Scope, " "))
-		if err != nil {
-			http.Error(w, err.Error(), 500)
+		// persist tokens using dbpkg.UpsertOAuthToken (handles encryption)
+		dbErr := dbpkg.UpsertOAuthToken(ctx, db, "twitch", res.AccessToken, res.RefreshToken, 
+			twitchapi.ComputeExpiry(res.ExpiresIn), "", strings.Join(res.Scope, " "))
+		if dbErr != nil {
+			http.Error(w, dbErr.Error(), 500)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")

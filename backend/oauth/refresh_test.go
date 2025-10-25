@@ -225,3 +225,59 @@ func TestStartRefresherPreservesRefreshToken(t *testing.T) {
 		t.Errorf("scope should be preserved, got %s, want scope1", scope)
 	}
 }
+
+// TestStartRefresherWithEncryption verifies that token refresh uses encryption helpers.
+// This test works with or without ENCRYPTION_KEY - it verifies the integration with
+// db.UpsertOAuthToken which handles encryption automatically when configured.
+func TestStartRefresherWithEncryption(t *testing.T) {
+	db := testutil.SetupTestDB(t)
+
+	// Setup: insert a plaintext token that needs refresh (expires in 5 minutes)
+	soonExpiry := time.Now().Add(5 * time.Minute)
+	_, err := db.Exec(`INSERT INTO oauth_tokens (provider, access_token, refresh_token, expires_at, scope, encryption_version, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`,
+		"test-encrypted", "plaintext-access", "plaintext-refresh", soonExpiry, "test:scope", 0)
+	if err != nil {
+		t.Fatalf("failed to insert test token: %v", err)
+	}
+
+	newExpiry := time.Now().Add(2 * time.Hour)
+	refreshFunc := func(ctx context.Context, refreshToken string) (string, string, time.Time, string, error) {
+		if refreshToken != "plaintext-refresh" {
+			t.Errorf("refresh called with wrong token: got %s, want plaintext-refresh", refreshToken)
+		}
+		return "new-encrypted-access", "new-encrypted-refresh", newExpiry, "test:scope", nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	// Start refresher with short interval and wide window
+	StartRefresher(ctx, db, "test-encrypted", 100*time.Millisecond, 15*time.Minute, refreshFunc)
+
+	// Wait for at least one refresh cycle
+	time.Sleep(300 * time.Millisecond)
+	cancel()
+
+	// Verify token was updated
+	var storedAccess, storedRefresh string
+	var encVersion int
+	err = db.QueryRow(`SELECT access_token, refresh_token, encryption_version FROM oauth_tokens WHERE provider=$1`, "test-encrypted").
+		Scan(&storedAccess, &storedRefresh, &encVersion)
+	if err != nil {
+		t.Fatalf("failed to query updated token: %v", err)
+	}
+
+	// If ENCRYPTION_KEY is set, tokens are encrypted (encryption_version = 1)
+	// If not set, tokens remain plaintext (encryption_version = 0)
+	// The StartRefresher delegates to db.UpsertOAuthToken which handles encryption automatically
+	t.Logf("Token refresh completed, encryption_version=%d", encVersion)
+
+	// Basic verification: token should have been updated (either plaintext or encrypted)
+	if storedAccess == "plaintext-access" {
+		t.Error("access token should have been updated after refresh")
+	}
+	if storedRefresh == "plaintext-refresh" {
+		t.Error("refresh token should have been updated after refresh")
+	}
+}

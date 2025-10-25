@@ -10,6 +10,8 @@ import (
 	"math/rand"
 	"strings"
 	"time"
+
+	"github.com/onnwee/vod-tender/backend/db"
 )
 
 // RefreshFunc performs provider-specific refresh and returns (access, refresh, expiry, scope)
@@ -19,7 +21,7 @@ type RefreshFunc func(ctx context.Context, refreshToken string) (string, string,
 // provider: key in oauth_tokens table.
 // interval: how often to wake up and check.
 // window: refresh when remaining lifetime <= window.
-func StartRefresher(ctx context.Context, db *sql.DB, provider string, interval, window time.Duration, fn RefreshFunc) {
+func StartRefresher(ctx context.Context, dbx *sql.DB, provider string, interval, window time.Duration, fn RefreshFunc) {
 	if interval <= 0 {
 		interval = 5 * time.Minute
 	}
@@ -49,10 +51,9 @@ func StartRefresher(ctx context.Context, db *sql.DB, provider string, interval, 
 				return
 			case <-time.After(nextSleep):
 			}
-			row := db.QueryRowContext(ctx, `SELECT access_token, refresh_token, expires_at, scope FROM oauth_tokens WHERE provider=$1 LIMIT 1`, provider)
-			var at, rt, scope string
-			var exp time.Time
-			if err := row.Scan(&at, &rt, &exp, &scope); err != nil {
+			// Use db.GetOAuthToken to handle automatic decryption of encrypted tokens
+			_, rt, exp, scope, err := db.GetOAuthToken(ctx, dbx, provider)
+			if err != nil {
 				continue
 			}
 			if rt == "" {
@@ -83,8 +84,8 @@ func StartRefresher(ctx context.Context, db *sql.DB, provider string, interval, 
 			if newScope == "" {
 				newScope = scope
 			}
-			_, err = db.ExecContext(ctx, `UPDATE oauth_tokens SET access_token=$1, refresh_token=$2, expires_at=$3, scope=$4, updated_at=NOW() WHERE provider=$5`,
-				newAT, newRT, newExp, strings.TrimSpace(newScope), provider)
+			// Use db.UpsertOAuthToken to handle automatic encryption of tokens
+			err = db.UpsertOAuthToken(ctx, dbx, provider, newAT, newRT, newExp, "", strings.TrimSpace(newScope))
 			if err != nil {
 				slog.Warn("token persist failed", slog.String("provider", provider), slog.Any("err", err))
 				continue

@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -158,7 +159,7 @@ func NewMux(db *sql.DB) http.Handler {
 		}
 	})
 
-	// Health
+	// Health (liveness)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := db.PingContext(r.Context()); err != nil {
 			http.Error(w, "unhealthy", http.StatusServiceUnavailable)
@@ -167,6 +168,57 @@ func NewMux(db *sql.DB) http.Handler {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
+	})
+
+	// Readiness (can handle traffic)
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		checks := []struct {
+			name string
+			fn   func() error
+		}{
+			{"database", func() error { return db.PingContext(r.Context()) }},
+			{"circuit_breaker", func() error {
+				var state string
+				err := db.QueryRowContext(r.Context(),
+					"SELECT value FROM kv WHERE key='circuit_state'").Scan(&state)
+				if err != nil && err != sql.ErrNoRows {
+					return err
+				}
+				if state == "open" {
+					return fmt.Errorf("circuit breaker open")
+				}
+				return nil
+			}},
+			{"credentials", func() error {
+				var count int
+				err := db.QueryRowContext(r.Context(),
+					"SELECT COUNT(*) FROM oauth_tokens WHERE provider IN ('twitch', 'youtube')").Scan(&count)
+				if err != nil {
+					return err
+				}
+				if count < 1 {
+					return fmt.Errorf("missing OAuth tokens")
+				}
+				return nil
+			}},
+		}
+
+		for _, check := range checks {
+			if err := check.fn(); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]string{
+					"status":       "not_ready",
+					"failed_check": check.name,
+					"error":        err.Error(),
+				})
+				return
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
 	})
 
 	// Config: safe editable settings via KV (whitelist)
@@ -468,7 +520,7 @@ func NewMux(db *sql.DB) http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "vod_id": vodID})
 	})
-	// Wrap with correlation ID injector
+	// Wrap with correlation ID injector and tracing middleware
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Reuse corr header if provided else generate
 		corr := r.Header.Get("X-Correlation-ID")
@@ -477,11 +529,41 @@ func NewMux(db *sql.DB) http.Handler {
 		}
 		ctx := telemetry.WithCorrelation(r.Context(), corr)
 		w.Header().Set("X-Correlation-ID", corr)
+		
+		// Start tracing span if enabled
+		ctx, span := telemetry.StartSpan(ctx, "http-server", r.Method+" "+r.URL.Path,
+			telemetry.HTTPMethodAttr(r.Method),
+			telemetry.HTTPRouteAttr(r.URL.Path),
+			telemetry.HTTPURLAttr(r.URL.String()),
+		)
+		defer span.End()
+		
 		// Provide logger with corr for downstream if needed
 		telemetry.LoggerWithCorr(ctx).Debug("request start", slog.String("method", r.Method), slog.String("path", r.URL.Path), slog.String("component", "http"))
-		mux.ServeHTTP(w, r.WithContext(ctx))
+		
+		// Capture status code via custom ResponseWriter
+		wrappedWriter := &statusRecorder{ResponseWriter: w, statusCode: http.StatusOK}
+		mux.ServeHTTP(wrappedWriter, r.WithContext(ctx))
+		
+		// Record HTTP status in span
+		telemetry.SetSpanHTTPStatus(span, wrappedWriter.statusCode)
+		if wrappedWriter.statusCode >= 400 {
+			code, msg := telemetry.ErrorStatus(fmt.Sprintf("HTTP %d", wrappedWriter.statusCode))
+			span.SetStatus(code, msg)
+		}
 	})
 	return withCORS(handler)
+}
+
+// statusRecorder wraps ResponseWriter to capture status code
+type statusRecorder struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (r *statusRecorder) WriteHeader(statusCode int) {
+	r.statusCode = statusCode
+	r.ResponseWriter.WriteHeader(statusCode)
 }
 
 // cfgGet returns an override value from kv for a given key (with cfg: prefix) or falls back to env.

@@ -548,7 +548,8 @@ func NewMux(db *sql.DB) http.Handler {
 		// Record HTTP status in span
 		telemetry.SetSpanHTTPStatus(span, wrappedWriter.statusCode)
 		if wrappedWriter.statusCode >= 400 {
-			span.SetStatus(telemetry.ErrorStatus(fmt.Sprintf("HTTP %d", wrappedWriter.statusCode)))
+			code, msg := telemetry.ErrorStatus(fmt.Sprintf("HTTP %d", wrappedWriter.statusCode))
+			span.SetStatus(code, msg)
 		}
 	})
 	return withCORS(handler)

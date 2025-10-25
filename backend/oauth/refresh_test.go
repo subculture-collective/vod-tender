@@ -271,7 +271,7 @@ func TestStartRefresherWithEncryption(t *testing.T) {
 	// If ENCRYPTION_KEY is set, tokens are encrypted (encryption_version = 1)
 	// If not set, tokens remain plaintext (encryption_version = 0)
 	// The StartRefresher delegates to db.UpsertOAuthToken which handles encryption automatically
-	t.Logf("Token stored with encryption_version=%d, access_token length=%d", encVersion, len(storedAccess))
+	t.Logf("Token refresh completed, encryption_version=%d", encVersion)
 
 	// Basic verification: token should have been updated (either plaintext or encrypted)
 	if storedAccess == "plaintext-access" {

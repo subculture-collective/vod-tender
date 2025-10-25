@@ -101,6 +101,93 @@ postgres://user:pass@prod-host:5432/vod?sslmode=require
 
 Minimum required privileges: ability to create tables & indices on first run (idempotent migrations).
 
+### OAuth Token Encryption (Security)
+
+| Variable       | Default | Required?                    | Description                                                                                           |
+| -------------- | ------- | ---------------------------- | ----------------------------------------------------------------------------------------------------- |
+| ENCRYPTION_KEY | (unset) | **Required for production** | Base64-encoded 32-byte key for AES-256-GCM encryption of OAuth tokens at rest in the database.        |
+
+**Security Notice**: OAuth tokens (Twitch, YouTube) grant full API access. When `ENCRYPTION_KEY` is not set, tokens are stored in **plaintext** in the `oauth_tokens` table. This is **only acceptable for local development**.
+
+#### Encryption Key Generation
+
+Generate a secure 256-bit (32-byte) encryption key:
+
+```bash
+openssl rand -base64 32
+```
+
+Example output:
+```
+dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcwo=
+```
+
+Set in `backend/.env`:
+```bash
+ENCRYPTION_KEY=dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcwo=
+```
+
+#### Key Storage Best Practices
+
+**DO NOT** commit encryption keys to version control. Use one of these approaches:
+
+1. **Local Development**: Store in `backend/.env` (gitignored)
+2. **Docker Secrets**: Mount as `/run/secrets/encryption_key`
+3. **AWS**: Use AWS Secrets Manager + IAM roles
+4. **Kubernetes**: Use Kubernetes Secrets with RBAC
+5. **HashiCorp Vault**: Inject via Vault agent sidecar
+
+Example Docker Compose with secrets:
+```yaml
+services:
+  api:
+    environment:
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}  # From .env or shell
+    secrets:
+      - encryption_key
+
+secrets:
+  encryption_key:
+    file: ./secrets/encryption_key.txt
+```
+
+#### Encryption Metadata
+
+The `oauth_tokens` table includes metadata for encryption management:
+
+- `encryption_version`: 0 = plaintext (legacy), 1 = AES-256-GCM encrypted
+- `encryption_key_id`: Identifier for key used (currently "default", future: rotation support)
+
+#### Migration from Plaintext
+
+Existing deployments with plaintext tokens will **automatically migrate to encrypted storage** on the next token refresh (OAuth renewal). No manual intervention required.
+
+Migration process:
+1. Set `ENCRYPTION_KEY` environment variable
+2. Restart backend service
+3. Existing tokens (version=0) are read as plaintext
+4. On next token refresh/update, tokens are re-encrypted (version=1)
+5. Monitor logs for "OAuth token encryption enabled (AES-256-GCM)" message
+
+#### Key Rotation Procedure
+
+To rotate encryption keys (recommended annually or on suspected compromise):
+
+1. Generate new key: `openssl rand -base64 32`
+2. **Keep old key accessible** during rotation
+3. Deploy new key as `ENCRYPTION_KEY_NEW` (future enhancement)
+4. Run migration script to re-encrypt all tokens with new key
+5. Update `ENCRYPTION_KEY` to new value
+6. Remove old key after all tokens migrated
+
+**Current limitation**: Key rotation requires brief maintenance window to re-encrypt tokens. Future versions will support dual-key operation for zero-downtime rotation.
+
+#### Backup Security
+
+Database backups contain encrypted tokens (when encryption enabled), but encryption keys must be backed up separately using secure secrets management.
+
+**Warning**: Losing the encryption key makes existing tokens **permanently unrecoverable**. Users must re-authenticate via OAuth flows.
+
 ### HTTP Server
 
 | Variable  | Default | Description                              |

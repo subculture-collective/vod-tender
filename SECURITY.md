@@ -281,7 +281,7 @@ ENCRYPTION_KEY=$(openssl rand -base64 32)
 **Production** (required):
 ```bash
 # REQUIRED - generate unique key, store in secrets manager
-ENCRYPTION_KEY=YOUR_GENERATED_KEY_HERE  # REPLACE with output from: openssl rand -base64 32
+ENCRYPTION_KEY=REPLACE_ME_32_BYTE_BASE64_KEY  # REPLACE with output from: openssl rand -base64 32
 ```
 
 ⚠️ **Security Warning**: If `ENCRYPTION_KEY` is not set, tokens are stored in **plaintext**. This is logged as a warning on startup:

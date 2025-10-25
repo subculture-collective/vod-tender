@@ -1,0 +1,380 @@
+# Observability Guide
+
+This document describes the comprehensive observability features in vod-tender, including distributed tracing, metrics, alerting, dashboards, and profiling.
+
+## Overview
+
+vod-tender provides production-grade observability through:
+
+- **Distributed Tracing** (OpenTelemetry + Jaeger)
+- **Metrics** (Prometheus)
+- **Alerting** (Prometheus Alertmanager)
+- **Dashboards** (Grafana)
+- **Performance Profiling** (pprof)
+- **Structured Logging** (slog with correlation IDs)
+
+## Distributed Tracing
+
+### Setup
+
+Tracing is enabled by setting the `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable. In Docker Compose, Jaeger is automatically configured:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=jaeger:4317
+```
+
+### Accessing Jaeger UI
+
+Jaeger UI is available at `http://localhost:16686` when running via Docker Compose.
+
+### Instrumented Operations
+
+The following operations are automatically traced:
+
+1. **HTTP Requests**
+   - Span: `http-server`
+   - Attributes: `http.method`, `http.route`, `http.url`, `http.status_code`, `correlation_id`
+
+2. **VOD Processing**
+   - Span: `processOnce`
+   - Attributes: `vod.id`, `vod.title`, `vod.date`, `queue_depth`, `circuit.state`
+   - Child spans: `download`, `upload`
+
+3. **Download Operations**
+   - Span: `download`
+   - Attributes: `vod.id`, `vod.title`, `download.duration_ms`, `download.path`
+
+4. **Upload Operations**
+   - Span: `upload`
+   - Attributes: `vod.id`, `vod.title`, `upload.path`, `upload.duration_ms`, `upload.youtube_url`
+
+### Trace Correlation
+
+All traces include correlation IDs (`correlation_id` attribute) that match the `X-Correlation-ID` HTTP header and the `corr` field in structured logs. This enables end-to-end request tracing across logs and traces.
+
+### Example Queries
+
+In Jaeger UI:
+
+- **Find slow downloads**: Service=`vod-tender`, Operation=`download`, Min Duration=`30m`
+- **Trace specific VOD**: Service=`vod-tender`, Tags=`vod.id=123456789`
+- **Find failed uploads**: Service=`vod-tender`, Operation=`upload`, Tags=`error=true`
+
+## Metrics
+
+### Available Metrics
+
+#### VOD Processing
+
+- `vod_downloads_started_total` - Total downloads started
+- `vod_downloads_succeeded_total` - Successful downloads
+- `vod_downloads_failed_total` - Failed downloads
+- `vod_uploads_succeeded_total` - Successful uploads
+- `vod_uploads_failed_total` - Failed uploads
+- `vod_processing_cycles_total` - Processing cycles executed
+- `vod_queue_depth` - Current unprocessed VOD count
+- `vod_circuit_open` - Circuit breaker state (1=open, 0=closed)
+
+#### Duration Metrics
+
+- `vod_download_duration_seconds` - Download duration histogram
+- `vod_upload_duration_seconds` - Upload duration histogram
+- `vod_processing_total_duration_seconds` - Total processing duration histogram
+- `vod_processing_step_duration_seconds{step="download|upload|total"}` - Step-level durations
+
+#### Chat Metrics
+
+- `chat_messages_recorded_total{channel="..."}` - Chat messages recorded per channel
+- `chat_reconnections_total` - Total chat reconnections
+
+#### OAuth Metrics
+
+- `oauth_token_refresh_total{provider="twitch|youtube",status="success|failure"}` - Token refresh attempts
+
+#### API Metrics
+
+- `helix_api_calls_total{endpoint="...",status="..."}` - Twitch Helix API call counts
+
+#### Circuit Breaker Metrics
+
+- `circuit_breaker_state_changes_total{from="...",to="..."}` - State transitions
+
+#### Database Metrics
+
+- `database_connection_pool_size` - Maximum pool size
+- `database_connection_pool_in_use` - Active connections
+
+### Histogram Buckets
+
+Duration histograms use realistic buckets for VOD operations:
+
+- **Downloads**: 1m, 5m, 10m, 30m, 1h, 2h
+- **Uploads**: 30s, 1m, 2m, 5m, 10m, 30m
+- **Total Processing**: 1m, 5m, 15m, 30m, 1h, 2h
+
+## Alerting
+
+### Alert Rules
+
+Alert rules are defined in `prometheus/alerts.yml`. Configure Prometheus to load them:
+
+```yaml
+# prometheus.yml
+rule_files:
+  - /etc/prometheus/alerts.yml
+```
+
+### Available Alerts
+
+| Alert | Severity | Threshold | Description |
+|-------|----------|-----------|-------------|
+| `HighDownloadFailureRate` | warning | >50% failures for 10m | High VOD download failure rate |
+| `CircuitBreakerOpen` | critical | Circuit open for 5m | Processing halted due to failures |
+| `HighVODQueueDepth` | warning | >50 VODs for 30m | Large processing backlog |
+| `DatabaseConnectionPoolExhausted` | warning | >90% for 5m | Connection pool near capacity |
+| `VODProcessingStalled` | warning | 0 cycles for 15m | No processing activity |
+| `OAuthTokenRefreshFailures` | warning | Failures for 10m | OAuth refresh issues |
+| `HighChatReconnectionRate` | warning | >0.1/s for 10m | Frequent chat disconnections |
+| `SlowVODDownloads` | info | p95 >1h for 30m | Unusually slow downloads |
+
+### Configuring Alertmanager
+
+Example Alertmanager configuration:
+
+```yaml
+# alertmanager.yml
+route:
+  receiver: 'team-vod-tender'
+  group_by: ['alertname', 'severity']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+
+receivers:
+  - name: 'team-vod-tender'
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/YOUR/WEBHOOK/URL'
+        channel: '#vod-alerts'
+        title: '{{ .GroupLabels.severity | toUpper }}: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+```
+
+## Dashboards
+
+### Grafana Setup
+
+The Grafana dashboard is located at `grafana/dashboards/vod-tender.json` and is automatically provisioned when using Docker Compose with Grafana.
+
+### Dashboard Panels
+
+1. **VOD Queue Depth** - Real-time queue size
+2. **Circuit Breaker State** - Current circuit breaker status
+3. **Download Rate** - Downloads started, succeeded, failed
+4. **Download Duration Percentiles** - p50, p95, p99 download times
+5. **Upload Rate** - Upload success/failure rates
+6. **Upload Duration Percentiles** - p50, p95, p99 upload times
+7. **Database Connection Pool** - Pool size vs. active connections
+8. **Chat Messages Recorded Rate** - Messages/second by channel
+9. **OAuth Token Refresh Rate** - Refresh attempts by provider and status
+10. **Helix API Call Rate** - API calls by endpoint and status
+
+### Adding to Existing Grafana
+
+1. Import dashboard JSON from `grafana/dashboards/vod-tender.json`
+2. Configure Prometheus datasource
+3. Set refresh interval (recommended: 30s)
+
+## Performance Profiling
+
+### Enabling pprof
+
+Set the `ENABLE_PPROF` environment variable:
+
+```bash
+ENABLE_PPROF=1
+PPROF_ADDR=localhost:6060  # Optional, default: localhost:6060
+```
+
+⚠️ **Security Warning**: Only enable pprof in development or controlled environments. Do not expose pprof endpoints publicly.
+
+### Available Profiles
+
+pprof endpoints are available at the configured address:
+
+- `http://localhost:6060/debug/pprof/` - Index of available profiles
+- `http://localhost:6060/debug/pprof/heap` - Memory allocation profile
+- `http://localhost:6060/debug/pprof/goroutine` - Goroutine stack traces
+- `http://localhost:6060/debug/pprof/threadcreate` - Thread creation profile
+- `http://localhost:6060/debug/pprof/block` - Blocking profile
+- `http://localhost:6060/debug/pprof/mutex` - Mutex contention profile
+
+### Using pprof
+
+#### CPU Profile
+
+Capture a 30-second CPU profile:
+
+```bash
+go tool pprof http://localhost:6060/debug/pprof/profile?seconds=30
+```
+
+In the interactive pprof shell:
+
+```
+(pprof) top10        # Show top 10 functions by CPU time
+(pprof) list funcName # Show source code with CPU time annotations
+(pprof) web          # Generate and open a graph visualization
+```
+
+#### Memory Profile
+
+Analyze heap allocations:
+
+```bash
+go tool pprof http://localhost:6060/debug/pprof/heap
+```
+
+Common commands:
+
+```
+(pprof) top10 -cum   # Top 10 by cumulative memory
+(pprof) list funcName # Memory allocations in function
+(pprof) alloc_objects # Sort by number of objects
+```
+
+#### Goroutine Profile
+
+Check for goroutine leaks:
+
+```bash
+go tool pprof http://localhost:6060/debug/pprof/goroutine
+```
+
+#### Flame Graphs
+
+Generate flame graphs for better visualization:
+
+```bash
+# Install go-torch (if not already installed)
+go install github.com/uber/go-torch@latest
+
+# Generate flame graph
+go-torch --url http://localhost:6060/debug/pprof/profile --seconds 30
+```
+
+### Docker Compose Profiling
+
+When profiling in Docker Compose, forward the pprof port:
+
+```yaml
+# docker-compose.yml
+api:
+  ports:
+    - "6060:6060"
+  environment:
+    ENABLE_PPROF: "1"
+    PPROF_ADDR: "0.0.0.0:6060"
+```
+
+Then access from host:
+
+```bash
+go tool pprof http://localhost:6060/debug/pprof/profile?seconds=30
+```
+
+## Health Endpoints
+
+### Liveness Probe (`/healthz`)
+
+Checks if the process is alive and database is reachable:
+
+```bash
+curl http://localhost:8080/healthz
+# Response: ok (200) or unhealthy (503)
+```
+
+Use for Kubernetes liveness probes.
+
+### Readiness Probe (`/readyz`)
+
+Checks if the service can handle traffic:
+
+```bash
+curl http://localhost:8080/readyz
+# Response: {"status":"ready"} (200)
+# or {"status":"not_ready","failed_check":"...","error":"..."} (503)
+```
+
+Readiness checks:
+1. Database connectivity
+2. Circuit breaker state (not open)
+3. OAuth credentials present
+
+Use for Kubernetes readiness probes and load balancer health checks.
+
+## Log Correlation
+
+### Correlation IDs
+
+Every HTTP request gets a unique correlation ID:
+
+- **HTTP Header**: `X-Correlation-ID`
+- **Log Field**: `corr`
+- **Trace Attribute**: `correlation_id`
+
+### Searching Logs
+
+Find all logs for a specific request:
+
+```bash
+# With structured logging (JSON)
+cat logs.json | jq 'select(.corr == "abc-123-def")'
+
+# With grep
+grep 'corr=abc-123-def' logs.txt
+```
+
+### Tracing from Logs
+
+1. Extract correlation ID from log entry
+2. Search Jaeger UI with tag: `correlation_id=abc-123-def`
+3. View full request trace with spans
+
+## Best Practices
+
+### Development
+
+1. **Enable tracing locally** to understand request flows
+2. **Use correlation IDs** when reporting issues
+3. **Check metrics** before and after code changes
+4. **Profile suspicious code** with pprof
+
+### Production
+
+1. **Set up alerting** via Alertmanager to Slack/PagerDuty
+2. **Monitor dashboards** for trends and anomalies
+3. **Sample traces** (adjust `AlwaysSample` to probabilistic sampling for high traffic)
+4. **Rotate logs** to prevent disk exhaustion
+5. **Secure pprof** endpoints or disable entirely
+
+### Troubleshooting
+
+| Symptom | Check | Action |
+|---------|-------|--------|
+| Slow processing | Jaeger traces, download duration metrics | Investigate slow downloads/uploads |
+| High error rate | `vod_downloads_failed_total` metric | Check processing logs, circuit breaker |
+| Circuit breaker open | `/status` endpoint, circuit alerts | Review recent failures, check credentials |
+| Memory leak | pprof heap profile | Identify allocation hotspots |
+| High CPU | pprof CPU profile | Find CPU-intensive functions |
+
+## Configuration Reference
+
+| Environment Variable | Default | Description |
+|---------------------|---------|-------------|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | - | OpenTelemetry collector endpoint (e.g., `jaeger:4317`) |
+| `ENABLE_PPROF` | `0` | Enable pprof profiling endpoints (`1` to enable) |
+| `PPROF_ADDR` | `localhost:6060` | Address for pprof server |
+| `LOG_LEVEL` | `info` | Log level: `debug`, `info`, `warn`, `error` |
+| `LOG_FORMAT` | `text` | Log format: `text` or `json` |
+
+See [CONFIG.md](CONFIG.md) for full configuration documentation.

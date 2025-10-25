@@ -64,6 +64,7 @@ Project ships a `docker-compose.yml` with:
 - API (Go backend with yt-dlp + ffmpeg)
 - Frontend (Vite build served by nginx)
 - Backup service (daily pg_dump to a backup volume)
+- Jaeger (distributed tracing UI and collector)
 
 Basic ops:
 
@@ -79,7 +80,34 @@ docker compose ps
 
 # Tail logs
 docker logs -f vod-api
+
+# Access Jaeger UI (tracing)
+open http://localhost:16686
 ```
+
+## Observability
+
+vod-tender includes production-ready observability features:
+
+- **Distributed Tracing** (OpenTelemetry + Jaeger) - Trace VOD processing pipelines end-to-end
+- **Enhanced Metrics** (Prometheus) - 20+ metrics including step-level durations, chat, OAuth, API calls
+- **Alert Rules** (Prometheus Alertmanager) - 8 production alerts for critical failure scenarios
+- **Grafana Dashboard** - 10-panel dashboard with queue depth, circuit breaker, performance metrics
+- **Performance Profiling** (pprof) - CPU, memory, and goroutine profiling
+- **Health Endpoints** - `/healthz` (liveness) and `/readyz` (readiness with detailed checks)
+
+See [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) for complete documentation including:
+- Setup instructions and configuration
+- Metrics reference with descriptions
+- Alert rules and thresholds
+- Dashboard usage guide
+- Profiling procedures
+- Troubleshooting guides
+
+**Quick links:**
+- Jaeger UI: `http://localhost:16686` (traces)
+- Prometheus metrics: `http://localhost:8080/metrics`
+- Readiness check: `http://localhost:8080/readyz`
 
 ## Configuration
 

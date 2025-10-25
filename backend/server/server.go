@@ -520,7 +520,7 @@ func NewMux(db *sql.DB) http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "vod_id": vodID})
 	})
-	// Wrap with correlation ID injector
+	// Wrap with correlation ID injector and tracing middleware
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Reuse corr header if provided else generate
 		corr := r.Header.Get("X-Correlation-ID")
@@ -529,11 +529,40 @@ func NewMux(db *sql.DB) http.Handler {
 		}
 		ctx := telemetry.WithCorrelation(r.Context(), corr)
 		w.Header().Set("X-Correlation-ID", corr)
+		
+		// Start tracing span if enabled
+		ctx, span := telemetry.StartSpan(ctx, "http-server", r.Method+" "+r.URL.Path,
+			telemetry.HTTPMethodAttr(r.Method),
+			telemetry.HTTPRouteAttr(r.URL.Path),
+			telemetry.HTTPURLAttr(r.URL.String()),
+		)
+		defer span.End()
+		
 		// Provide logger with corr for downstream if needed
 		telemetry.LoggerWithCorr(ctx).Debug("request start", slog.String("method", r.Method), slog.String("path", r.URL.Path), slog.String("component", "http"))
-		mux.ServeHTTP(w, r.WithContext(ctx))
+		
+		// Capture status code via custom ResponseWriter
+		wrappedWriter := &statusRecorder{ResponseWriter: w, statusCode: http.StatusOK}
+		mux.ServeHTTP(wrappedWriter, r.WithContext(ctx))
+		
+		// Record HTTP status in span
+		telemetry.SetSpanHTTPStatus(span, wrappedWriter.statusCode)
+		if wrappedWriter.statusCode >= 400 {
+			span.SetStatus(telemetry.ErrorStatus(fmt.Sprintf("HTTP %d", wrappedWriter.statusCode)))
+		}
 	})
 	return withCORS(handler)
+}
+
+// statusRecorder wraps ResponseWriter to capture status code
+type statusRecorder struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (r *statusRecorder) WriteHeader(statusCode int) {
+	r.statusCode = statusCode
+	r.ResponseWriter.WriteHeader(statusCode)
 }
 
 // cfgGet returns an override value from kv for a given key (with cfg: prefix) or falls back to env.

@@ -13,6 +13,8 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"go.opentelemetry.io/otel/attribute"
+	
 	"github.com/onnwee/vod-tender/backend/config"
 	"github.com/onnwee/vod-tender/backend/db"
 	"github.com/onnwee/vod-tender/backend/telemetry"
@@ -80,6 +82,9 @@ func StartVODProcessingJob(ctx context.Context, dbc *sql.DB) {
 // processOnce selects a single pending VOD and processes it.
 // It implements a simple circuit breaker to avoid hot-looping on systemic failures.
 func processOnce(ctx context.Context, dbc *sql.DB) error {
+	ctx, span := telemetry.StartSpan(ctx, "vod-processing", "processOnce")
+	defer span.End()
+	
 	_, _ = dbc.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('job_vod_process_last', to_char(NOW() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'), NOW())
 		ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`)
 	var state, until string
@@ -90,11 +95,13 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 			if t, err := time.Parse(time.RFC3339, until); err == nil {
 				if time.Now().Before(t) {
 					slog.Debug("circuit open; skipping processing cycle", slog.String("until", until))
+					span.SetAttributes(attribute.String("circuit.state", "open"))
 					return nil
 				}
 				_, _ = dbc.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_state','half-open',CURRENT_TIMESTAMP)
 					ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP`)
 				slog.Info("circuit transitioning to half-open")
+				span.SetAttributes(attribute.String("circuit.state", "half-open"))
 			}
 		}
 	}
@@ -257,17 +264,39 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 		}
 		return nil
 	}
+	
+	// Add span attributes for selected VOD
+	span.SetAttributes(
+		attribute.String("vod.id", id),
+		attribute.String("vod.title", title),
+		attribute.String("vod.date", date.Format(time.RFC3339)),
+		attribute.Int("queue_depth", queueDepth),
+	)
+	
 	logger := slog.Default().With(slog.String("vod_id", id), slog.String("component", "vod_process"))
 	if corr := ctx.Value(struct{ string }{"corr"}); corr != nil {
 		logger = logger.With(slog.Any("corr", corr))
 	}
 	logger.Info("processing candidate selected", slog.String("title", title), slog.Time("date", date), slog.Int("queue_depth", queueDepth))
+	
 	// Metrics
 	telemetry.ProcessingCycles.Inc()
 	procStart := time.Now()
+	
+	// Download with span
 	dlStart := time.Now()
+	ctx, downloadSpan := telemetry.StartSpan(ctx, "vod-processing", "download",
+		attribute.String("vod.id", id),
+		attribute.String("vod.title", title),
+	)
 	filePath, err := downloader.Download(ctx, dbc, id, dataDir)
+	dlDur := time.Since(dlStart)
+	downloadSpan.SetAttributes(attribute.Int64("download.duration_ms", dlDur.Milliseconds()))
+	
 	if err != nil {
+		telemetry.RecordError(downloadSpan, err)
+		downloadSpan.End()
+		
 		lower := strings.ToLower(err.Error())
 		// Expected/auth-required: skip retries and do not trip circuit
 		if strings.Contains(lower, "subscriber-only") || strings.Contains(lower, "must be logged into") || strings.Contains(lower, "login required") {
@@ -277,14 +306,18 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 			return nil
 		}
 		// Otherwise count as a failure and trip the circuit
-		logger.Error("download failed", slog.Any("err", err), slog.Duration("download_duration", time.Since(dlStart)), slog.Int("queue_depth", queueDepth))
+		logger.Error("download failed", slog.Any("err", err), slog.Duration("download_duration", dlDur), slog.Int("queue_depth", queueDepth))
 		telemetry.DownloadsFailed.Inc()
 		_, _ = dbc.ExecContext(ctx, `UPDATE vods SET processing_error=$1, updated_at=NOW() WHERE twitch_vod_id=$2`, err.Error(), id)
 		updateCircuitOnFailure(ctx, dbc)
 		telemetry.UpdateCircuitGauge(true)
 		return nil
 	}
-	dlDur := time.Since(dlStart)
+	
+	telemetry.SetSpanSuccess(downloadSpan)
+	downloadSpan.SetAttributes(attribute.String("download.path", filePath))
+	downloadSpan.End()
+	
 	telemetry.DownloadsSucceeded.Inc()
 	telemetry.DownloadDuration.Observe(dlDur.Seconds())
 	logger.Info("download complete", slog.String("path", filePath), slog.Duration("download_duration", dlDur))
@@ -318,6 +351,14 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 		// Load any custom description set by user
 		var customDesc string
 		_ = dbc.QueryRowContext(ctx, `SELECT COALESCE(description,'') FROM vods WHERE twitch_vod_id=$1`, id).Scan(&customDesc)
+		
+		// Start upload span
+		uploadCtx, uploadSpan := telemetry.StartSpan(ctx, "vod-processing", "upload",
+			attribute.String("vod.id", id),
+			attribute.String("vod.title", title),
+			attribute.String("upload.path", filePath),
+		)
+		
 		for attempt := 0; attempt < maxUp; attempt++ {
 			if attempt > 0 {
 				backoff := base * time.Duration(1<<attempt)
@@ -330,9 +371,9 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 			upStart := time.Now()
 			// Temporarily override description if custom provided via context key
 			if customDesc != "" {
-				ctx = context.WithValue(ctx, struct{ string }{"vod_custom_desc"}, customDesc)
+				uploadCtx = context.WithValue(uploadCtx, struct{ string }{"vod_custom_desc"}, customDesc)
 			}
-			url, err := uploader.Upload(ctx, filePath, title, date)
+			url, err := uploader.Upload(uploadCtx, filePath, title, date)
 			if err == nil {
 				upDur = time.Since(upStart)
 				ytURL = url
@@ -346,18 +387,29 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 				break
 			}
 			// If context canceled, abort early
-			if ctx.Err() != nil {
+			if uploadCtx.Err() != nil {
 				break
 			}
 		}
+		
+		uploadSpan.SetAttributes(attribute.Int64("upload.duration_ms", upDur.Milliseconds()))
+		
 		if ytURL == "" {
 			// Exhausted attempts; persist error and increment retries so global cooldown/limit logic applies
 			logger.Error("upload exhausted retries", slog.Any("err", lastErr))
+			telemetry.RecordError(uploadSpan, lastErr)
+			uploadSpan.End()
+			
 			_, _ = dbc.ExecContext(ctx, `UPDATE vods SET processing_error=$1, download_retries = COALESCE(download_retries,0)+1, updated_at=NOW() WHERE twitch_vod_id=$2`,
 				fmt.Sprintf("upload: %v", lastErr), id)
 			telemetry.UploadsFailed.Inc()
 			return nil
 		}
+		
+		telemetry.SetSpanSuccess(uploadSpan)
+		uploadSpan.SetAttributes(attribute.String("upload.youtube_url", ytURL))
+		uploadSpan.End()
+		
 		// Record YouTube URL and mark processed now
 		_, _ = dbc.ExecContext(ctx, `UPDATE vods SET youtube_url=$1, processed=TRUE, processing_error=NULL, updated_at=NOW() WHERE twitch_vod_id=$2`, ytURL, id)
 	}
@@ -393,13 +445,31 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 	telemetry.UploadsSucceeded.Inc()
 	if upDur > 0 {
 		telemetry.UploadDuration.Observe(upDur.Seconds())
+		if telemetry.ProcessingStepDuration != nil {
+			telemetry.ProcessingStepDuration.WithLabelValues("upload").Observe(upDur.Seconds())
+		}
 	}
 	telemetry.TotalProcessDuration.Observe(totalDur.Seconds())
+	if telemetry.ProcessingStepDuration != nil {
+		telemetry.ProcessingStepDuration.WithLabelValues("download").Observe(dlDur.Seconds())
+		telemetry.ProcessingStepDuration.WithLabelValues("total").Observe(totalDur.Seconds())
+	}
+	
 	updateMovingAvg(ctx, dbc, "avg_download_ms", float64(dlDur.Milliseconds()))
 	if upDur > 0 {
 		updateMovingAvg(ctx, dbc, "avg_upload_ms", float64(upDur.Milliseconds()))
 	}
 	updateMovingAvg(ctx, dbc, "avg_total_ms", float64(totalDur.Milliseconds()))
+	
+	// Set final span attributes
+	span.SetAttributes(
+		attribute.Int64("download.duration_ms", dlDur.Milliseconds()),
+		attribute.Int64("upload.duration_ms", upDur.Milliseconds()),
+		attribute.Int64("total.duration_ms", totalDur.Milliseconds()),
+		attribute.String("youtube_url", ytURL),
+	)
+	telemetry.SetSpanSuccess(span)
+	
 	logger.Info("processed vod", slog.String("youtube_url", ytURL), slog.Duration("download_duration", dlDur), slog.Duration("upload_duration", upDur), slog.Duration("total_duration", totalDur), slog.Int("queue_depth", queueDepth-1))
 	telemetry.SetQueueDepth(queueDepth - 1)
 	telemetry.UpdateCircuitGauge(false)

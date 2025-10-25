@@ -378,12 +378,21 @@ func updateCircuitOnFailure(ctx context.Context, db *sql.DB) {
 			}
 		}
 		until := time.Now().Add(cool).UTC().Format(time.RFC3339)
+		
+		// Check previous state for metrics
+		var prevState string
+		_ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key='circuit_state'`).Scan(&prevState)
+		if prevState == "" {
+			prevState = "closed"
+		}
+		
 		_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_state','open',NOW())
 			ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`)
 		_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_open_until',$1,NOW())
 			ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, until)
 		slog.Warn("circuit opened", slog.Int("failures", fails), slog.String("until", until))
 		telemetry.UpdateCircuitGauge(true)
+		telemetry.RecordCircuitStateChange(prevState, "open")
 	}
 }
 
@@ -394,6 +403,12 @@ func resetCircuit(ctx context.Context, db *sql.DB) {
 	if state == "closed" && os.Getenv("CIRCUIT_FAILURE_THRESHOLD") == "" {
 		return
 	}
+	
+	// Record state change if transitioning
+	if state != "" && state != "closed" {
+		telemetry.RecordCircuitStateChange(state, "closed")
+	}
+	
 	_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_failures','0',NOW())
 		ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`)
 	_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_state','closed',NOW())

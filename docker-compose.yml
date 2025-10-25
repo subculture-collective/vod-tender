@@ -19,6 +19,21 @@ services:
         aliases:
           - vod-postgres
 
+  jaeger:
+    container_name: vod-jaeger
+    image: jaegertracing/all-in-one:latest
+    restart: unless-stopped
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "4317:4317"    # OTLP gRPC receiver
+      - "4318:4318"    # OTLP HTTP receiver
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      web:
+        aliases:
+          - vod-jaeger
+
   api:
     container_name: vod-api
     build:
@@ -36,6 +51,8 @@ services:
       DATA_DIR: /data
       # Provide cookies to yt-dlp for subscriber-only/authenticated VODs
       YTDLP_COOKIES_PATH: /run/cookies/twitch-cookies.txt
+      # OpenTelemetry tracing endpoint (Jaeger)
+      OTEL_EXPORTER_OTLP_ENDPOINT: jaeger:4317
     volumes:
       - vod_data:/data
       - ./secrets:/run/cookies:ro

@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -158,7 +159,7 @@ func NewMux(db *sql.DB) http.Handler {
 		}
 	})
 
-	// Health
+	// Health (liveness)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := db.PingContext(r.Context()); err != nil {
 			http.Error(w, "unhealthy", http.StatusServiceUnavailable)
@@ -167,6 +168,57 @@ func NewMux(db *sql.DB) http.Handler {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
+	})
+
+	// Readiness (can handle traffic)
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		checks := []struct {
+			name string
+			fn   func() error
+		}{
+			{"database", func() error { return db.PingContext(r.Context()) }},
+			{"circuit_breaker", func() error {
+				var state string
+				err := db.QueryRowContext(r.Context(),
+					"SELECT value FROM kv WHERE key='circuit_state'").Scan(&state)
+				if err != nil && err != sql.ErrNoRows {
+					return err
+				}
+				if state == "open" {
+					return fmt.Errorf("circuit breaker open")
+				}
+				return nil
+			}},
+			{"credentials", func() error {
+				var count int
+				err := db.QueryRowContext(r.Context(),
+					"SELECT COUNT(*) FROM oauth_tokens WHERE provider IN ('twitch', 'youtube')").Scan(&count)
+				if err != nil {
+					return err
+				}
+				if count < 1 {
+					return fmt.Errorf("missing OAuth tokens")
+				}
+				return nil
+			}},
+		}
+
+		for _, check := range checks {
+			if err := check.fn(); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]string{
+					"status":       "not_ready",
+					"failed_check": check.name,
+					"error":        err.Error(),
+				})
+				return
+			}
+		}
+
+		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
 	})
 
 	// Config: safe editable settings via KV (whitelist)

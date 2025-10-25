@@ -29,19 +29,19 @@ func initEncryptor() {
 	encryptorOnce.Do(func() {
 		key := os.Getenv("ENCRYPTION_KEY")
 		if key == "" {
-			slog.Warn("ENCRYPTION_KEY not set, OAuth tokens will be stored in plaintext (not recommended for production)")
+			slog.Warn("ENCRYPTION_KEY not set, OAuth tokens will be stored in plaintext (not recommended for production)", slog.String("component", "db_encryption"))
 			return
 		}
 
 		enc, err := crypto.NewAESEncryptor(key)
 		if err != nil {
 			encryptorErr = fmt.Errorf("failed to initialize encryption: %w", err)
-			slog.Error("encryption initialization failed", slog.Any("error", encryptorErr))
+			slog.Error("encryption initialization failed", slog.Any("error", encryptorErr), slog.String("component", "db_encryption"))
 			return
 		}
 
 		encryptor = enc
-		slog.Info("OAuth token encryption enabled (AES-256-GCM)")
+		slog.Info("OAuth token encryption enabled (AES-256-GCM)", slog.String("component", "db_encryption"))
 	})
 }
 

@@ -10,17 +10,21 @@ import (
 	"time"
 
 	twitch "github.com/gempir/go-twitch-irc/v4"
+
+	"github.com/onnwee/vod-tender/backend/db"
 )
 
 // StartTwitchChatRecorder records chat for a given VOD, with VOD ID and VOD start time for replay accuracy.
-func StartTwitchChatRecorder(ctx context.Context, db *sql.DB, vodID string, vodStart time.Time) {
+func StartTwitchChatRecorder(ctx context.Context, dbx *sql.DB, vodID string, vodStart time.Time) {
 	channel := os.Getenv("TWITCH_CHANNEL")
 	username := os.Getenv("TWITCH_BOT_USERNAME")
 	oauth := os.Getenv("TWITCH_OAUTH_TOKEN")
 	if oauth == "" {
-		// Attempt to load from oauth_tokens
-		row := db.QueryRowContext(ctx, `SELECT access_token FROM oauth_tokens WHERE provider='twitch' LIMIT 1`)
-		_ = row.Scan(&oauth)
+		// Attempt to load from oauth_tokens using db.GetOAuthToken to handle decryption
+		accessToken, _, _, _, err := db.GetOAuthToken(ctx, dbx, "twitch")
+		if err == nil && accessToken != "" {
+			oauth = accessToken
+		}
 	}
 	// Normalize token format for IRC lib (expects "oauth:xxxxx").
 	if oauth != "" && !strings.HasPrefix(strings.ToLower(oauth), "oauth:") {
@@ -49,7 +53,7 @@ func StartTwitchChatRecorder(ctx context.Context, db *sql.DB, vodID string, vodS
 		}
 		color := msg.User.Color
 		// Reply metadata not available with current twitch.PrivateMessage version; leave empty
-		if _, err := db.ExecContext(ctx, `INSERT INTO chat_messages (vod_id, username, message, abs_timestamp, rel_timestamp, badges, emotes, color, reply_to_id, reply_to_username, reply_to_message) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '', '', '')`,
+		if _, err := dbx.ExecContext(ctx, `INSERT INTO chat_messages (vod_id, username, message, abs_timestamp, rel_timestamp, badges, emotes, color, reply_to_id, reply_to_username, reply_to_message) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '', '', '')`,
 			vodID, msg.User.Name, msg.Message, absTime, relTime, badges, emotes, color); err != nil {
 			slog.Error("failed to insert chat message", slog.Any("err", err))
 		}

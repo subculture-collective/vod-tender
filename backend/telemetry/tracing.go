@@ -106,3 +106,30 @@ func RecordError(span trace.Span, err error) {
 func SetSpanSuccess(span trace.Span) {
 	span.SetStatus(codes.Ok, "")
 }
+
+// ErrorStatus returns an error status code.
+func ErrorStatus(msg string) (codes.Code, string) {
+	return codes.Error, msg
+}
+
+// HTTP attribute helpers
+func HTTPMethodAttr(method string) attribute.KeyValue {
+	return attribute.String("http.method", method)
+}
+
+func HTTPRouteAttr(route string) attribute.KeyValue {
+	return attribute.String("http.route", route)
+}
+
+func HTTPURLAttr(url string) attribute.KeyValue {
+	return attribute.String("http.url", url)
+}
+
+func HTTPStatusCodeAttr(code int) attribute.KeyValue {
+	return attribute.Int("http.status_code", code)
+}
+
+// SetSpanHTTPStatus sets the HTTP status code attribute on a span.
+func SetSpanHTTPStatus(span trace.Span, code int) {
+	span.SetAttributes(HTTPStatusCodeAttr(code))
+}

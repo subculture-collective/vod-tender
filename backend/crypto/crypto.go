@@ -85,7 +85,7 @@ func (e *AESEncryptor) Encrypt(plaintext []byte) ([]byte, error) {
 	}
 
 	// Encrypt and authenticate: nonce || ciphertext || tag
-	// Seal appends ciphertext+tag to nonce, using nonce as AAD (additional authenticated data)
+	// Seal appends ciphertext+tag to nonce (nonce is used as IV, no AAD provided)
 	ciphertext := gcm.Seal(nonce, nonce, plaintext, nil)
 
 	return ciphertext, nil

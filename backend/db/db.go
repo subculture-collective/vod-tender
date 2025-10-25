@@ -121,6 +121,8 @@ func migratePostgres(ctx context.Context, db *sql.DB) error {
 			value TEXT,
 			updated_at TIMESTAMPTZ DEFAULT NOW()
 		)`,
+		// The following ALTER TABLE statements are for backward compatibility with pre-encryption schema installations.
+		// They ensure that existing deployments have the new columns added if missing.
 		`ALTER TABLE oauth_tokens ADD COLUMN IF NOT EXISTS encryption_version INTEGER DEFAULT 0`,
 		`ALTER TABLE oauth_tokens ADD COLUMN IF NOT EXISTS encryption_key_id TEXT`,
 		`CREATE INDEX IF NOT EXISTS idx_vods_twitch_vod_id ON vods(twitch_vod_id)`,

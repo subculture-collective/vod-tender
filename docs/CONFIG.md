@@ -119,12 +119,12 @@ openssl rand -base64 32
 
 Example output:
 ```
-dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcwo=
+xK7vP3mL8wQ2nR9tY5zF1hJ6sA4bN0cE2dV8gU3iO=
 ```
 
 Set in `backend/.env`:
 ```bash
-ENCRYPTION_KEY=dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcwo=
+ENCRYPTION_KEY=xK7vP3mL8wQ2nR9tY5zF1hJ6sA4bN0cE2dV8gU3iO=
 ```
 
 #### Key Storage Best Practices

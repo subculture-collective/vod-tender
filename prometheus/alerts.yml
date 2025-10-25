@@ -1,0 +1,107 @@
+# Prometheus alerting rules for vod-tender
+# To use these rules, configure Prometheus with:
+#   rule_files:
+#     - /etc/prometheus/alerts.yml
+#
+# And configure Alertmanager for notification routing.
+
+groups:
+  - name: vod-tender
+    interval: 30s
+    rules:
+      # High download failure rate
+      - alert: HighDownloadFailureRate
+        expr: |
+          rate(vod_downloads_failed_total[5m]) / 
+          (rate(vod_downloads_started_total[5m]) + 0.001) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+          component: vod-processing
+        annotations:
+          summary: "High VOD download failure rate"
+          description: "{{ $value | humanizePercentage }} of downloads are failing over the last 5 minutes"
+
+      # Circuit breaker open
+      - alert: CircuitBreakerOpen
+        expr: vod_circuit_open == 1
+        for: 5m
+        labels:
+          severity: critical
+          component: vod-processing
+        annotations:
+          summary: "VOD processing circuit breaker is open"
+          description: "Processing has been halted due to repeated failures. Manual intervention may be required."
+
+      # Queue backlog
+      - alert: HighVODQueueDepth
+        expr: vod_queue_depth > 50
+        for: 30m
+        labels:
+          severity: warning
+          component: vod-processing
+        annotations:
+          summary: "Large VOD processing backlog"
+          description: "{{ $value }} VODs are pending processing. This may indicate processing bottlenecks."
+
+      # Database connection pool exhaustion
+      - alert: DatabaseConnectionPoolExhausted
+        expr: |
+          database_connection_pool_in_use / 
+          (database_connection_pool_size + 0.001) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "Database connection pool nearly exhausted"
+          description: "{{ $value | humanizePercentage }} of database connections are in use. Consider increasing pool size."
+
+      # No processing activity
+      - alert: VODProcessingStalled
+        expr: |
+          rate(vod_processing_cycles_total[10m]) == 0 and vod_queue_depth > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: vod-processing
+        annotations:
+          summary: "VOD processing appears stalled"
+          description: "No processing cycles detected in 10 minutes despite pending VODs in queue"
+
+      # OAuth token refresh failures
+      - alert: OAuthTokenRefreshFailures
+        expr: |
+          rate(oauth_token_refresh_total{status="failure"}[5m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+          component: oauth
+        annotations:
+          summary: "OAuth token refresh failures detected"
+          description: "Provider {{ $labels.provider }} is experiencing refresh failures"
+
+      # Chat disconnections
+      - alert: HighChatReconnectionRate
+        expr: rate(chat_reconnections_total[5m]) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          component: chat
+        annotations:
+          summary: "High chat reconnection rate"
+          description: "Chat is reconnecting frequently ({{ $value }} per second), indicating connection instability"
+
+      # Download duration anomaly (very slow downloads)
+      - alert: SlowVODDownloads
+        expr: |
+          histogram_quantile(0.95, 
+            rate(vod_download_duration_seconds_bucket[15m])
+          ) > 3600
+        for: 30m
+        labels:
+          severity: info
+          component: vod-processing
+        annotations:
+          summary: "VOD downloads are unusually slow"
+          description: "95th percentile download time is {{ $value | humanizeDuration }}, which is above 1 hour"

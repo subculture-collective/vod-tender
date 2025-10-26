@@ -44,6 +44,10 @@ func (youtubeUploader) Upload(ctx context.Context, path, title string, date time
 	return uploadToYouTube(ctx, path, title, date)
 }
 
+// vodCustomDescKey is an unexported type used as a context key for custom VOD descriptions.
+// Using a named type prevents collisions with other context keys.
+type vodCustomDescKey struct{}
+
 // configurable for tests
 var (
 	downloader Downloader = ytDLPDownloader{}
@@ -371,7 +375,7 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 			upStart := time.Now()
 			// Temporarily override description if custom provided via context key
 			if customDesc != "" {
-				uploadCtx = context.WithValue(uploadCtx, struct{ string }{"vod_custom_desc"}, customDesc)
+				uploadCtx = context.WithValue(uploadCtx, vodCustomDescKey{}, customDesc)
 			}
 			url, err := uploader.Upload(uploadCtx, filePath, title, date)
 			if err == nil {
@@ -544,7 +548,7 @@ func uploadToYouTube(ctx context.Context, path, title string, date time.Time) (s
 	}
 	// Use custom description if provided in context (set by processOnce) else fall back to default
 	description := fmt.Sprintf("Uploaded from Twitch VOD on %s", date.Format(time.RFC3339))
-	if v := ctx.Value(struct{ string }{"vod_custom_desc"}); v != nil {
+	if v := ctx.Value(vodCustomDescKey{}); v != nil {
 		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
 			description = s
 		}

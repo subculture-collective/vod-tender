@@ -408,17 +408,20 @@ helm template vod-tender ./charts/vod-tender \
 ### Common issues
 
 **Pods not starting:**
+
 - Check pod events: `kubectl describe pod -n vod-tender <pod-name>`
 - Check logs: `kubectl logs -n vod-tender <pod-name>`
 - Verify secrets exist: `kubectl get secret -n vod-tender`
 - Verify ConfigMap exists: `kubectl get configmap -n vod-tender`
 
 **PVC issues:**
+
 - Check PVC status: `kubectl get pvc -n vod-tender`
 - Verify StorageClass exists: `kubectl get storageclass`
 - Check PV provisioner logs
 
 **Ingress not working:**
+
 - Verify ingress controller is running
 - Check ingress status: `kubectl describe ingress -n vod-tender`
 - Verify DNS points to ingress controller LoadBalancer

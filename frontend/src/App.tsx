@@ -6,13 +6,13 @@ function App() {
   const [selectedVod, setSelectedVod] = useState<string | null>(null)
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      <header className="bg-indigo-700 text-white py-4 px-6 shadow">
+    <div className="flex flex-col min-h-screen bg-green-500">
+      <header className="px-6 py-4 text-white bg-indigo-700 shadow">
         <h1 className="text-2xl font-bold tracking-tight">
-          VOD Tender Dashboard
+          VOD Tender Dashboardddddddd
         </h1>
       </header>
-      <main className="flex-1 flex flex-col items-center justify-start">
+      <main className="flex flex-col items-center justify-start flex-1">
         <div className="w-full max-w-4xl mt-8">
           {selectedVod ? (
             <VodDetail
@@ -24,7 +24,7 @@ function App() {
           )}
         </div>
       </main>
-      <footer className="text-center text-xs text-gray-400 py-4">
+      <footer className="py-4 text-xs text-center text-gray-400">
         &copy; {new Date().getFullYear()} VOD Tender
       </footer>
     </div>

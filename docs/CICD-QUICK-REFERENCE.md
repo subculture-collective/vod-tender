@@ -51,6 +51,7 @@ curl -L https://github.com/<owner>/<repo>/releases/download/v1.2.3/sbom-backend.
 **Automatic:** Pushes to `main` auto-deploy to staging
 
 **Manual:**
+
 ```
 1. Go to: Actions → Deploy Staging
 2. Click "Run workflow"
@@ -62,6 +63,7 @@ curl -L https://github.com/<owner>/<repo>/releases/download/v1.2.3/sbom-backend.
 ### Deploy to Production
 
 **Manual only:**
+
 ```
 1. Go to: Actions → Deploy Production
 2. Click "Run workflow"
@@ -190,6 +192,7 @@ Web UI:
 ### CI Failures
 
 **Tests failing:**
+
 ```bash
 # Run locally
 cd backend && go test ./... -v
@@ -202,6 +205,7 @@ cd frontend && npm test -- --verbose
 ```
 
 **Docker build failing:**
+
 ```bash
 # Build locally with verbose output
 docker build --progress=plain -t test ./backend
@@ -211,6 +215,7 @@ docker build --no-cache -t test ./backend
 ```
 
 **Integration tests failing:**
+
 ```bash
 # Check docker-compose locally
 docker compose up -d
@@ -224,6 +229,7 @@ docker network inspect web
 ### Release Failures
 
 **Tag already exists:**
+
 ```bash
 # Delete local tag
 git tag -d v1.2.3
@@ -237,6 +243,7 @@ git push origin v1.2.3
 ```
 
 **Image push failed:**
+
 - Check GitHub token permissions
 - Verify package write permission enabled
 - Check repository settings → Packages
@@ -244,11 +251,13 @@ git push origin v1.2.3
 ### Deployment Failures
 
 **Cannot connect to server:**
+
 - Verify SSH keys in GitHub secrets
 - Check firewall rules
 - Test SSH connection manually
 
 **Health checks failing:**
+
 ```bash
 # SSH to server
 ssh user@server
@@ -296,6 +305,7 @@ updates:
 ### Speed Up CI
 
 **Use caching:**
+
 ```yaml
 # Already configured in workflows
 - uses: actions/setup-go@v5
@@ -309,6 +319,7 @@ updates:
 ```
 
 **Parallelize jobs:**
+
 - Jobs without dependencies run in parallel
 - Use `needs:` to control dependencies
 
@@ -411,5 +422,5 @@ on:
 
 - Check workflow logs in Actions tab
 - Review documentation in `docs/CICD.md`
-- Check GitHub Actions status: https://www.githubstatus.com/
+- Check GitHub Actions status: <https://www.githubstatus.com/>
 - File an issue if workflow problems persist

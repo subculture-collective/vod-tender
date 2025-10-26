@@ -3,6 +3,8 @@ services:
     container_name: vod-postgres
     image: postgres:16
     restart: unless-stopped
+    ports:
+      - "5469:5432"
     environment:
       POSTGRES_DB: vod
       POSTGRES_USER: vod
@@ -24,9 +26,9 @@ services:
     image: jaegertracing/all-in-one:latest
     restart: unless-stopped
     ports:
-      - "16686:16686"  # Jaeger UI
-      - "4317:4317"    # OTLP gRPC receiver
-      - "4318:4318"    # OTLP HTTP receiver
+      - "${JAEGER_UI_PORT:-16686}:16686" # Jaeger UI
+      - "${JAEGER_OTLP_GRPC_PORT:-4317}:4317" # OTLP gRPC receiver
+      - "${JAEGER_OTLP_HTTP_PORT:-4318}:4318" # OTLP HTTP receiver
     environment:
       - COLLECTOR_OTLP_ENABLED=true
     networks:
@@ -56,6 +58,8 @@ services:
     volumes:
       - vod_data:/data
       - ./secrets:/run/cookies:ro
+    ports:
+      - "${API_PORT:-8080}:8080"
     healthcheck:
       test: ["CMD", "/app/healthcheck"]
       interval: 15s
@@ -70,6 +74,8 @@ services:
     container_name: vod-frontend
     build:
       context: ./frontend
+      args:
+        VITE_API_BASE_URL: "http://localhost:${API_PORT:-8080}"
     restart: unless-stopped
     depends_on:
       - api
@@ -86,6 +92,8 @@ services:
       web:
         aliases:
           - vod-frontend
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
 
   backup:
     container_name: vod-backup
@@ -119,4 +127,4 @@ volumes:
 
 networks:
   web:
-    external: true
+    driver: bridge

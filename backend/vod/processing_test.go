@@ -13,8 +13,8 @@ import (
 )
 
 type mockDownloader struct {
-	path string
 	err  error
+	path string
 }
 
 func (m mockDownloader) Download(ctx context.Context, dbc *sql.DB, id, dataDir string) (string, error) {
@@ -22,8 +22,8 @@ func (m mockDownloader) Download(ctx context.Context, dbc *sql.DB, id, dataDir s
 }
 
 type mockUploader struct {
-	url string
 	err error
+	url string
 }
 
 func (m mockUploader) Upload(ctx context.Context, path, title string, date time.Time) (string, error) {

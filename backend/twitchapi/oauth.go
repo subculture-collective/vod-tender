@@ -15,19 +15,19 @@ import (
 
 type AuthCodeExchangeResult struct {
 	AccessToken  string   `json:"access_token"`
-	ExpiresIn    int      `json:"expires_in"`
 	RefreshToken string   `json:"refresh_token"`
-	Scope        []string `json:"scope"`
 	TokenType    string   `json:"token_type"`
+	Scope        []string `json:"scope"`
+	ExpiresIn    int      `json:"expires_in"`
 }
 
 // RefreshResult represents the response from a refresh_token grant.
 type RefreshResult struct {
 	AccessToken  string   `json:"access_token"`
-	ExpiresIn    int      `json:"expires_in"`
 	RefreshToken string   `json:"refresh_token"`
-	Scope        []string `json:"scope"`
 	TokenType    string   `json:"token_type"`
+	Scope        []string `json:"scope"`
+	ExpiresIn    int      `json:"expires_in"`
 }
 
 // BuildAuthorizeURL constructs the user authorization URL for OAuth code grant.

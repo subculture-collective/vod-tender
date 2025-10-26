@@ -95,8 +95,8 @@ func StartAutoChatRecorder(ctx context.Context, db *sql.DB, channel string) {
 			}()
 			var body struct {
 				Data []struct {
-					Title     string    `json:"title"`
 					StartedAt time.Time `json:"started_at"`
+					Title     string    `json:"title"`
 				} `json:"data"`
 			}
 			if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {

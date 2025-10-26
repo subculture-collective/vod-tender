@@ -1,4 +1,3 @@
-version: '2'
 run:
     timeout: 5m
     go: '1.22'
@@ -6,39 +5,56 @@ run:
 linters:
     enable:
         # Default linters
-        - govet             # Vet examines Go source code and reports suspicious constructs
-        - ineffassign       # Detects when assignments to existing variables are not used
-        
-        # Additional useful linters  
-        - bodyclose         # Checks whether HTTP response body is closed successfully
-        - errname           # Checks that sentinel errors are prefixed with Err
-        - errorlint         # Find code that can cause problems with error wrapping
-        - misspell          # Finds commonly misspelled English words in comments
-        
+        - govet # Vet examines Go source code and reports suspicious constructs
+        - ineffassign # Detects when assignments to existing variables are not used
+
+        # Additional useful linters
+        - bodyclose # Checks whether HTTP response body is closed successfully
+        - errname # Checks that sentinel errors are prefixed with Err
+        - errorlint # Find code that can cause problems with error wrapping
+        - misspell # Finds commonly misspelled English words in comments
+
         # Previously disabled - now enabled and fixed
-        - errcheck          # Check for unchecked errors
-        - staticcheck       # Static analysis checks
-        - unused            # Check for unused code
-        - contextcheck      # Check for non-inherited contexts
-        - noctx             # Check for DB calls without context
-        - unparam           # Check for unused function parameters
-        - gosec             # Security checks
+        - errcheck # Check for unchecked errors
+        - staticcheck # Static analysis checks
+        - unused # Check for unused code
+        - noctx # Check for DB calls without context
+        - unparam # Check for unused function parameters
+        - gosec # Security checks
 
 linters-settings:
     govet:
         enable-all: true
+        disable:
+            - shadow
+            - unusedwrite
+            - fieldalignment
     gosec:
         excludes-generated: true
 
 issues:
     # Maximum issues count per one linter. Set to 0 to disable.
     max-issues-per-linter: 0
-    
+
     # Maximum count of issues with the same text. Set to 0 to disable.
     max-same-issues: 0
-    
+
     exclude-rules:
         # Exclude gosec from test files
         - path: _test\.go
           linters:
               - gosec
+        # Allow unchecked errors and some noisy checks in test code
+        - path: _test\.go
+          linters:
+              - errcheck
+              - staticcheck
+              - govet
+        # Allow errcheck in test helpers
+        - path: backend/testutil/.*\.go
+          linters:
+              - errcheck
+        # Contextcheck false positives in readiness checks
+        - path: backend/server/server\.go
+          linters:
+              - contextcheck

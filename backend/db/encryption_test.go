@@ -49,7 +49,7 @@ func TestEncryptedTokens(t *testing.T) {
 		// Reset encryptor for other tests
 		encryptorOnce = sync.Once{}
 		encryptor = nil
-		encryptorErr = nil
+		errEncryptor = nil
 	}()
 
 	// Set encryption key for this test
@@ -58,7 +58,7 @@ func TestEncryptedTokens(t *testing.T) {
 	// Reset the encryptor to pick up new key
 	encryptorOnce = sync.Once{}
 	encryptor = nil
-	encryptorErr = nil
+	errEncryptor = nil
 
 	db := setupTestDB(t)
 	ctx := context.Background()
@@ -142,6 +142,10 @@ func TestEncryptedTokens(t *testing.T) {
 	if retrievedRefresh != newRefreshToken {
 		t.Errorf("updated refresh_token = %q, want %q", retrievedRefresh, newRefreshToken)
 	}
+
+	if retrievedScope != newScope {
+		t.Errorf("updated scope = %q, want %q", retrievedScope, newScope)
+	}
 }
 
 // TestPlaintextTokenCompatibility tests that plaintext tokens (encryption_version=0) can still be read
@@ -156,13 +160,13 @@ func TestPlaintextTokenCompatibility(t *testing.T) {
 		// Reset encryptor
 		encryptorOnce = sync.Once{}
 		encryptor = nil
-		encryptorErr = nil
+		errEncryptor = nil
 	}()
 
 	// Reset encryptor
 	encryptorOnce = sync.Once{}
 	encryptor = nil
-	encryptorErr = nil
+	errEncryptor = nil
 
 	db := setupTestDB(t)
 	ctx := context.Background()
@@ -231,7 +235,7 @@ func TestEncryptionMigration(t *testing.T) {
 	os.Unsetenv("ENCRYPTION_KEY")
 	encryptorOnce = sync.Once{}
 	encryptor = nil
-	encryptorErr = nil
+	errEncryptor = nil
 
 	err := UpsertOAuthToken(ctx, db, provider, accessToken, refreshToken, expiry, "", scope)
 	if err != nil {
@@ -253,7 +257,7 @@ func TestEncryptionMigration(t *testing.T) {
 	os.Setenv("ENCRYPTION_KEY", testKey)
 	encryptorOnce = sync.Once{}
 	encryptor = nil
-	encryptorErr = nil
+	errEncryptor = nil
 
 	// Simulate token refresh - write same token back with encryption
 	err = UpsertOAuthToken(ctx, db, provider, accessToken, refreshToken, expiry, "", scope)
@@ -304,7 +308,7 @@ func TestEncryptionMigration(t *testing.T) {
 	}
 	encryptorOnce = sync.Once{}
 	encryptor = nil
-	encryptorErr = nil
+	errEncryptor = nil
 }
 
 // TestEncryptionKeyNotSet verifies warning when encryption key is not configured
@@ -317,12 +321,12 @@ func TestEncryptionKeyNotSet(t *testing.T) {
 		}
 		encryptorOnce = sync.Once{}
 		encryptor = nil
-		encryptorErr = nil
+		errEncryptor = nil
 	}()
 
 	encryptorOnce = sync.Once{}
 	encryptor = nil
-	encryptorErr = nil
+	errEncryptor = nil
 
 	enc, err := getEncryptor()
 	if err != nil {
@@ -344,14 +348,14 @@ func TestInvalidEncryptionKey(t *testing.T) {
 		}
 		encryptorOnce = sync.Once{}
 		encryptor = nil
-		encryptorErr = nil
+		errEncryptor = nil
 	}()
 
 	// Test invalid base64
 	os.Setenv("ENCRYPTION_KEY", "not-valid-base64!@#")
 	encryptorOnce = sync.Once{}
 	encryptor = nil
-	encryptorErr = nil
+	errEncryptor = nil
 
 	_, err := getEncryptor()
 	if err == nil {
@@ -362,7 +366,7 @@ func TestInvalidEncryptionKey(t *testing.T) {
 	os.Setenv("ENCRYPTION_KEY", "dGVzdAo=") // too short
 	encryptorOnce = sync.Once{}
 	encryptor = nil
-	encryptorErr = nil
+	errEncryptor = nil
 
 	_, err = getEncryptor()
 	if err == nil {

@@ -40,7 +40,7 @@ func (m *MockTwitchServer) MockUserResponse(userID, login string) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response) //nolint:errcheck // test mock response
 	}
 }
 
@@ -54,7 +54,7 @@ func (m *MockTwitchServer) MockVideosResponse(videos []map[string]string, cursor
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response) //nolint:errcheck // test mock response
 	}
 }
 
@@ -65,7 +65,7 @@ func (m *MockTwitchServer) MockStreamsResponse(streams []map[string]interface{})
 			"data": streams,
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response) //nolint:errcheck // test mock response
 	}
 }
 
@@ -78,6 +78,6 @@ func (m *MockTwitchServer) MockOAuthTokenResponse(accessToken string, expiresIn 
 			"token_type":   "bearer",
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response) //nolint:errcheck // test mock response
 	}
 }

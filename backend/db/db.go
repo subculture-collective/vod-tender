@@ -19,7 +19,7 @@ var (
 	// encryptor is the global encryptor instance for OAuth token encryption
 	encryptor     crypto.Encryptor
 	encryptorOnce sync.Once
-	encryptorErr  error
+	errEncryptor  error
 )
 
 // initEncryptor initializes the global encryptor from ENCRYPTION_KEY environment variable.
@@ -35,8 +35,8 @@ func initEncryptor() {
 
 		enc, err := crypto.NewAESEncryptor(key)
 		if err != nil {
-			encryptorErr = fmt.Errorf("failed to initialize encryption: %w", err)
-			slog.Error("encryption initialization failed", slog.Any("error", encryptorErr), slog.String("component", "db_encryption"))
+			errEncryptor = fmt.Errorf("failed to initialize encryption: %w", err)
+			slog.Error("encryption initialization failed", slog.Any("error", errEncryptor), slog.String("component", "db_encryption"))
 			return
 		}
 
@@ -49,8 +49,8 @@ func initEncryptor() {
 // Returns nil if encryption is not configured (ENCRYPTION_KEY not set).
 func getEncryptor() (crypto.Encryptor, error) {
 	initEncryptor()
-	if encryptorErr != nil {
-		return nil, encryptorErr
+	if errEncryptor != nil {
+		return nil, errEncryptor
 	}
 	return encryptor, nil
 }

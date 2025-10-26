@@ -12,13 +12,13 @@ import (
 
 func TestHelixClient_GetUserID(t *testing.T) {
 	tests := []struct {
+		response    interface{}
 		name        string
 		login       string
-		response    interface{}
-		statusCode  int
 		wantUserID  string
-		wantErr     bool
 		errContains string
+		statusCode  int
+		wantErr     bool
 	}{
 		{
 			name:  "successful user lookup",
@@ -119,15 +119,15 @@ func TestHelixClient_GetUserID(t *testing.T) {
 
 func TestHelixClient_ListVideos(t *testing.T) {
 	tests := []struct {
+		response    interface{}
 		name        string
 		userID      string
 		after       string
-		first       int
-		response    interface{}
-		wantVideos  int
 		wantCursor  string
-		wantErr     bool
 		errContains string
+		first       int
+		wantVideos  int
+		wantErr     bool
 	}{
 		{
 			name:   "successful video list",

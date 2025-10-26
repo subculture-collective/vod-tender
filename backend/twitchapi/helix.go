@@ -13,8 +13,8 @@ import (
 // HelixClient provides minimal methods needed for VOD discovery.
 type HelixClient struct {
 	AppTokenSource *TokenSource
-	ClientID       string
 	HTTPClient     *http.Client
+	ClientID       string
 }
 
 func (hc *HelixClient) http() *http.Client {
@@ -97,13 +97,13 @@ func (hc *HelixClient) ListVideos(ctx context.Context, userID, after string, fir
 		}
 	}()
 	var body struct {
+		Pagination struct {
+			Cursor string `json:"cursor"`
+		} `json:"pagination"`
 		Data []struct {
 			ID, Title, Duration string
 			CreatedAt           string `json:"created_at"`
 		} `json:"data"`
-		Pagination struct {
-			Cursor string `json:"cursor"`
-		} `json:"pagination"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		return nil, "", err

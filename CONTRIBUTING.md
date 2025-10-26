@@ -15,7 +15,7 @@ Thank you for your interest in contributing to vod-tender! This document provide
 
 ## Code of Conduct
 
-This project adheres to the [Contributor Covenant Code of Conduct](./CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code. Please report unacceptable behavior to conduct@subculture-collective.com.
+This project adheres to the [Contributor Covenant Code of Conduct](./CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code. Please report unacceptable behavior to <conduct@subculture-collective.com>.
 
 ## Getting Started
 
@@ -33,17 +33,20 @@ This project adheres to the [Contributor Covenant Code of Conduct](./CODE_OF_CON
 1. **Fork the repository** on GitHub
 
 2. **Clone your fork**:
+
    ```bash
    git clone https://github.com/YOUR_USERNAME/vod-tender.git
    cd vod-tender
    ```
 
 3. **Add upstream remote**:
+
    ```bash
    git remote add upstream https://github.com/subculture-collective/vod-tender.git
    ```
 
 4. **Install dependencies**:
+
    ```bash
    # Backend
    cd backend
@@ -55,17 +58,20 @@ This project adheres to the [Contributor Covenant Code of Conduct](./CODE_OF_CON
    ```
 
 5. **Copy configuration**:
+
    ```bash
    cp backend/.env.example backend/.env
    # Edit backend/.env with your Twitch credentials
    ```
 
 6. **Start development environment**:
+
    ```bash
    make up
    ```
 
 7. **Verify setup**:
+
    ```bash
    # Check services
    make ps
@@ -80,11 +86,13 @@ This project adheres to the [Contributor Covenant Code of Conduct](./CODE_OF_CON
 ### Development Environment
 
 **Docker Compose Stack**:
+
 - PostgreSQL (port 5432)
 - API backend (port 8080)
 - Frontend dev server (port 3000)
 
 **Useful Commands**:
+
 ```bash
 make up              # Start all services
 make down            # Stop all services
@@ -113,6 +121,7 @@ git checkout -b fix/issue-number-short-description
 ```
 
 **Branch Naming Convention**:
+
 - `feature/` - New features
 - `fix/` - Bug fixes
 - `docs/` - Documentation changes
@@ -125,6 +134,7 @@ git checkout -b fix/issue-number-short-description
 1. **Write code** following our [coding standards](#coding-standards)
 
 2. **Test locally**:
+
    ```bash
    # Run linter
    make lint
@@ -137,6 +147,7 @@ git checkout -b fix/issue-number-short-description
    ```
 
 3. **Commit changes** using [Conventional Commits](https://www.conventionalcommits.org/):
+
    ```bash
    git add .
    git commit -m "feat: add VOD priority queue"
@@ -145,6 +156,7 @@ git checkout -b fix/issue-number-short-description
    ```
 
 **Commit Message Format**:
+
 ```
 <type>(<scope>): <subject>
 
@@ -154,6 +166,7 @@ git checkout -b fix/issue-number-short-description
 ```
 
 **Types**:
+
 - `feat`: New feature
 - `fix`: Bug fix
 - `docs`: Documentation only
@@ -164,6 +177,7 @@ git checkout -b fix/issue-number-short-description
 - `chore`: Maintenance tasks (dependency updates, build changes)
 
 **Example**:
+
 ```
 feat(vod): add download priority queue
 
@@ -176,6 +190,7 @@ Closes #123
 ### Submitting a Pull Request
 
 1. **Push to your fork**:
+
    ```bash
    git push origin feature/your-feature-name
    ```
@@ -193,6 +208,7 @@ Closes #123
    - Request re-review when ready
 
 4. **Keep PR updated**:
+
    ```bash
    # Rebase on latest main
    git fetch upstream
@@ -207,6 +223,7 @@ Closes #123
 Follow [Effective Go](https://golang.org/doc/effective_go.html) and project conventions:
 
 **Formatting**:
+
 ```bash
 # Format code
 gofmt -w .
@@ -217,6 +234,7 @@ make lint-fix
 ```
 
 **Package Structure**:
+
 ```
 backend/
 ├── cmd/           # Main applications
@@ -233,6 +251,7 @@ backend/
 ```
 
 **Naming Conventions**:
+
 - **Packages**: lowercase, single word (e.g., `vod`, `chat`, `server`)
 - **Files**: lowercase with underscores (e.g., `processing.go`, `catalog_test.go`)
 - **Types**: PascalCase (e.g., `VOD`, `ChatMessage`, `Downloader`)
@@ -240,6 +259,7 @@ backend/
 - **Constants**: PascalCase or ALL_CAPS for exported (e.g., `DefaultTimeout`, `MAX_RETRIES`)
 
 **Error Handling**:
+
 ```go
 // ✅ GOOD: Return errors, don't panic
 func downloadVOD(id string) error {
@@ -265,6 +285,7 @@ if id == "" {
 ```
 
 **Logging**:
+
 ```go
 // Use structured logging with slog
 slog.Info("download started",
@@ -279,6 +300,7 @@ logger.Error("download failed", "error", err)
 ```
 
 **Context Handling**:
+
 ```go
 // Always accept context as first parameter
 func processVOD(ctx context.Context, id string) error {
@@ -295,6 +317,7 @@ func processVOD(ctx context.Context, id string) error {
 ```
 
 **Database Queries**:
+
 ```go
 // ✅ GOOD: Parameterized queries
 rows, err := db.Query(
@@ -311,6 +334,7 @@ rows, err := db.Query(query)
 ### TypeScript/React Conventions
 
 **Code Style**:
+
 ```typescript
 // Use TypeScript strict mode
 // tsconfig.json: "strict": true
@@ -353,6 +377,7 @@ const data: ApiResponse = await fetch();
 ```
 
 **File Naming**:
+
 - Components: `PascalCase.tsx` (e.g., `VodCard.tsx`)
 - Utilities: `camelCase.ts` (e.g., `apiClient.ts`)
 - Types: `types.ts` or `*.types.ts`
@@ -360,6 +385,7 @@ const data: ApiResponse = await fetch();
 ### Documentation
 
 **Code Comments**:
+
 ```go
 // Document exported functions, types, constants
 // Use godoc format
@@ -383,6 +409,7 @@ type VOD struct {
 ```
 
 **Markdown Documentation**:
+
 - Use clear headings (H1, H2, H3)
 - Include code examples with language tags
 - Add tables for structured data
@@ -399,12 +426,14 @@ type VOD struct {
 ### Test Structure
 
 **Naming Convention**:
+
 ```
 file_test.go          # Tests for file.go
 file_integration_test.go  # Integration tests
 ```
 
 **Test Function Names**:
+
 ```go
 func TestFunctionName(t *testing.T) { }
 func TestFunctionName_ErrorCase(t *testing.T) { }
@@ -412,6 +441,7 @@ func TestFunctionName_EdgeCase(t *testing.T) { }
 ```
 
 **Example Test**:
+
 ```go
 func TestDownloadVOD_Success(t *testing.T) {
     // Arrange
@@ -487,6 +517,7 @@ go test -tags=integration ./...
 ```
 
 **Integration Test Example**:
+
 ```go
 // +build integration
 
@@ -547,6 +578,7 @@ func TestWithMock(t *testing.T) {
 ### For Reviewers
 
 **Review Checklist**:
+
 - [ ] Code follows style guidelines
 - [ ] Tests are included and pass
 - [ ] Documentation is updated
@@ -556,12 +588,14 @@ func TestWithMock(t *testing.T) {
 - [ ] Error handling is appropriate
 
 **Review Comments**:
+
 - Be respectful and constructive
 - Explain the "why" behind suggestions
 - Distinguish between required changes and suggestions
 - Use prefixes: `nit:` for minor issues, `question:` for clarification
 
 **Approval Requirements**:
+
 - 1 approval required for merge
 - Maintainer approval for breaking changes
 - Security review for authentication/authorization changes
@@ -569,15 +603,18 @@ func TestWithMock(t *testing.T) {
 ### Merge Strategy
 
 **Squash and Merge** (default):
+
 - Squashes commits into a single commit
 - Keeps main branch history clean
 - Use for most PRs
 
 **Rebase and Merge**:
+
 - Maintains individual commits
 - Use for well-structured commit history
 
 **Merge Commit**:
+
 - Creates a merge commit
 - Use for merging release branches
 
@@ -588,6 +625,7 @@ Maintained by project maintainers.
 ### Version Numbering
 
 Follow [Semantic Versioning](https://semver.org/):
+
 - **MAJOR**: Breaking changes (v2.0.0)
 - **MINOR**: New features, backward compatible (v1.1.0)
 - **PATCH**: Bug fixes, backward compatible (v1.0.1)
@@ -595,6 +633,7 @@ Follow [Semantic Versioning](https://semver.org/):
 ### Release Workflow
 
 1. **Create release branch**:
+
    ```bash
    git checkout -b release/v1.2.0
    ```
@@ -606,6 +645,7 @@ Follow [Semantic Versioning](https://semver.org/):
 3. **Create PR**: `release/v1.2.0` → `main`
 
 4. **Merge and tag**:
+
    ```bash
    git checkout main
    git pull origin main
@@ -664,22 +704,25 @@ Maintain CHANGELOG.md following [Keep a Changelog](https://keepachangelog.com/):
 - **GitHub Issues**: Bug reports and feature requests
 - **GitHub Discussions**: Questions and community discussion
 - **Discord**: Real-time chat (link in README)
-- **Email**: dev@subculture-collective.com
+- **Email**: <dev@subculture-collective.com>
 
 ### Asking Questions
 
 Before asking:
+
 1. Search existing issues and discussions
 2. Check documentation
 3. Review troubleshooting guide
 
 When asking:
+
 - Provide context and relevant details
 - Include error messages and logs
 - Describe what you've already tried
 - Specify your environment (OS, versions)
 
 **Good Question Template**:
+
 ```
 ## Problem
 Brief description of the issue
@@ -702,7 +745,9 @@ What actually happens
 
 ## Logs/Screenshots
 ```
+
 [error log or screenshot]
+
 ```
 
 ## Additional Context
@@ -712,6 +757,7 @@ Any other relevant information
 ## Recognition
 
 Contributors are recognized in:
+
 - CONTRIBUTORS.md (alphabetical listing)
 - Release notes (for significant contributions)
 - GitHub contributor graph

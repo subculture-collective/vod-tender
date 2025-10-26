@@ -53,7 +53,7 @@ vod-tender supports Kubernetes deployment for production-grade orchestration, sc
 
 - **kind** (Kubernetes in Docker): `brew install kind` or `go install sigs.k8s.io/kind@latest`
 - **k3s** (lightweight Kubernetes): `curl -sfL https://get.k3s.io | sh -`
-- **minikube**: `brew install minikube` or download from https://minikube.sigs.k8s.io/
+- **minikube**: `brew install minikube` or download from <https://minikube.sigs.k8s.io/>
 
 ## Quick Start
 
@@ -327,14 +327,17 @@ Sensitive data is stored in Kubernetes Secret:
 Default resource allocations:
 
 **API Backend:**
+
 - Requests: 512Mi memory, 500m CPU
 - Limits: 2Gi memory, 2000m CPU
 
 **Frontend:**
+
 - Requests: 128Mi memory, 100m CPU
 - Limits: 256Mi memory, 500m CPU
 
 **Postgres:**
+
 - Requests: 256Mi memory, 250m CPU
 - Limits: 1Gi memory, 1000m CPU
 
@@ -343,11 +346,13 @@ Adjust via Helm values or Kustomize patches based on workload.
 ### Storage
 
 **VOD Data PVC:**
+
 - Default: 100Gi
 - Access mode: ReadWriteOnce
 - Mounted at `/data` in API pods
 
 **Postgres PVC:**
+
 - Default: 20Gi (via VolumeClaimTemplate)
 - Access mode: ReadWriteOnce
 
@@ -463,6 +468,7 @@ kubectl apply -k k8s/overlays/channel-b
 ### Resource Isolation
 
 Each channel gets:
+
 - Separate namespace
 - Separate database (Postgres StatefulSet)
 - Separate PVCs
@@ -471,6 +477,7 @@ Each channel gets:
 ### Shared Resources
 
 Consider using shared infrastructure:
+
 - External Postgres cluster (set `postgres.enabled=false`)
 - Shared ingress controller
 - Shared monitoring stack
@@ -480,16 +487,19 @@ Consider using shared infrastructure:
 ### High Availability
 
 **Frontend:**
+
 - Enable HPA: `frontend.autoscaling.enabled=true`
 - Set minReplicas ≥ 2
 - Configure PodDisruptionBudget
 
 **API:**
+
 - Single replica only (concurrency constraint)
 - Configure PodDisruptionBudget to prevent disruption
 - Use `Recreate` strategy for updates
 
 **Database:**
+
 - Consider managed Postgres (RDS, Cloud SQL, etc.)
 - If self-hosted, use backup/replication solution
 
@@ -595,6 +605,7 @@ helm install prometheus prometheus-community/kube-prometheus-stack \
 **2. Enable ServiceMonitor**
 
 Helm:
+
 ```yaml
 monitoring:
   enabled: true
@@ -775,12 +786,14 @@ kubectl exec -n vod-tender deployment/vod-tender-api -- \
 ### Pods Not Starting
 
 **Check pod status:**
+
 ```bash
 kubectl get pods -n vod-tender
 kubectl describe pod -n vod-tender <pod-name>
 ```
 
 **Common issues:**
+
 - Image pull errors: Check `imagePullSecrets`
 - Insufficient resources: Check cluster capacity
 - PVC binding issues: Check PV provisioner
@@ -789,17 +802,20 @@ kubectl describe pod -n vod-tender <pod-name>
 ### Database Connection Errors
 
 **Check Postgres pod:**
+
 ```bash
 kubectl logs -n vod-tender statefulset/postgres
 kubectl exec -n vod-tender postgres-0 -- pg_isready -U vod
 ```
 
 **Verify secret:**
+
 ```bash
 kubectl get secret -n vod-tender vod-tender-secrets -o yaml
 ```
 
 **Test connection from API pod:**
+
 ```bash
 kubectl exec -n vod-tender deployment/vod-tender-api -- \
   sh -c 'apk add postgresql-client && psql $DB_DSN -c "SELECT 1"'
@@ -808,22 +824,26 @@ kubectl exec -n vod-tender deployment/vod-tender-api -- \
 ### Ingress Issues
 
 **Check ingress status:**
+
 ```bash
 kubectl describe ingress -n vod-tender vod-tender-ingress
 ```
 
 **Verify ingress controller:**
+
 ```bash
 kubectl get pods -n ingress-nginx
 kubectl logs -n ingress-nginx deployment/ingress-nginx-controller
 ```
 
 **Check DNS:**
+
 ```bash
 nslookup vod-tender.yourdomain.com
 ```
 
 **Check certificate:**
+
 ```bash
 kubectl get certificate -n vod-tender
 kubectl describe certificate -n vod-tender vod-tender-tls
@@ -832,12 +852,14 @@ kubectl describe certificate -n vod-tender vod-tender-tls
 ### PVC Binding Issues
 
 **Check PVC status:**
+
 ```bash
 kubectl get pvc -n vod-tender
 kubectl describe pvc -n vod-tender vod-tender-data
 ```
 
 **Check StorageClass:**
+
 ```bash
 kubectl get storageclass
 kubectl describe storageclass <storage-class-name>
@@ -848,12 +870,14 @@ kubectl describe storageclass <storage-class-name>
 ### Performance Issues
 
 **Check resource usage:**
+
 ```bash
 kubectl top pods -n vod-tender
 kubectl top nodes
 ```
 
 **Increase resources:**
+
 ```yaml
 api:
   resources:
@@ -863,6 +887,7 @@ api:
 ```
 
 **Scale frontend:**
+
 ```bash
 kubectl scale deployment vod-tender-frontend -n vod-tender --replicas=5
 ```
@@ -870,17 +895,20 @@ kubectl scale deployment vod-tender-frontend -n vod-tender --replicas=5
 ### Recovery Procedures
 
 **Restart pods:**
+
 ```bash
 kubectl rollout restart deployment/vod-tender-api -n vod-tender
 kubectl rollout restart deployment/vod-tender-frontend -n vod-tender
 ```
 
 **Force delete stuck pod:**
+
 ```bash
 kubectl delete pod <pod-name> -n vod-tender --grace-period=0 --force
 ```
 
 **Restore from backup:**
+
 ```bash
 # Restore database
 kubectl exec -n vod-tender postgres-0 -- \

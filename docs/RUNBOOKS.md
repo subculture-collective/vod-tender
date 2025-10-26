@@ -15,6 +15,7 @@ Comprehensive procedures for monitoring, troubleshooting, and maintaining vod-te
 ### High CPU Usage
 
 **Symptoms**:
+
 - System load average > number of cores
 - Application slowness or timeouts
 - High CPU percentage in monitoring dashboard
@@ -41,6 +42,7 @@ docker exec vod-api ps aux | grep yt-dlp
 **Resolution**:
 
 1. **Immediate Mitigation**:
+
    ```bash
    # Check if multiple downloads running
    # Current design should allow only 1 concurrent download
@@ -66,6 +68,7 @@ docker exec vod-api ps aux | grep yt-dlp
    - Consider transcoding to lower quality
 
 **Prevention**:
+
 - Set CPU limits in container: `resources.limits.cpu: "2"`
 - Alert on sustained high CPU: > 80% for 5 minutes
 - Implement download time limits
@@ -75,6 +78,7 @@ docker exec vod-api ps aux | grep yt-dlp
 ### Out of Disk Space
 
 **Symptoms**:
+
 - Logs show "no space left on device"
 - Downloads failing with disk I/O errors
 - Database writes failing
@@ -99,6 +103,7 @@ psql -U vod -d vod -c "SELECT pg_size_pretty(pg_database_size('vod'));"
 **Resolution**:
 
 1. **Immediate Mitigation**:
+
    ```bash
    # Clean up old VOD files (if BACKFILL_AUTOCLEAN enabled)
    # Manually delete old files
@@ -129,6 +134,7 @@ psql -U vod -d vod -c "SELECT pg_size_pretty(pg_database_size('vod'));"
    - Set up disk usage alerts (> 80% used)
 
 **Prevention**:
+
 - Alert on disk usage: > 80% capacity
 - Enable auto-cleanup after upload
 - Implement retention policies
@@ -139,6 +145,7 @@ psql -U vod -d vod -c "SELECT pg_size_pretty(pg_database_size('vod'));"
 ### Database Connection Errors
 
 **Symptoms**:
+
 - Logs show "connection refused" or "too many connections"
 - Application unable to start
 - API returns 500 errors
@@ -168,6 +175,7 @@ psql -U vod -d vod -c "SHOW max_connections;"
 **Resolution**:
 
 1. **Immediate Mitigation**:
+
    ```bash
    # Restart database (if safe)
    docker restart vod-postgres
@@ -199,6 +207,7 @@ psql -U vod -d vod -c "SHOW max_connections;"
    - Add connection pool metrics
 
 **Prevention**:
+
 - Monitor active connections
 - Alert on connection pool saturation
 - Implement circuit breaker for DB connections
@@ -209,6 +218,7 @@ psql -U vod -d vod -c "SHOW max_connections;"
 ### Circuit Breaker Stuck Open
 
 **Symptoms**:
+
 - Logs show "circuit breaker open, skipping processing"
 - No VODs being processed
 - Status endpoint shows `circuit_state: open`
@@ -246,6 +256,7 @@ docker logs vod-api | grep -i error | tail -50
    - Check if Twitch API quota exhausted
 
 2. **Fix Underlying Issue**:
+
    ```bash
    # Example: Refresh expired OAuth token
    curl -X POST https://vod-api.example.com/auth/twitch/refresh
@@ -260,6 +271,7 @@ docker logs vod-api | grep -i error | tail -50
    ```
 
 3. **Manual Reset** (only after fixing root cause):
+
    ```bash
    # Reset circuit breaker
    docker exec vod-postgres psql -U vod -d vod -c "
@@ -278,6 +290,7 @@ docker logs vod-api | grep -i error | tail -50
    ```
 
 4. **Verify Recovery**:
+
    ```bash
    # Check status
    curl https://vod-api.example.com/status
@@ -287,6 +300,7 @@ docker logs vod-api | grep -i error | tail -50
    ```
 
 **Prevention**:
+
 - Adjust `CIRCUIT_FAILURE_THRESHOLD` if too sensitive
 - Implement better error handling for transient failures
 - Add retry logic with exponential backoff
@@ -297,6 +311,7 @@ docker logs vod-api | grep -i error | tail -50
 ### Chat Recorder Disconnected
 
 **Symptoms**:
+
 - No new chat messages in database
 - Logs show "chat recorder stopped" or "IRC disconnected"
 - Auto mode not detecting live streams
@@ -331,6 +346,7 @@ docker exec vod-postgres psql -U vod -d vod -c "
 **Resolution**:
 
 1. **Verify Credentials**:
+
    ```bash
    # Test Twitch OAuth token
    curl -H "Authorization: Bearer <token>" \
@@ -343,6 +359,7 @@ docker exec vod-postgres psql -U vod -d vod -c "
    ```
 
 2. **Check Auto Mode Configuration**:
+
    ```bash
    # Verify environment variables
    docker exec vod-api env | grep CHAT_AUTO
@@ -353,6 +370,7 @@ docker exec vod-postgres psql -U vod -d vod -c "
    ```
 
 3. **Restart Chat Recorder**:
+
    ```bash
    # Full application restart
    docker restart vod-api
@@ -363,6 +381,7 @@ docker exec vod-postgres psql -U vod -d vod -c "
    ```
 
 4. **Manual Chat Recording** (if auto mode fails):
+
    ```bash
    # Set manual mode temporarily
    # Update .env:
@@ -374,6 +393,7 @@ docker exec vod-postgres psql -U vod -d vod -c "
    ```
 
 **Prevention**:
+
 - Monitor chat message rate (should be > 0 when live)
 - Alert on IRC disconnections
 - Implement automatic reconnection logic
@@ -384,6 +404,7 @@ docker exec vod-postgres psql -U vod -d vod -c "
 ### Failed Downloads
 
 **Symptoms**:
+
 - VODs stuck in processing state
 - Logs show yt-dlp errors
 - Download progress not updating
@@ -418,6 +439,7 @@ docker exec vod-api curl -I https://www.twitch.tv
 **Resolution**:
 
 1. **Authentication Issues**:
+
    ```bash
    # Verify cookies file exists and is valid
    docker exec vod-api ls -l /run/cookies/
@@ -434,6 +456,7 @@ docker exec vod-api curl -I https://www.twitch.tv
    ```
 
 2. **Network Issues**:
+
    ```bash
    # Check DNS resolution
    docker exec vod-api nslookup www.twitch.tv
@@ -446,6 +469,7 @@ docker exec vod-api curl -I https://www.twitch.tv
    ```
 
 3. **VOD Availability**:
+
    ```bash
    # Check if VOD still exists
    # Some VODs are deleted or made sub-only
@@ -459,6 +483,7 @@ docker exec vod-api curl -I https://www.twitch.tv
    ```
 
 4. **Retry Failed Download**:
+
    ```bash
    # Clear error to allow retry
    docker exec vod-postgres psql -U vod -d vod -c "
@@ -469,6 +494,7 @@ docker exec vod-api curl -I https://www.twitch.tv
    ```
 
 **Prevention**:
+
 - Keep cookies fresh (< 30 days old)
 - Monitor download success rate
 - Implement better error categorization (transient vs permanent)
@@ -479,6 +505,7 @@ docker exec vod-api curl -I https://www.twitch.tv
 ### Upload Quota Exceeded
 
 **Symptoms**:
+
 - Logs show "quota exceeded" or "uploadLimitExceeded"
 - Uploads failing to YouTube
 - Processing completes but no YouTube URL
@@ -505,6 +532,7 @@ docker exec vod-postgres psql -U vod -d vod -c "
 **Resolution**:
 
 1. **Immediate Mitigation**:
+
    ```bash
    # Disable uploads temporarily
    # Update environment variable
@@ -522,6 +550,7 @@ docker exec vod-postgres psql -U vod -d vod -c "
    - Upload video: ~1,600 units
 
 3. **Implement Rate Limiting**:
+
    ```bash
    # Set daily upload limit
    BACKFILL_UPLOAD_DAILY_LIMIT=5
@@ -531,6 +560,7 @@ docker exec vod-postgres psql -U vod -d vod -c "
    ```
 
 4. **Retry After Quota Reset**:
+
    ```bash
    # Quota resets at midnight Pacific Time
    # Clear errors to allow retry
@@ -542,6 +572,7 @@ docker exec vod-postgres psql -U vod -d vod -c "
    ```
 
 **Prevention**:
+
 - Monitor quota usage daily
 - Implement upload scheduling
 - Alert at 80% quota consumption
@@ -595,32 +626,38 @@ Import the dashboard from `docs/grafana-dashboard.json` or create manually:
 **Key Panels**:
 
 1. **VOD Queue Depth** (Gauge)
+
    ```promql
    vod_queue_depth
    ```
 
 2. **Download Throughput** (Graph)
+
    ```promql
    rate(vod_downloads_succeeded_total[5m])
    ```
 
 3. **Circuit Breaker State** (Stat)
+
    ```promql
    vod_circuit_open
    ```
 
 4. **Error Rate** (Graph)
+
    ```promql
    rate(vod_downloads_failed_total[5m]) + 
    rate(vod_uploads_failed_total[5m])
    ```
 
 5. **Download Duration** (Heatmap)
+
    ```promql
    vod_download_duration_seconds_bucket
    ```
 
 6. **API Request Latency** (Heatmap)
+
    ```promql
    http_request_duration_seconds_bucket{job="vod-tender"}
    ```
@@ -1047,17 +1084,20 @@ fi
 ### Routine Maintenance Tasks
 
 **Daily**:
+
 - [ ] Review dashboard for anomalies
 - [ ] Check disk space usage
 - [ ] Verify backups completed successfully
 
 **Weekly**:
+
 - [ ] Review and clear old logs
 - [ ] Check for security updates
 - [ ] Review error logs and trends
 - [ ] Verify monitoring alerts are working
 
 **Monthly**:
+
 - [ ] Test backup restoration
 - [ ] Review and optimize database queries
 - [ ] Update dependencies
@@ -1065,6 +1105,7 @@ fi
 - [ ] Rotate non-critical credentials
 
 **Quarterly**:
+
 - [ ] Rotate database passwords
 - [ ] Rotate OAuth tokens
 - [ ] Review and update runbooks
@@ -1072,6 +1113,7 @@ fi
 - [ ] Review and update disaster recovery plan
 
 **Annually**:
+
 - [ ] Conduct penetration testing
 - [ ] Review and update SLAs
 - [ ] Conduct disaster recovery drill
@@ -1141,6 +1183,7 @@ ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
 **Recovery Steps**:
 
 1. **Assess Situation**:
+
    ```bash
    # Check all components
    kubectl get pods -n vod-tender
@@ -1154,6 +1197,7 @@ ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
    ```
 
 2. **Restore Database** (if corrupted):
+
    ```bash
    # Stop application
    kubectl scale deployment/vod-api --replicas=0 -n vod-tender
@@ -1168,6 +1212,7 @@ ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
    ```
 
 3. **Verify Recovery**:
+
    ```bash
    curl https://vod-api.example.com/healthz
    curl https://vod-api.example.com/status
@@ -1176,6 +1221,7 @@ ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
 ### Data Corruption
 
 **Symptoms**:
+
 - Database integrity errors
 - Inconsistent data
 - Application crashes on queries
@@ -1183,16 +1229,19 @@ ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
 **Recovery**:
 
 1. **Stop Application**:
+
    ```bash
    kubectl scale deployment/vod-api --replicas=0 -n vod-tender
    ```
 
 2. **Backup Current State** (even if corrupted):
+
    ```bash
    pg_dump -U vod vod > /tmp/corrupted_backup.sql
    ```
 
 3. **Check Corruption**:
+
    ```sql
    -- Check table integrity
    SELECT * FROM vods WHERE twitch_vod_id IS NULL;
@@ -1210,6 +1259,7 @@ ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
    ```
 
 4. **Restore from Last Known Good Backup**:
+
    ```bash
    # Restore database
    aws s3 cp s3://vod-tender-backups/database/vod_20251019_020000.sql.gz - | \
@@ -1217,6 +1267,7 @@ ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
    ```
 
 5. **Reprocess Recent Data**:
+
    ```bash
    # Mark recent VODs for reprocessing
    psql -U vod -d vod -c "
@@ -1231,6 +1282,7 @@ ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
 **If Breach Suspected**:
 
 1. **Isolate System**:
+
    ```bash
    # Block all incoming traffic
    kubectl apply -f - <<EOF
@@ -1248,6 +1300,7 @@ ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
    ```
 
 2. **Preserve Evidence**:
+
    ```bash
    # Capture logs
    kubectl logs deployment/vod-api -n vod-tender > /forensics/api-logs.txt
@@ -1260,6 +1313,7 @@ ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
    ```
 
 3. **Rotate All Credentials**:
+
    ```bash
    # Generate new passwords
    NEW_DB_PASS=$(openssl rand -base64 32)

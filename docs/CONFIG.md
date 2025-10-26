@@ -118,6 +118,7 @@ openssl rand -base64 32
 ```
 
 Example output:
+
 ```
 REPLACE_WITH_YOUR_GENERATED_KEY_base64_32bytes
 ```
@@ -133,6 +134,7 @@ REPLACE_WITH_YOUR_GENERATED_KEY_base64_32bytes
 5. **HashiCorp Vault**: Inject via Vault agent sidecar
 
 Example Docker Compose with secrets:
+
 ```yaml
 services:
   api:
@@ -158,6 +160,7 @@ The `oauth_tokens` table includes metadata for encryption management:
 Existing deployments with plaintext tokens will **automatically migrate to encrypted storage** on the next token refresh (OAuth renewal). No manual intervention required.
 
 Migration process:
+
 1. Set `ENCRYPTION_KEY` environment variable
 2. Restart backend service
 3. Existing tokens (version=0) are read as plaintext

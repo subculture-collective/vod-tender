@@ -58,6 +58,7 @@ Previous `/vods` endpoint is deprecated, use `/api/vods?page=1` instead.
 ### Scope (Optional)
 
 Common scopes:
+
 - `api` - Backend API changes
 - `frontend` - Frontend changes
 - `chat` - Chat recorder/replay
@@ -155,6 +156,7 @@ git push origin feat/my-feature
 ### PR Title
 
 Use conventional commit format for PR titles:
+
 ```
 feat: add VOD filtering by date
 fix: resolve chat replay timing issues
@@ -164,6 +166,7 @@ docs: update API documentation
 ### PR Description
 
 Include:
+
 - What changes were made
 - Why the changes were made
 - How to test the changes
@@ -293,6 +296,7 @@ npm update
 ### Fixing Failed CI
 
 Check workflow logs:
+
 1. Go to Actions tab on GitHub
 2. Click on failed workflow
 3. Review logs for failed jobs
@@ -300,6 +304,7 @@ Check workflow logs:
 5. Push fix
 
 Common failures:
+
 - **Commitlint:** Fix commit message format
 - **Tests:** Fix failing tests
 - **Coverage:** Add more tests

@@ -5,6 +5,7 @@ This document describes the automated CI/CD pipeline for vod-tender, including c
 ## Overview
 
 The CI/CD pipeline consists of multiple workflows that automate:
+
 - Code quality checks (linting, formatting, security scanning)
 - Testing (unit, integration, database migrations)
 - Performance monitoring (benchmarks, coverage)
@@ -21,15 +22,18 @@ The CI/CD pipeline consists of multiple workflows that automate:
 **Jobs:**
 
 #### gitleaks
+
 - Scans for secrets in code
 - Uses `.gitleaks.toml` for configuration
 - Fails on any secret findings
 
 #### govulncheck
+
 - Scans Go dependencies for known vulnerabilities
 - Uses Go's official vulnerability database
 
 #### build-test-lint
+
 - Builds Go backend
 - Runs unit tests with race detection
 - Generates coverage reports (uploaded to Codecov)
@@ -39,6 +43,7 @@ The CI/CD pipeline consists of multiple workflows that automate:
 - Builds Docker image
 
 #### frontend
+
 - Installs npm dependencies
 - TypeScript type checking
 - Builds frontend with Vite
@@ -46,23 +51,27 @@ The CI/CD pipeline consists of multiple workflows that automate:
 - Tracks bundle size
 
 #### docker-images
+
 - Builds Docker images for backend and frontend (linux/amd64 only for scanning)
 - Runs Trivy vulnerability scanning
 - Uploads SARIF reports to GitHub Security
 - Generates JSON reports for artifacts
 
 #### multi-arch-builds
+
 - Validates multi-architecture builds (linux/amd64, linux/arm64)
 - Uses Docker Buildx
 - Caches layers for faster builds
 - Does not push images (verification only)
 
 #### database-migration-tests
+
 - Spins up Postgres container
 - Runs migration tests
 - Verifies schema integrity
 
 #### integration-tests
+
 - Starts full docker-compose stack
 - Validates service health checks
 - Runs smoke tests against API endpoints
@@ -77,6 +86,7 @@ The CI/CD pipeline consists of multiple workflows that automate:
 **Configuration:** `.commitlintrc.js`
 
 **Supported types:**
+
 - `feat`: New feature (minor version bump)
 - `fix`: Bug fix (patch version bump)
 - `docs`: Documentation changes (patch version bump)
@@ -98,6 +108,7 @@ The CI/CD pipeline consists of multiple workflows that automate:
 **Process:**
 
 #### semantic-release job
+
 1. Analyzes commits since last release
 2. Determines version bump based on conventional commits
 3. Generates changelog
@@ -105,6 +116,7 @@ The CI/CD pipeline consists of multiple workflows that automate:
 5. Updates CHANGELOG.md
 
 #### release job (runs only if new release created)
+
 1. Builds multi-arch Docker images (linux/amd64, linux/arm64)
 2. Pushes to GitHub Container Registry (ghcr.io)
 3. Tags images with version, latest, and commit SHA
@@ -131,6 +143,7 @@ The CI/CD pipeline consists of multiple workflows that automate:
 **Jobs:**
 
 #### benchmarks
+
 - Runs Go benchmarks
 - Uploads results as artifacts
 - **On PRs:** Compares against baseline from main branch
@@ -138,12 +151,14 @@ The CI/CD pipeline consists of multiple workflows that automate:
 - **Performance regression detection:** Fails if >10% performance degradation (optional)
 
 #### coverage
+
 - Runs tests with coverage
 - Calculates coverage percentage
 - Reports in GitHub Step Summary
 - Target: 70% coverage
 
 #### security-scorecard
+
 - Runs OSSF Scorecard analysis
 - Evaluates security best practices
 - Uploads SARIF results to GitHub Security
@@ -159,6 +174,7 @@ The CI/CD pipeline consists of multiple workflows that automate:
 **Trigger:** Dependabot pull requests
 
 **Behavior:**
+
 - **Patch updates:** Auto-approves and auto-merges after tests pass
 - **Minor updates:** Auto-approves only (manual merge required)
 - **Major updates:** Adds warning comment (manual review required)
@@ -166,6 +182,7 @@ The CI/CD pipeline consists of multiple workflows that automate:
 **Configuration:** `.github/dependabot.yml`
 
 **Update schedule:** Weekly for:
+
 - Go modules
 - npm packages
 - Docker base images
@@ -173,11 +190,13 @@ The CI/CD pipeline consists of multiple workflows that automate:
 
 ### 6. Staging Deployment (`.github/workflows/deploy-staging.yml`)
 
-**Trigger:** 
+**Trigger:**
+
 - Push to `main` (automatic)
 - Manual trigger via `workflow_dispatch`
 
 **Process:**
+
 1. Deploys latest main branch to staging environment
 2. Waits for services to be healthy
 3. Runs health checks
@@ -193,6 +212,7 @@ The CI/CD pipeline consists of multiple workflows that automate:
 **Strategy:** Blue-green deployment
 
 **Process:**
+
 1. Validates version tag format (vX.Y.Z)
 2. Verifies release exists
 3. Deploys to green environment
@@ -212,11 +232,13 @@ The CI/CD pipeline consists of multiple workflows that automate:
 **Threshold:** 10% performance degradation
 
 **Usage:**
+
 ```bash
 ./scripts/check-performance-regression.sh current_bench.txt baseline_bench.txt [threshold]
 ```
 
 **How it works:**
+
 1. Compares benchmark results using `benchstat`
 2. Identifies benchmarks with >10% performance regression
 3. Fails CI if significant regressions detected
@@ -227,6 +249,7 @@ The CI/CD pipeline consists of multiple workflows that automate:
 ### Automatic Release (Recommended)
 
 1. Commit changes to feature branch using conventional commit format:
+
    ```bash
    git commit -m "feat: add new feature"
    git commit -m "fix: resolve bug in component"
@@ -245,6 +268,7 @@ The CI/CD pipeline consists of multiple workflows that automate:
 ### Manual Release (Emergency)
 
 1. Create and push a version tag:
+
    ```bash
    git tag v1.0.0
    git push origin v1.0.0
@@ -257,6 +281,7 @@ The CI/CD pipeline consists of multiple workflows that automate:
 **Registry:** GitHub Container Registry (ghcr.io)
 
 **Images:**
+
 - `ghcr.io/subculture-collective/vod-tender/backend:latest`
 - `ghcr.io/subculture-collective/vod-tender/backend:<version>`
 - `ghcr.io/subculture-collective/vod-tender/backend:<commit-sha>`
@@ -265,10 +290,12 @@ The CI/CD pipeline consists of multiple workflows that automate:
 - `ghcr.io/subculture-collective/vod-tender/frontend:<commit-sha>`
 
 **Platforms:**
+
 - linux/amd64
 - linux/arm64
 
 **Security:**
+
 - Images are signed with cosign
 - SBOM generated for each image
 - Regular vulnerability scanning with Trivy
@@ -294,18 +321,21 @@ The CI/CD pipeline consists of multiple workflows that automate:
 ### Coverage Below Threshold
 
 If CI fails due to coverage:
+
 1. Add tests for uncovered code
 2. Or update threshold in `.github/workflows/ci.yml` if justified
 
 ### Semantic Release Not Creating Release
 
 Check that commits follow conventional commit format:
+
 - Use valid types (feat, fix, etc.)
 - Breaking changes need `BREAKING CHANGE:` in commit body
 
 ### Dependabot PR Not Auto-Merging
 
 Ensure:
+
 1. All CI checks pass
 2. Update is a patch version
 3. Repository settings allow auto-merge
@@ -313,6 +343,7 @@ Ensure:
 ### Performance Regression Detected
 
 If benchmarks show regression:
+
 1. Review the changes that caused it
 2. Optimize the code
 3. Or justify the regression in PR description
@@ -336,6 +367,7 @@ If benchmarks show regression:
 ### Branch Protection
 
 Recommended branch protection rules for `main`:
+
 - Require pull request reviews
 - Require status checks to pass (CI, commitlint, quality-gates)
 - Require signed commits
@@ -345,6 +377,7 @@ Recommended branch protection rules for `main`:
 ## Contributing
 
 When contributing, ensure:
+
 1. Commits follow conventional commit format
 2. Tests pass locally
 3. Code coverage doesn't decrease

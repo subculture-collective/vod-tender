@@ -30,10 +30,13 @@ k8s/
 ### Base Resources
 
 #### namespace.yaml
+
 Creates the `vod-tender` namespace for resource isolation.
 
 #### configmap.yaml
+
 Contains non-sensitive configuration:
+
 - Twitch channel settings
 - Feature toggles (CHAT_AUTO_START)
 - Processing intervals and retry settings
@@ -41,27 +44,34 @@ Contains non-sensitive configuration:
 - Storage paths
 
 #### secret.yaml
+
 **IMPORTANT**: This is a template only. Do NOT commit real credentials.
 
 Contains sensitive data:
+
 - Database connection string
 - Twitch OAuth credentials (client ID, secret, token)
 - YouTube OAuth credentials
 - Redirect URIs
 
 For production, use:
+
 - External Secrets Operator (recommended)
 - Sealed Secrets
 - Cloud provider secret managers (AWS Secrets Manager, GCP Secret Manager)
 
 #### pvc.yaml
+
 PersistentVolumeClaim for VOD storage (`/data` directory):
+
 - Default: 100Gi
 - Access mode: ReadWriteOnce
 - Update `storageClassName` for your cloud provider
 
 #### api-deployment.yaml
+
 API backend deployment with:
+
 - **Replicas**: 1 (single-channel concurrency model)
 - **Strategy**: Recreate (prevents concurrent instances)
 - **Init container**: Waits for Postgres
@@ -73,7 +83,9 @@ API backend deployment with:
 - **Volumes**: Mounts PVC at `/data`
 
 #### frontend-deployment.yaml
+
 Frontend deployment with:
+
 - **Replicas**: 2 (stateless, horizontally scalable)
 - **Strategy**: RollingUpdate (maxSurge: 1, maxUnavailable: 0)
 - **Resources**: 128Mi-256Mi memory, 100m-500m CPU
@@ -81,7 +93,9 @@ Frontend deployment with:
 - **Security**: Runs as UID 101 (nginx)
 
 #### postgres-statefulset.yaml
+
 Postgres StatefulSet with:
+
 - **Replicas**: 1
 - **Image**: postgres:17-alpine
 - **Resources**: 256Mi-1Gi memory, 250m-1000m CPU
@@ -90,13 +104,17 @@ Postgres StatefulSet with:
 - **Security**: Runs as UID 70 (postgres)
 
 #### services.yaml
+
 Three ClusterIP services:
+
 - `vod-tender-api`: Port 8080 → API pods
 - `vod-tender-frontend`: Port 80 → Frontend pods
 - `postgres`: Headless service for StatefulSet (port 5432)
 
 #### ingress.yaml
+
 Ingress with TLS termination:
+
 - **Hosts**: `vod-tender.example.com` (frontend), `vod-api.example.com` (API)
 - **TLS**: cert-manager integration (letsencrypt-prod issuer)
 - **Annotations**:
@@ -106,6 +124,7 @@ Ingress with TLS termination:
 **Update hostnames** in overlays for your environment.
 
 #### networkpolicy.yaml
+
 Three NetworkPolicies for defense-in-depth:
 
 1. **API Policy**:
@@ -121,7 +140,9 @@ Three NetworkPolicies for defense-in-depth:
    - Egress: DNS (53)
 
 #### backup-pvc.yaml (Optional)
+
 PersistentVolumeClaim for Postgres backups:
+
 - Default: 10Gi
 - Access mode: ReadWriteOnce
 - Stores compressed pg_dump files
@@ -129,7 +150,9 @@ PersistentVolumeClaim for Postgres backups:
 **To enable**: Uncomment in `kustomization.yaml`
 
 #### backup-cronjob.yaml (Optional)
+
 Automated daily database backups:
+
 - **Schedule**: Daily at 2 AM UTC (configurable)
 - **Retention**: 7 days (configurable)
 - **Compression**: gzip for space efficiency
@@ -139,7 +162,9 @@ Automated daily database backups:
 **To enable**: Uncomment in `kustomization.yaml`
 
 #### grafana-dashboard.yaml (Optional)
+
 Grafana dashboard ConfigMap with pre-configured panels:
+
 - VOD download metrics (rates, success/failure)
 - Queue depth gauge
 - Download duration percentiles (p50, p95, p99)
@@ -151,13 +176,16 @@ Grafana dashboard ConfigMap with pre-configured panels:
 **Label**: `grafana_dashboard: "1"` enables auto-discovery by Grafana sidecar
 
 #### external-secret.yaml.example (Optional)
+
 Example configuration for External Secrets Operator:
+
 - AWS Secrets Manager integration
 - HashiCorp Vault integration
 - Auto-refresh every 1 hour
 - Replaces `secret.yaml` for production
 
 **To use**:
+
 1. Copy `external-secret.yaml.example` to `external-secret.yaml`
 2. Configure your SecretStore
 3. Update data mappings for your secret structure
@@ -167,19 +195,25 @@ Example configuration for External Secrets Operator:
 ### Overlays
 
 #### dev/
+
 Development environment:
+
 - Reduced storage (10Gi VOD, 5Gi Postgres)
 - Single frontend replica
 - Auto chat disabled (`CHAT_AUTO_START=0`)
 - No auto-cleanup (`BACKFILL_AUTOCLEAN=0`)
 
 #### staging/
+
 Staging environment:
+
 - Moderate storage (50Gi VOD, 10Gi Postgres)
 - Reduced upload limit (5/day)
 
 #### production/
+
 Production environment with additional resources:
+
 - **hpa.yaml**: HorizontalPodAutoscaler for frontend (2-5 replicas, 80% CPU/memory target)
 - **pdb.yaml**: PodDisruptionBudgets to prevent simultaneous disruptions
 - **servicemonitor.yaml**: Prometheus ServiceMonitor for metrics scraping
@@ -394,6 +428,7 @@ kubectl autoscale deployment vod-tender-frontend -n vod-tender \
 ⚠️ **Do NOT scale API horizontally** - single-channel concurrency model requires exactly 1 replica.
 
 To handle more load:
+
 1. Increase resource limits in deployment
 2. Use larger node instance type
 3. Run separate instances per channel (multi-instance pattern)

@@ -97,6 +97,7 @@ vod-tender includes production-ready observability features:
 - **Health Endpoints** - `/healthz` (liveness) and `/readyz` (readiness with detailed checks)
 
 See [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) for complete documentation including:
+
 - Setup instructions and configuration
 - Metrics reference with descriptions
 - Alert rules and thresholds
@@ -105,6 +106,7 @@ See [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) for complete documentation in
 - Troubleshooting guides
 
 **Quick links:**
+
 - Jaeger UI: `http://localhost:16686` (traces)
 - Prometheus metrics: `http://localhost:8080/metrics`
 - Readiness check: `http://localhost:8080/readyz`
@@ -216,8 +218,8 @@ For Kubernetes, map the same containers to Deployments and expose `/metrics` to 
 
   Routes assumed by the compose and Caddyfile:
 
-  - Frontend: https://vod-tender.onnwee.me → `vod-frontend:80`
-  - API: https://vod-api.onnwee.me → `vod-api:8080`
+  - Frontend: <https://vod-tender.onnwee.me> → `vod-frontend:80`
+  - API: <https://vod-api.onnwee.me> → `vod-api:8080`
 
   Ensure `caddy` container is attached to the shared `web` network.
 
@@ -267,8 +269,7 @@ Simple CORS is enabled for dev (Access-Control-Allow-Origin: \*). For production
 - Avoid enabling `YTDLP_VERBOSE=1` when passing cookies; secrets may leak in verbose output.
 - Container images are automatically scanned for vulnerabilities using Trivy in CI. Builds fail on CRITICAL/HIGH severity issues. Scan reports are available as CI artifacts.
 
-
-# feature ideas
+## Feature ideas
 
 - indexed chat
 - on/off switches

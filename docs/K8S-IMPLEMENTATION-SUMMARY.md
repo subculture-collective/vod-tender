@@ -1,11 +1,13 @@
 # Kubernetes Deployment Implementation Summary
 
 ## Overview
+
 This document summarizes the Kubernetes deployment infrastructure for vod-tender, including all manifests, Helm charts, and advanced features implemented.
 
 ## What Was Implemented
 
 ### Base Kubernetes Manifests (k8s/base/)
+
 All acceptance criteria for base manifests have been met:
 
 1. **namespace.yaml** - Creates `vod-tender` namespace for resource isolation
@@ -20,6 +22,7 @@ All acceptance criteria for base manifests have been met:
 10. **networkpolicy.yaml** - Pod-to-pod communication restrictions
 
 ### Advanced Features (Optional)
+
 Additional resources that can be enabled:
 
 11. **backup-pvc.yaml** - PVC for Postgres backup storage (10Gi)
@@ -28,6 +31,7 @@ Additional resources that can be enabled:
 14. **external-secret.yaml.example** - External Secrets Operator integration template
 
 ### Helm Chart (charts/vod-tender/)
+
 Complete Helm chart with:
 
 1. **Chart.yaml** - Metadata, version 0.1.0, app version 1.0.0
@@ -47,16 +51,19 @@ Complete Helm chart with:
 ### Kustomize Overlays (k8s/overlays/)
 
 **dev/** - Development environment:
+
 - Reduced storage (10Gi VOD, 5Gi Postgres)
 - Single frontend replica
 - Auto chat disabled
 - No auto-cleanup
 
 **staging/** - Staging environment:
+
 - Moderate storage (50Gi VOD, 10Gi Postgres)
 - Reduced upload limit (5/day)
 
 **production/** - Production environment:
+
 - Full storage (default sizes)
 - HorizontalPodAutoscaler
 - PodDisruptionBudgets
@@ -65,6 +72,7 @@ Complete Helm chart with:
 ### Documentation
 
 **docs/KUBERNETES.md** - Comprehensive deployment guide covering:
+
 - Prerequisites (required and optional)
 - Quick start for both Helm and Kustomize
 - Deployment methods with examples
@@ -77,6 +85,7 @@ Complete Helm chart with:
 - Troubleshooting guide
 
 **k8s/README.md** - Manifest descriptions:
+
 - Directory structure
 - Resource descriptions (all files documented)
 - Overlay explanations
@@ -86,6 +95,7 @@ Complete Helm chart with:
 - Scaling guidance
 
 **charts/vod-tender/README.md** - Helm chart documentation:
+
 - Installation instructions
 - Configuration parameters (complete table)
 - Examples for all scenarios
@@ -95,6 +105,7 @@ Complete Helm chart with:
 ### Testing & Validation
 
 **scripts/validate-k8s.sh** - Automated validation script:
+
 - Prerequisite checks
 - Kustomize build validation (base + overlays)
 - Helm chart linting
@@ -109,6 +120,7 @@ All tests pass successfully ✓
 ## Key Features
 
 ### Security
+
 - NetworkPolicies restrict pod-to-pod communication
 - Secrets management via External Secrets Operator (optional)
 - Non-root containers with explicit UIDs
@@ -116,18 +128,21 @@ All tests pass successfully ✓
 - TLS termination at ingress
 
 ### High Availability
+
 - Frontend HPA (2-5 replicas based on CPU/memory)
 - PodDisruptionBudgets prevent simultaneous disruptions
 - RollingUpdate strategy for frontend (zero downtime)
 - Recreate strategy for API (prevents data corruption)
 
 ### Observability
+
 - Prometheus ServiceMonitor for metrics
 - Grafana dashboard with VOD-specific panels
 - Pod annotations for metric scraping
 - Readiness/liveness probes on all components
 
 ### Backup & Recovery
+
 - Automated daily backups via CronJob
 - Configurable retention (7 days default)
 - Optional S3 upload for off-site storage
@@ -135,6 +150,7 @@ All tests pass successfully ✓
 - Manual backup procedures documented
 
 ### Configuration Management
+
 - ConfigMap for non-sensitive data
 - Secrets for credentials
 - External Secrets Operator support
@@ -144,6 +160,7 @@ All tests pass successfully ✓
 ## Deployment Options
 
 ### Option 1: Kustomize with kubectl
+
 ```bash
 # Development
 kubectl apply -k k8s/overlays/dev
@@ -153,6 +170,7 @@ kubectl apply -k k8s/overlays/production
 ```
 
 ### Option 2: Helm
+
 ```bash
 # Development
 helm install vod-tender ./charts/vod-tender -f charts/vod-tender/values-dev.yaml
@@ -166,6 +184,7 @@ helm install vod-tender ./charts/vod-tender -f charts/vod-tender/values-producti
 Deploy separate instances per Twitch channel:
 
 **Approach 1: Separate Namespaces (Helm)**
+
 ```bash
 helm install vod-channel-a ./charts/vod-tender \
   --namespace vod-channel-a \
@@ -182,7 +201,9 @@ Create per-channel overlays in `k8s/overlays/`
 ## Advanced Features Configuration
 
 ### Enable Automated Backups
+
 **Helm:**
+
 ```yaml
 postgres:
   backup:
@@ -193,6 +214,7 @@ postgres:
 
 **Kustomize:**
 Uncomment in `k8s/base/kustomization.yaml`:
+
 ```yaml
 resources:
   - backup-pvc.yaml
@@ -200,7 +222,9 @@ resources:
 ```
 
 ### Enable Grafana Dashboard
+
 **Helm:**
+
 ```yaml
 monitoring:
   grafana:
@@ -209,13 +233,16 @@ monitoring:
 
 **Kustomize:**
 Uncomment in `k8s/base/kustomization.yaml`:
+
 ```yaml
 resources:
   - grafana-dashboard.yaml
 ```
 
 ### Enable External Secrets
+
 **Helm:**
+
 ```yaml
 secrets:
   create: false
@@ -226,6 +253,7 @@ externalSecrets:
 ```
 
 **Kustomize:**
+
 1. Copy `external-secret.yaml.example` to `external-secret.yaml`
 2. Configure for your secret store
 3. Update `kustomization.yaml`
@@ -250,6 +278,7 @@ externalSecrets:
 ## Success Metrics
 
 ✅ All acceptance criteria met:
+
 - Base Kubernetes manifests complete
 - Helm chart with parameterized templates
 - Multi-environment support
@@ -259,6 +288,7 @@ externalSecrets:
 - Validation testing
 
 ✅ Production-ready:
+
 - Follows Kubernetes best practices
 - Security-hardened (NetworkPolicies, non-root, secrets)
 - High availability (HPA, PDB, health checks)

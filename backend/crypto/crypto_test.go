@@ -13,8 +13,8 @@ func TestNewAESEncryptor(t *testing.T) {
 	tests := []struct {
 		name      string
 		key       string
-		wantError bool
 		errorMsg  string
+		wantError bool
 	}{
 		{
 			name:      "empty key",
@@ -202,8 +202,8 @@ func TestDecrypt_InvalidCiphertext(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		ciphertext []byte
 		errorMsg   string
+		ciphertext []byte
 	}{
 		{
 			name:       "empty ciphertext",

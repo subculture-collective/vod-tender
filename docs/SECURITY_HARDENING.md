@@ -797,6 +797,7 @@ LOG_LEVEL=info
 ```
 
 **Log Events**:
+
 - Authentication attempts (success/failure)
 - Authorization failures
 - OAuth token refresh
@@ -806,6 +807,7 @@ LOG_LEVEL=info
 - Database errors
 
 **Log Fields**:
+
 ```json
 {
   "timestamp": "2025-10-20T00:46:10Z",
@@ -879,6 +881,7 @@ SELECT pg_reload_conf();
 ```
 
 Audit logs should be:
+
 - Tamper-proof (write-once storage or blockchain)
 - Retained for compliance period (typically 1-7 years)
 - Regularly reviewed for suspicious activity
@@ -978,6 +981,7 @@ docker run -t owasp/zap2docker-stable zap-baseline.py \
 ```
 
 **Burp Suite** (for manual testing):
+
 - Proxy requests through Burp
 - Test for SQLi, XSS, CSRF
 - Analyze authentication flows

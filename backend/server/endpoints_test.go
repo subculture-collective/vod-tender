@@ -19,7 +19,7 @@ func TestCORS(t *testing.T) {
 	req := httptest.NewRequest(http.MethodOptions, "/healthz", nil)
 	req.Header.Set("Origin", "http://localhost:3000")
 	req.Header.Set("Access-Control-Request-Method", "GET")
-	
+
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -187,7 +187,7 @@ func TestOAuthTokenStore(t *testing.T) {
 	ctx := context.Background()
 	provider := "test-provider"
 	expiry := time.Now().Add(1 * time.Hour)
-	
+
 	// Test UpsertOAuthToken
 	err := store.UpsertOAuthToken(ctx, provider, "access", "refresh", expiry, "raw-json")
 	if err != nil {
@@ -316,8 +316,8 @@ func TestParseIntQuery(t *testing.T) {
 
 func TestDerivePercent(t *testing.T) {
 	tests := []struct {
-		state string
 		want  *float64
+		state string
 	}{
 		{"", nil},
 		{"unknown", nil},

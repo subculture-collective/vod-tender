@@ -12,20 +12,22 @@ import (
 )
 
 // BackfillMetadata fetches channel VOD list and updates rows that lack title or duration.
-func BackfillMetadata(ctx context.Context, db *sql.DB) error {
-	vods, err := FetchChannelVODs(ctx)
+func BackfillMetadata(ctx context.Context, db *sql.DB, channel string) error {
+	vods, err := FetchChannelVODs(ctx, channel)
 	if err != nil {
 		return err
 	}
 	for _, v := range vods {
-		_, _ = db.ExecContext(ctx, `UPDATE vods SET title=COALESCE(NULLIF(title,''), $1), date=$2, duration_seconds=CASE WHEN COALESCE(duration_seconds,0)=0 THEN $3 ELSE duration_seconds END, updated_at=NOW() WHERE twitch_vod_id=$4`, v.Title, v.Date, v.Duration, v.ID)
+		_, _ = db.ExecContext(ctx, `UPDATE vods SET title=COALESCE(NULLIF(title,''), $1), date=$2, duration_seconds=CASE WHEN COALESCE(duration_seconds,0)=0 THEN $3 ELSE duration_seconds END, updated_at=NOW() WHERE channel=$4 AND twitch_vod_id=$5`, v.Title, v.Date, v.Duration, channel, v.ID)
 	}
 	return nil
 }
 
 // FetchAllChannelVODs pages through the channel's archive VODs up to maxCount or maxAge.
-func FetchAllChannelVODs(ctx context.Context, db *sql.DB, maxCount int, maxAge time.Duration) ([]VOD, error) {
-	channel := os.Getenv("TWITCH_CHANNEL")
+func FetchAllChannelVODs(ctx context.Context, db *sql.DB, channel string, maxCount int, maxAge time.Duration) ([]VOD, error) {
+	if channel == "" {
+		channel = os.Getenv("TWITCH_CHANNEL")
+	}
 	if channel == "" {
 		return nil, nil
 	}
@@ -44,7 +46,7 @@ func FetchAllChannelVODs(ctx context.Context, db *sql.DB, maxCount int, maxAge t
 	}
 	after := ""
 	if maxAge == 0 {
-		_ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key='catalog_after'`).Scan(&after)
+		_ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE channel=$1 AND key='catalog_after'`, channel).Scan(&after)
 	}
 	collected := []VOD{}
 	for maxCount == 0 || len(collected) < maxCount {
@@ -71,8 +73,8 @@ func FetchAllChannelVODs(ctx context.Context, db *sql.DB, maxCount int, maxAge t
 		}
 		after = cursor
 		if maxAge == 0 {
-			_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('catalog_after',$1,NOW())
-				ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, after)
+			_, _ = db.ExecContext(ctx, `INSERT INTO kv (channel,key,value,updated_at) VALUES ($1,'catalog_after',$2,NOW())
+				ON CONFLICT(channel,key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, channel, after)
 		}
 		select {
 		case <-ctx.Done():
@@ -84,20 +86,20 @@ func FetchAllChannelVODs(ctx context.Context, db *sql.DB, maxCount int, maxAge t
 }
 
 // BackfillCatalog inserts historical VODs without marking processed.
-func BackfillCatalog(ctx context.Context, db *sql.DB, maxCount int, maxAge time.Duration) error {
-	vods, err := FetchAllChannelVODs(ctx, db, maxCount, maxAge)
+func BackfillCatalog(ctx context.Context, db *sql.DB, channel string, maxCount int, maxAge time.Duration) error {
+	vods, err := FetchAllChannelVODs(ctx, db, channel, maxCount, maxAge)
 	if err != nil {
 		return err
 	}
 	for _, v := range vods {
-		_, _ = db.ExecContext(ctx, `INSERT INTO vods (twitch_vod_id, title, date, duration_seconds, created_at) VALUES ($1,$2,$3,$4,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, v.ID, v.Title, v.Date, v.Duration)
+		_, _ = db.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at) VALUES ($1,$2,$3,$4,$5,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, channel, v.ID, v.Title, v.Date, v.Duration)
 	}
-	slog.Info("catalog backfill inserted/ignored", slog.Int("count", len(vods)))
+	slog.Info("catalog backfill inserted/ignored", slog.Int("count", len(vods)), slog.String("channel", channel))
 	return nil
 }
 
 // StartVODCatalogBackfillJob periodically backfills older VODs.
-func StartVODCatalogBackfillJob(ctx context.Context, db *sql.DB) {
+func StartVODCatalogBackfillJob(ctx context.Context, db *sql.DB, channel string) {
 	interval := 6 * time.Hour
 	if v := os.Getenv("VOD_CATALOG_BACKFILL_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {
@@ -116,18 +118,18 @@ func StartVODCatalogBackfillJob(ctx context.Context, db *sql.DB) {
 			maxAge = time.Duration(n) * 24 * time.Hour
 		}
 	}
-	slog.Info("catalog backfill job starting", slog.Duration("interval", interval), slog.Int("max", maxCount), slog.Duration("max_age", maxAge))
+	slog.Info("catalog backfill job starting", slog.Duration("interval", interval), slog.Int("max", maxCount), slog.Duration("max_age", maxAge), slog.String("channel", channel))
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	_ = BackfillCatalog(ctx, db, maxCount, maxAge)
+	_ = BackfillCatalog(ctx, db, channel, maxCount, maxAge)
 	for {
 		select {
 		case <-ctx.Done():
-			slog.Info("catalog backfill job stopped")
+			slog.Info("catalog backfill job stopped", slog.String("channel", channel))
 			return
 		case <-ticker.C:
-			if err := BackfillCatalog(ctx, db, maxCount, maxAge); err != nil {
-				slog.Warn("catalog backfill", slog.Any("err", err))
+			if err := BackfillCatalog(ctx, db, channel, maxCount, maxAge); err != nil {
+				slog.Warn("catalog backfill", slog.Any("err", err), slog.String("channel", channel))
 			}
 		}
 	}

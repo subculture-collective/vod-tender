@@ -148,21 +148,26 @@ func migratePostgres(ctx context.Context, db *sql.DB) error {
 		`ALTER TABLE kv ADD COLUMN IF NOT EXISTS channel TEXT NOT NULL DEFAULT ''`,
 		// Drop old primary key and create new composite key for multi-channel support
 		`DO $$
+		DECLARE
+			current_cols TEXT;
 		BEGIN
-			-- Check if the constraint exists and drop it
-			IF EXISTS (
-				SELECT 1 FROM pg_constraint 
-				WHERE conname = 'kv_pkey' 
-				AND conrelid = 'kv'::regclass
-			) THEN
-				ALTER TABLE kv DROP CONSTRAINT kv_pkey;
-			END IF;
-			-- Add new composite primary key if it doesn't exist
-			IF NOT EXISTS (
-				SELECT 1 FROM pg_constraint 
-				WHERE conname = 'kv_pkey' 
-				AND conrelid = 'kv'::regclass
-			) THEN
+			-- Check if the current primary key is not (channel, key)
+			SELECT string_agg(a.attname, ',') INTO current_cols
+			FROM   pg_index i
+			JOIN   pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+			WHERE  i.indrelid = 'kv'::regclass
+			AND    i.indisprimary;
+
+			IF current_cols IS DISTINCT FROM 'channel,key' THEN
+				-- Drop existing primary key if it exists
+				IF EXISTS (
+					SELECT 1 FROM pg_constraint 
+					WHERE conname = 'kv_pkey' 
+					AND conrelid = 'kv'::regclass
+				) THEN
+					ALTER TABLE kv DROP CONSTRAINT kv_pkey;
+				END IF;
+				-- Add new composite primary key
 				ALTER TABLE kv ADD PRIMARY KEY (channel, key);
 			END IF;
 		END $$`,

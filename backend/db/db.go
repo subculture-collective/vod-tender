@@ -120,23 +120,29 @@ func migratePostgres(ctx context.Context, db *sql.DB) error {
 		)`,
 		`ALTER TABLE oauth_tokens ADD COLUMN IF NOT EXISTS channel TEXT NOT NULL DEFAULT ''`,
 		// Drop old primary key and create new composite key for multi-channel support
-		// This is safe because ALTER TABLE ADD COLUMN IF NOT EXISTS is idempotent
+		// Check if current primary key columns match desired (provider, channel); if not, recreate it
 		`DO $$
+		DECLARE
+			current_cols TEXT;
 		BEGIN
-			-- Check if the constraint exists and drop it
-			IF EXISTS (
-				SELECT 1 FROM pg_constraint 
-				WHERE conname = 'oauth_tokens_pkey' 
-				AND conrelid = 'oauth_tokens'::regclass
-			) THEN
-				ALTER TABLE oauth_tokens DROP CONSTRAINT oauth_tokens_pkey;
-			END IF;
-			-- Add new composite primary key if it doesn't exist
-			IF NOT EXISTS (
-				SELECT 1 FROM pg_constraint 
-				WHERE conname = 'oauth_tokens_pkey' 
-				AND conrelid = 'oauth_tokens'::regclass
-			) THEN
+			-- Get current primary key column composition in key order (not attnum order)
+			SELECT string_agg(a.attname, ',' ORDER BY COALESCE(array_position(i.indkey, a.attnum::smallint), 999)) INTO current_cols
+			FROM   pg_index i
+			JOIN   pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+			WHERE  i.indrelid = 'oauth_tokens'::regclass
+			AND    i.indisprimary;
+
+			-- Only recreate if columns don't match desired composition
+			IF current_cols IS DISTINCT FROM 'provider,channel' THEN
+				-- Drop existing primary key if present
+				IF EXISTS (
+					SELECT 1 FROM pg_constraint 
+					WHERE conname = 'oauth_tokens_pkey' 
+					AND conrelid = 'oauth_tokens'::regclass
+				) THEN
+					ALTER TABLE oauth_tokens DROP CONSTRAINT oauth_tokens_pkey;
+				END IF;
+				-- Add new composite primary key
 				ALTER TABLE oauth_tokens ADD PRIMARY KEY (provider, channel);
 			END IF;
 		END $$`,
@@ -147,19 +153,21 @@ func migratePostgres(ctx context.Context, db *sql.DB) error {
 		)`,
 		`ALTER TABLE kv ADD COLUMN IF NOT EXISTS channel TEXT NOT NULL DEFAULT ''`,
 		// Drop old primary key and create new composite key for multi-channel support
+		// Check if current primary key columns match desired (channel, key); if not, recreate it
 		`DO $$
 		DECLARE
 			current_cols TEXT;
 		BEGIN
-			-- Check if the current primary key is not (channel, key)
-			SELECT string_agg(a.attname, ',') INTO current_cols
+			-- Get current primary key column composition in key order (not attnum order)
+			SELECT string_agg(a.attname, ',' ORDER BY COALESCE(array_position(i.indkey, a.attnum::smallint), 999)) INTO current_cols
 			FROM   pg_index i
 			JOIN   pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
 			WHERE  i.indrelid = 'kv'::regclass
 			AND    i.indisprimary;
 
+			-- Only recreate if columns don't match desired composition
 			IF current_cols IS DISTINCT FROM 'channel,key' THEN
-				-- Drop existing primary key if it exists
+				-- Drop existing primary key if present
 				IF EXISTS (
 					SELECT 1 FROM pg_constraint 
 					WHERE conname = 'kv_pkey' 
@@ -270,10 +278,10 @@ func GetOAuthTokenForChannel(ctx context.Context, dbx *sql.DB, provider, channel
 	var encVersion int
 	var encKeyID sql.NullString
 
-	row := dbx.QueryRowContext(ctx, 
+	row := dbx.QueryRowContext(ctx,
 		`SELECT access_token, refresh_token, expires_at, scope, COALESCE(encryption_version, 0), encryption_key_id 
 		 FROM oauth_tokens WHERE provider = $1 AND channel = $2`, provider, channel)
-	
+
 	err = row.Scan(&access, &refresh, &expiry, &scope, &encVersion, &encKeyID)
 	if err == sql.ErrNoRows {
 		return "", "", time.Time{}, "", nil

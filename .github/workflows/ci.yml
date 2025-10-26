@@ -76,12 +76,10 @@ jobs:
                   go env
 
             - name: Build
-              working-directory: backend
-              run: go build ./...
+              run: make build-backend
 
             - name: Test
-              working-directory: backend
-              run: go test ./... -v
+              run: make test-backend
 
             - name: Test with coverage
               working-directory: backend
@@ -122,11 +120,12 @@ jobs:
                   go install golang.org/x/vuln/cmd/govulncheck@latest
                   $(go env GOPATH)/bin/govulncheck ./...
 
+            - name: Install golangci-lint
+              run: |
+                  curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
+
             - name: Lint
-              uses: golangci/golangci-lint-action@v8
-              with:
-                  version: latest
-                  working-directory: backend
+              run: make lint-backend
 
             - name: Docker build
               run: docker build -t vod-tender .
@@ -155,16 +154,10 @@ jobs:
               run: npx tsc --noEmit
 
             - name: Lint
-              working-directory: frontend
-              run: npm run lint
-
-            - name: Prettier check
-              working-directory: frontend
-              run: npm run format:check
+              run: make lint-frontend
 
             - name: Unit tests
-              working-directory: frontend
-              run: npm run test:coverage
+              run: make test-frontend
 
             - name: Upload coverage to Codecov
               uses: codecov/codecov-action@v4
@@ -183,8 +176,7 @@ jobs:
                   retention-days: 30
 
             - name: Build
-              working-directory: frontend
-              run: npm run build
+              run: make build-frontend
 
             - name: Track bundle size
               working-directory: frontend

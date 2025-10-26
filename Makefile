@@ -1,6 +1,6 @@
 # Minimal Makefile for vod-tender
 
-.PHONY: help up dcu down restart ps logs logs-backend logs-frontend logs-db db-reset k8s-validate helm-validate
+.PHONY: help up dcu down restart ps logs logs-backend logs-frontend logs-db db-reset migrate-install migrate-create migrate-up migrate-down migrate-status migrate-force k8s-validate helm-validate
 
 .DEFAULT_GOAL := help
 
@@ -48,6 +48,52 @@ db-reset: ## Drop and recreate the Postgres database for this stack
 	DB_NAME_CMD=': "$${POSTGRES_DB:?}"; : "$${POSTGRES_USER:?}"; psql -U "$$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS \"$$POSTGRES_DB\" WITH (FORCE);" -c "CREATE DATABASE \"$$POSTGRES_DB\";"'; \
 	( $(DC) exec -T postgres bash -lc "set -e; $$DB_NAME_CMD" ) || ( echo "compose exec failed, trying docker exec on $$POSTGRES_CONTAINER"; docker start $$POSTGRES_CONTAINER >/dev/null 2>&1 || true; docker exec -i $$POSTGRES_CONTAINER bash -lc "set -e; $$DB_NAME_CMD" ); \
 	echo "Database reset completed."
+
+# Database Migrations
+# Install migrate CLI tool for local development
+migrate-install: ## Install golang-migrate CLI tool
+	@echo "Installing golang-migrate CLI..."
+	@go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+	@echo "✓ migrate CLI installed to $$(go env GOPATH)/bin/migrate"
+
+# Get DSN from environment or use default for compose
+MIGRATE_DSN ?= postgres://vod:vod@localhost:5469/vod?sslmode=disable
+MIGRATE_PATH := backend/db/migrations
+
+migrate-create: ## Create new migration (Usage: make migrate-create name=add_something)
+	@if [ -z "$(name)" ]; then \
+		echo "Error: name parameter required. Usage: make migrate-create name=add_something"; \
+		exit 1; \
+	fi
+	@echo "Creating new migration: $(name)"
+	@migrate create -ext sql -dir $(MIGRATE_PATH) -seq $(name)
+	@echo "✓ Migration files created in $(MIGRATE_PATH)"
+
+migrate-up: ## Run all pending migrations
+	@echo "Running pending migrations..."
+	@migrate -path $(MIGRATE_PATH) -database "$(MIGRATE_DSN)" up
+	@echo "✓ Migrations applied"
+
+migrate-down: ## Rollback last migration
+	@echo "Rolling back last migration..."
+	@migrate -path $(MIGRATE_PATH) -database "$(MIGRATE_DSN)" down 1
+	@echo "✓ Migration rolled back"
+
+migrate-status: ## Show current migration version
+	@echo "Current migration status:"
+	@migrate -path $(MIGRATE_PATH) -database "$(MIGRATE_DSN)" version
+
+migrate-force: ## Force set migration version (DANGEROUS - Usage: make migrate-force VERSION=1)
+	@if [ -z "$(VERSION)" ]; then \
+		echo "Error: VERSION parameter required. Usage: make migrate-force VERSION=1"; \
+		exit 1; \
+	fi
+	@echo "WARNING: Force setting migration version to $(VERSION)"
+	@echo "This should only be used to fix a dirty state. Continue? [y/N]"
+	@read -r confirm && [ "$$confirm" = "y" ] || (echo "Aborted" && exit 1)
+	@migrate -path $(MIGRATE_PATH) -database "$(MIGRATE_DSN)" force $(VERSION)
+	@echo "✓ Migration version forced to $(VERSION)"
+
 
 # Development
 lint: ## Run golangci-lint on backend code

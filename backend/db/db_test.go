@@ -131,7 +131,7 @@ func TestGetOAuthToken_NotFound(t *testing.T) {
 		t.Fatal(err)
 	}
 	access, refresh, exp, scope, err := GetOAuthToken(ctx, db, "nonexistent-provider")
-	
+
 	// Should return zero values without error
 	if err != nil {
 		t.Errorf("GetOAuthToken() for nonexistent provider should not error, got %v", err)
@@ -234,4 +234,3 @@ func TestConnect(t *testing.T) {
 		db.Close()
 	}
 }
-

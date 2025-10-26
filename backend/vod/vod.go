@@ -50,8 +50,10 @@ func CancelDownload(id string) bool {
 
 // FetchChannelVODs lists recent archive VODs using Twitch Helix (simple unpaged variant).
 // (Historical / paged listing lives in catalog.go)
-func FetchChannelVODs(ctx context.Context) ([]VOD, error) {
-	channel := os.Getenv("TWITCH_CHANNEL")
+func FetchChannelVODs(ctx context.Context, channel string) ([]VOD, error) {
+	if channel == "" {
+		channel = os.Getenv("TWITCH_CHANNEL")
+	}
 	if channel == config.DefaultChannel {
 		return nil, nil
 	}
@@ -73,13 +75,13 @@ func FetchChannelVODs(ctx context.Context) ([]VOD, error) {
 }
 
 // DiscoverAndUpsert inserts newly discovered VODs (idempotent via INSERT OR IGNORE)
-func DiscoverAndUpsert(ctx context.Context, db *sql.DB) error {
-	vods, err := FetchChannelVODs(ctx)
+func DiscoverAndUpsert(ctx context.Context, db *sql.DB, channel string) error {
+	vods, err := FetchChannelVODs(ctx, channel)
 	if err != nil {
 		return err
 	}
 	for _, v := range vods {
-		_, _ = db.ExecContext(ctx, `INSERT INTO vods (twitch_vod_id, title, date, duration_seconds, created_at) VALUES ($1,$2,$3,$4,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, v.ID, v.Title, v.Date, v.Duration)
+		_, _ = db.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at) VALUES ($1,$2,$3,$4,$5,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, channel, v.ID, v.Title, v.Date, v.Duration)
 	}
 	return nil
 }
@@ -348,7 +350,7 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 // (moved uploadToYouTube implementation to processing.go)
 
 // Circuit breaker helpers
-func updateCircuitOnFailure(ctx context.Context, db *sql.DB) {
+func updateCircuitOnFailure(ctx context.Context, db *sql.DB, channel string) {
 	threshold := 0
 	if s := os.Getenv("CIRCUIT_FAILURE_THRESHOLD"); s != "" {
 		if n, err := strconv.Atoi(s); err == nil {
@@ -359,7 +361,7 @@ func updateCircuitOnFailure(ctx context.Context, db *sql.DB) {
 		return
 	}
 	var fails int
-	row := db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key='circuit_failures'`)
+	row := db.QueryRowContext(ctx, `SELECT value FROM kv WHERE channel=$1 AND key='circuit_failures'`, channel)
 	var val string
 	_ = row.Scan(&val)
 	if val != "" {
@@ -368,8 +370,8 @@ func updateCircuitOnFailure(ctx context.Context, db *sql.DB) {
 		}
 	}
 	fails++
-	_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_failures',$1,NOW())
-		ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, fmt.Sprintf("%d", fails))
+	_, _ = db.ExecContext(ctx, `INSERT INTO kv (channel,key,value,updated_at) VALUES ($1,'circuit_failures',$2,NOW())
+		ON CONFLICT(channel,key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, channel, fmt.Sprintf("%d", fails))
 	if fails >= threshold {
 		// open circuit
 		cool := 5 * time.Minute
@@ -382,25 +384,25 @@ func updateCircuitOnFailure(ctx context.Context, db *sql.DB) {
 		
 		// Check previous state for metrics
 		var prevState string
-		_ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key='circuit_state'`).Scan(&prevState)
+		_ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE channel=$1 AND key='circuit_state'`, channel).Scan(&prevState)
 		if prevState == "" {
 			prevState = "closed"
 		}
 		
-		_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_state','open',NOW())
-			ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`)
-		_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_open_until',$1,NOW())
-			ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, until)
-		slog.Warn("circuit opened", slog.Int("failures", fails), slog.String("until", until))
+		_, _ = db.ExecContext(ctx, `INSERT INTO kv (channel,key,value,updated_at) VALUES ($1,'circuit_state','open',NOW())
+			ON CONFLICT(channel,key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, channel)
+		_, _ = db.ExecContext(ctx, `INSERT INTO kv (channel,key,value,updated_at) VALUES ($1,'circuit_open_until',$2,NOW())
+			ON CONFLICT(channel,key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, channel, until)
+		slog.Warn("circuit opened", slog.Int("failures", fails), slog.String("until", until), slog.String("channel", channel))
 		telemetry.UpdateCircuitGauge(true)
 		telemetry.RecordCircuitStateChange(prevState, "open")
 	}
 }
 
-func resetCircuit(ctx context.Context, db *sql.DB) {
+func resetCircuit(ctx context.Context, db *sql.DB, channel string) {
 	// success path: if half-open or open we close; reset failures
 	var state string
-	_ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key='circuit_state'`).Scan(&state)
+	_ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE channel=$1 AND key='circuit_state'`, channel).Scan(&state)
 	if state == "closed" && os.Getenv("CIRCUIT_FAILURE_THRESHOLD") == "" {
 		return
 	}
@@ -410,10 +412,10 @@ func resetCircuit(ctx context.Context, db *sql.DB) {
 		telemetry.RecordCircuitStateChange(state, "closed")
 	}
 	
-	_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_failures','0',NOW())
-		ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`)
-	_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_state','closed',NOW())
-		ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`)
-	_, _ = db.ExecContext(ctx, `DELETE FROM kv WHERE key IN ('circuit_open_until')`)
+	_, _ = db.ExecContext(ctx, `INSERT INTO kv (channel,key,value,updated_at) VALUES ($1,'circuit_failures','0',NOW())
+		ON CONFLICT(channel,key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, channel)
+	_, _ = db.ExecContext(ctx, `INSERT INTO kv (channel,key,value,updated_at) VALUES ($1,'circuit_state','closed',NOW())
+		ON CONFLICT(channel,key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, channel)
+	_, _ = db.ExecContext(ctx, `DELETE FROM kv WHERE channel=$1 AND key IN ('circuit_open_until')`, channel)
 	telemetry.UpdateCircuitGauge(false)
 }

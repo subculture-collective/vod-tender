@@ -53,8 +53,11 @@ make migrate-force VERSION=2
 # Install
 go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
 
-# Set DSN (adjust port/database as needed)
+# Set DSN
+# For Docker Compose stack (host port 5469 maps to container port 5432):
 export DSN="postgres://vod:vod@localhost:5469/vod?sslmode=disable"
+# For direct connection or different port:
+# export DSN="postgres://vod:vod@localhost:5432/vod?sslmode=disable"
 
 # Create migration
 migrate create -ext sql -dir backend/db/migrations -seq add_something
@@ -161,8 +164,22 @@ The old `db.Migrate()` function is still available as a fallback. New deployment
 Run migration tests:
 ```bash
 # Requires TEST_PG_DSN environment variable
+# Port 5433 avoids conflict with main docker-compose Postgres (5469)
 export TEST_PG_DSN="postgres://vod:vod@localhost:5433/vod_test?sslmode=disable"
+
+# Start test Postgres container
+docker run -d --name test-postgres \
+  -e POSTGRES_USER=vod \
+  -e POSTGRES_PASSWORD=vod \
+  -e POSTGRES_DB=vod_test \
+  -p 5433:5432 \
+  postgres:16
+
+# Run tests
 go test -v ./db -run TestMigration
+
+# Cleanup
+docker stop test-postgres && docker rm test-postgres
 ```
 
 Tests verify:

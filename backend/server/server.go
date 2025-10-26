@@ -378,21 +378,31 @@ func NewMux(db *sql.DB) http.Handler {
 			return
 		}
 		ctx := r.Context()
-		if err := vodpkg.DiscoverAndUpsert(ctx, db); err != nil {
+		// Use channel from query param or default to TWITCH_CHANNEL env
+		channel := r.URL.Query().Get("channel")
+		if channel == "" {
+			channel = os.Getenv("TWITCH_CHANNEL")
+		}
+		if err := vodpkg.DiscoverAndUpsert(ctx, db, channel); err != nil {
 			http.Error(w, err.Error(), 500)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "channel": channel})
 	})
 
-	// Manual catalog backfill: /admin/vod/catalog?max=500&max_age_days=30
+	// Manual catalog backfill: /admin/vod/catalog?max=500&max_age_days=30&channel=mychannel
 	mux.HandleFunc("/admin/vod/catalog", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost && r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		q := r.URL.Query()
+		// Use channel from query param or default to TWITCH_CHANNEL env
+		channel := q.Get("channel")
+		if channel == "" {
+			channel = os.Getenv("TWITCH_CHANNEL")
+		}
 		max := 0
 		if s := q.Get("max"); s != "" {
 			if n, err := strconv.Atoi(s); err == nil && n > 0 {
@@ -405,12 +415,12 @@ func NewMux(db *sql.DB) http.Handler {
 				maxAge = time.Duration(n) * 24 * time.Hour
 			}
 		}
-		if err := vodpkg.BackfillCatalog(r.Context(), db, max, maxAge); err != nil {
+		if err := vodpkg.BackfillCatalog(r.Context(), db, channel, max, maxAge); err != nil {
 			http.Error(w, err.Error(), 500)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "max": max})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "max": max, "channel": channel})
 	})
 
 	// Monitoring summary endpoint

@@ -91,6 +91,7 @@ func migratePostgres(ctx context.Context, db *sql.DB) error {
 			updated_at TIMESTAMPTZ
 		)`,
 		`ALTER TABLE vods ADD COLUMN IF NOT EXISTS description TEXT`,
+		`ALTER TABLE vods ADD COLUMN IF NOT EXISTS channel TEXT NOT NULL DEFAULT ''`,
 		`CREATE TABLE IF NOT EXISTS chat_messages (
 			id SERIAL PRIMARY KEY,
 			vod_id TEXT NOT NULL REFERENCES vods(twitch_vod_id),
@@ -106,6 +107,7 @@ func migratePostgres(ctx context.Context, db *sql.DB) error {
 			reply_to_message TEXT,
 			created_at TIMESTAMPTZ DEFAULT NOW()
 		)`,
+		`ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS channel TEXT NOT NULL DEFAULT ''`,
 		`CREATE TABLE IF NOT EXISTS oauth_tokens (
 			provider TEXT PRIMARY KEY,
 			access_token TEXT,
@@ -116,11 +118,54 @@ func migratePostgres(ctx context.Context, db *sql.DB) error {
 			encryption_version INTEGER DEFAULT 0,
 			encryption_key_id TEXT
 		)`,
+		`ALTER TABLE oauth_tokens ADD COLUMN IF NOT EXISTS channel TEXT NOT NULL DEFAULT ''`,
+		// Drop old primary key and create new composite key for multi-channel support
+		// This is safe because ALTER TABLE ADD COLUMN IF NOT EXISTS is idempotent
+		`DO $$
+		BEGIN
+			-- Check if the constraint exists and drop it
+			IF EXISTS (
+				SELECT 1 FROM pg_constraint 
+				WHERE conname = 'oauth_tokens_pkey' 
+				AND conrelid = 'oauth_tokens'::regclass
+			) THEN
+				ALTER TABLE oauth_tokens DROP CONSTRAINT oauth_tokens_pkey;
+			END IF;
+			-- Add new composite primary key if it doesn't exist
+			IF NOT EXISTS (
+				SELECT 1 FROM pg_constraint 
+				WHERE conname = 'oauth_tokens_pkey' 
+				AND conrelid = 'oauth_tokens'::regclass
+			) THEN
+				ALTER TABLE oauth_tokens ADD PRIMARY KEY (provider, channel);
+			END IF;
+		END $$`,
 		`CREATE TABLE IF NOT EXISTS kv (
 			key TEXT PRIMARY KEY,
 			value TEXT,
 			updated_at TIMESTAMPTZ DEFAULT NOW()
 		)`,
+		`ALTER TABLE kv ADD COLUMN IF NOT EXISTS channel TEXT NOT NULL DEFAULT ''`,
+		// Drop old primary key and create new composite key for multi-channel support
+		`DO $$
+		BEGIN
+			-- Check if the constraint exists and drop it
+			IF EXISTS (
+				SELECT 1 FROM pg_constraint 
+				WHERE conname = 'kv_pkey' 
+				AND conrelid = 'kv'::regclass
+			) THEN
+				ALTER TABLE kv DROP CONSTRAINT kv_pkey;
+			END IF;
+			-- Add new composite primary key if it doesn't exist
+			IF NOT EXISTS (
+				SELECT 1 FROM pg_constraint 
+				WHERE conname = 'kv_pkey' 
+				AND conrelid = 'kv'::regclass
+			) THEN
+				ALTER TABLE kv ADD PRIMARY KEY (channel, key);
+			END IF;
+		END $$`,
 		// The following ALTER TABLE statements are for backward compatibility with pre-encryption schema installations.
 		// They ensure that existing deployments have the new columns added if missing.
 		`ALTER TABLE oauth_tokens ADD COLUMN IF NOT EXISTS encryption_version INTEGER DEFAULT 0`,
@@ -131,6 +176,10 @@ func migratePostgres(ctx context.Context, db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_chat_vod_rel ON chat_messages(vod_id, rel_timestamp)`,
 		`CREATE INDEX IF NOT EXISTS idx_chat_vod_abs ON chat_messages(vod_id, abs_timestamp)`,
 		`CREATE INDEX IF NOT EXISTS idx_vods_proc_pri_date ON vods(processed, priority, date)`,
+		// Multi-channel support indices
+		`CREATE INDEX IF NOT EXISTS idx_vods_channel_date ON vods(channel, date DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_vods_channel_processed ON vods(channel, processed, priority DESC, date ASC)`,
+		`CREATE INDEX IF NOT EXISTS idx_chat_messages_channel_vod ON chat_messages(channel, vod_id)`,
 	}
 	for i, s := range stmts {
 		if _, err := db.ExecContext(ctx, s); err != nil {
@@ -141,9 +190,17 @@ func migratePostgres(ctx context.Context, db *sql.DB) error {
 }
 
 // UpsertOAuthToken stores or updates an OAuth token for a provider (e.g., twitch, youtube).
+// Uses default channel (empty string) for backward compatibility.
 // If encryption is enabled (ENCRYPTION_KEY set), tokens are encrypted before storage.
 // encryption_version=1 indicates encrypted tokens, version=0 indicates plaintext.
 func UpsertOAuthToken(ctx context.Context, dbx *sql.DB, provider, access, refresh string, expiry time.Time, raw string, scope string) error {
+	return UpsertOAuthTokenForChannel(ctx, dbx, provider, "", access, refresh, expiry, raw, scope)
+}
+
+// UpsertOAuthTokenForChannel stores or updates an OAuth token for a provider and channel.
+// If encryption is enabled (ENCRYPTION_KEY set), tokens are encrypted before storage.
+// encryption_version=1 indicates encrypted tokens, version=0 indicates plaintext.
+func UpsertOAuthTokenForChannel(ctx context.Context, dbx *sql.DB, provider, channel, access, refresh string, expiry time.Time, raw string, scope string) error {
 	enc, err := getEncryptor()
 	if err != nil {
 		return fmt.Errorf("get encryptor: %w", err)
@@ -179,9 +236,9 @@ func UpsertOAuthToken(ctx context.Context, dbx *sql.DB, provider, access, refres
 		}
 	}
 
-	q := `INSERT INTO oauth_tokens(provider, access_token, refresh_token, expires_at, scope, encryption_version, encryption_key_id, updated_at)
-		  VALUES($1,$2,$3,$4,$5,$6,$7,NOW())
-		  ON CONFLICT(provider) DO UPDATE SET 
+	q := `INSERT INTO oauth_tokens(provider, channel, access_token, refresh_token, expires_at, scope, encryption_version, encryption_key_id, updated_at)
+		  VALUES($1,$2,$3,$4,$5,$6,$7,$8,NOW())
+		  ON CONFLICT(provider, channel) DO UPDATE SET 
 		    access_token=EXCLUDED.access_token, 
 		    refresh_token=EXCLUDED.refresh_token, 
 		    expires_at=EXCLUDED.expires_at, 
@@ -189,20 +246,28 @@ func UpsertOAuthToken(ctx context.Context, dbx *sql.DB, provider, access, refres
 		    encryption_version=EXCLUDED.encryption_version,
 		    encryption_key_id=EXCLUDED.encryption_key_id,
 		    updated_at=NOW()`
-	_, err = dbx.ExecContext(ctx, q, provider, accessToStore, refreshToStore, expiry, scope, encVersion, encKeyID)
+	_, err = dbx.ExecContext(ctx, q, provider, channel, accessToStore, refreshToStore, expiry, scope, encVersion, encKeyID)
 	return err
 }
 
 // GetOAuthToken retrieves a stored token row; returns zero values if not found.
+// Uses default channel (empty string) for backward compatibility.
 // Automatically decrypts tokens if encryption_version=1 and encryption is configured.
 // Supports backward compatibility: reads plaintext tokens (version=0) without decryption.
 func GetOAuthToken(ctx context.Context, dbx *sql.DB, provider string) (access, refresh string, expiry time.Time, scope string, err error) {
+	return GetOAuthTokenForChannel(ctx, dbx, provider, "")
+}
+
+// GetOAuthTokenForChannel retrieves a stored token row for a specific channel; returns zero values if not found.
+// Automatically decrypts tokens if encryption_version=1 and encryption is configured.
+// Supports backward compatibility: reads plaintext tokens (version=0) without decryption.
+func GetOAuthTokenForChannel(ctx context.Context, dbx *sql.DB, provider, channel string) (access, refresh string, expiry time.Time, scope string, err error) {
 	var encVersion int
 	var encKeyID sql.NullString
 
 	row := dbx.QueryRowContext(ctx, 
 		`SELECT access_token, refresh_token, expires_at, scope, COALESCE(encryption_version, 0), encryption_key_id 
-		 FROM oauth_tokens WHERE provider = $1`, provider)
+		 FROM oauth_tokens WHERE provider = $1 AND channel = $2`, provider, channel)
 	
 	err = row.Scan(&access, &refresh, &expiry, &scope, &encVersion, &encKeyID)
 	if err == sql.ErrNoRows {

@@ -1,0 +1,42 @@
+# Development environment values
+# Use with: helm install vod-tender ./charts/vod-tender -f charts/vod-tender/values-dev.yaml
+
+image:
+  api:
+    pullPolicy: Always
+  frontend:
+    pullPolicy: Always
+
+config:
+  chatAutoStart: "0"
+  backfillAutoclean: "0"
+  backfillUploadDailyLimit: "3"
+
+frontend:
+  replicas: 1
+  autoscaling:
+    enabled: false
+
+postgres:
+  persistence:
+    size: 5Gi
+
+persistence:
+  data:
+    size: 10Gi
+
+ingress:
+  frontend:
+    host: vod-tender-dev.example.com
+  api:
+    host: vod-api-dev.example.com
+  tls:
+    secretName: vod-tender-dev-tls
+
+monitoring:
+  enabled: false
+  serviceMonitor:
+    enabled: false
+
+networkPolicy:
+  enabled: false

@@ -1,0 +1,103 @@
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+  namespace: vod-tender
+  labels:
+    app: vod-tender
+    component: backup
+spec:
+  # Run daily at 2 AM UTC
+  schedule: "0 2 * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: vod-tender
+            component: backup
+        spec:
+          restartPolicy: OnFailure
+          
+          containers:
+          - name: postgres-backup
+            image: postgres:17-alpine
+            imagePullPolicy: IfNotPresent
+            
+            command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "Starting backup at $(date)"
+              
+              # Create backup directory
+              BACKUP_DIR="/backups"
+              BACKUP_FILE="${BACKUP_DIR}/vod_backup_$(date +%Y%m%d_%H%M%S).sql.gz"
+              
+              # Perform backup with compression
+              pg_dump "$DB_DSN" | gzip > "$BACKUP_FILE"
+              
+              echo "Backup completed: $BACKUP_FILE ($(du -h "$BACKUP_FILE" | cut -f1))"
+              
+              # Optional: Upload to S3 (requires AWS CLI)
+              # if command -v aws >/dev/null 2>&1 && [ -n "$AWS_S3_BUCKET" ]; then
+              #   echo "Uploading to S3..."
+              #   aws s3 cp "$BACKUP_FILE" "s3://${AWS_S3_BUCKET}/postgres-backups/$(basename $BACKUP_FILE)"
+              #   echo "Upload completed"
+              # fi
+              
+              # Clean up old backups (keep last 7 days)
+              find "$BACKUP_DIR" -name "vod_backup_*.sql.gz" -mtime +7 -delete
+              
+              echo "Backup process finished at $(date)"
+            
+            env:
+            - name: DB_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: vod-tender-secrets
+                  key: db-dsn
+            
+            # Optional: Uncomment to enable S3 uploads
+            # - name: AWS_S3_BUCKET
+            #   value: "my-backup-bucket"
+            # - name: AWS_REGION
+            #   value: "us-east-1"
+            # - name: AWS_ACCESS_KEY_ID
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: vod-tender-secrets
+            #       key: aws-access-key-id
+            # - name: AWS_SECRET_ACCESS_KEY
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: vod-tender-secrets
+            #       key: aws-secret-access-key
+            
+            volumeMounts:
+            - name: backups
+              mountPath: /backups
+            
+            resources:
+              requests:
+                memory: "128Mi"
+                cpu: "100m"
+              limits:
+                memory: "512Mi"
+                cpu: "500m"
+          
+          volumes:
+          - name: backups
+            persistentVolumeClaim:
+              claimName: postgres-backups
+          
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 70  # postgres user
+            fsGroup: 70

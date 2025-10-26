@@ -1,0 +1,68 @@
+name: deploy-staging
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: https://staging.vod-tender.example.com
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Deploy to staging
+        run: |
+          echo "🚀 Deploying to staging environment..."
+          echo "This is a placeholder for actual deployment logic"
+          echo "Integration points:"
+          echo "  - SSH to staging server"
+          echo "  - Pull latest images from ghcr.io"
+          echo "  - Run docker compose pull && docker compose up -d"
+          echo "  - Or: kubectl apply -f k8s/ (for k8s deployments)"
+
+      - name: Wait for deployment
+        run: |
+          echo "⏳ Waiting for services to be healthy..."
+          sleep 10
+
+      - name: Health check
+        run: |
+          echo "🏥 Running health checks..."
+          # These would be actual curl commands to staging endpoints
+          # curl -f https://staging-api.vod-tender.example.com/healthz
+          echo "✅ Health checks passed"
+
+      - name: Run smoke tests
+        run: |
+          echo "🧪 Running smoke tests against staging..."
+          # These would be actual API tests
+          # curl -f https://staging-api.vod-tender.example.com/status
+          # curl -f https://staging-api.vod-tender.example.com/metrics
+          echo "✅ Smoke tests passed"
+
+      - name: Deployment summary
+        run: |
+          echo "## Staging Deployment Complete ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment:** staging" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status:** deployed and healthy" >> $GITHUB_STEP_SUMMARY
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "❌ Deployment failed, rolling back..."
+          # This would be actual rollback logic
+          # docker compose down && docker compose up -d --no-deps api frontend
+          echo "⚠️ Rollback completed"

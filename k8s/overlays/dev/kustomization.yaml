@@ -1,0 +1,41 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: vod-tender-dev
+
+resources:
+  - ../../base
+
+namePrefix: dev-
+
+labels:
+  - pairs:
+      environment: dev
+
+patches:
+  # Reduce frontend replicas for dev
+  - target:
+      kind: Deployment
+      name: vod-tender-frontend
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+  
+  # Reduce data PVC size for dev
+  - target:
+      kind: PersistentVolumeClaim
+      name: vod-tender-data
+    patch: |-
+      - op: replace
+        path: /spec/resources/requests/storage
+        value: 10Gi
+  
+  # Reduce postgres PVC size for dev
+  - target:
+      kind: StatefulSet
+      name: postgres
+    patch: |-
+      - op: replace
+        path: /spec/volumeClaimTemplates/0/spec/resources/requests/storage
+        value: 5Gi

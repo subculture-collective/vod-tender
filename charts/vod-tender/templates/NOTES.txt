@@ -1,0 +1,124 @@
+Thank you for installing {{ .Chart.Name }}!
+
+Your release is named {{ .Release.Name }}.
+
+To learn more about the release, try:
+
+  $ helm status {{ .Release.Name }} -n {{ .Release.Namespace }}
+  $ helm get all {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+{{- if .Values.ingress.enabled }}
+
+1. Get the application URLs:
+   
+   Frontend: https://{{ .Values.ingress.frontend.host }}
+   API:      https://{{ .Values.ingress.api.host }}
+
+{{- else if contains "NodePort" .Values.frontend.service.type }}
+
+1. Get the application URL by running these commands:
+   
+   export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "vod-tender.fullname" . }}-frontend)
+   export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+   echo http://$NODE_IP:$NODE_PORT
+
+{{- else if contains "LoadBalancer" .Values.frontend.service.type }}
+
+1. Get the application URL by running these commands:
+   
+   NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+         You can watch the status by running 'kubectl get --namespace {{ .Release.Namespace }} svc -w {{ include "vod-tender.fullname" . }}-frontend'
+   
+   export SERVICE_IP=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ include "vod-tender.fullname" . }}-frontend --template "{{"{{ range (index .status.loadBalancer.ingress 0) }}{{.}}{{ end }}"}}")
+   echo http://$SERVICE_IP:{{ .Values.frontend.service.port }}
+
+{{- else if contains "ClusterIP" .Values.frontend.service.type }}
+
+1. Get the application URL by running these commands:
+   
+   kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "vod-tender.fullname" . }}-frontend 8080:80
+   echo "Frontend: http://127.0.0.1:8080"
+   
+   kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "vod-tender.fullname" . }}-api 8081:8080
+   echo "API: http://127.0.0.1:8081"
+
+{{- end }}
+
+2. Check the status of pods:
+   
+   kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/instance={{ .Release.Name }}"
+
+3. View logs:
+   
+   # API logs
+   kubectl logs --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=api" --follow
+   
+   # Frontend logs
+   kubectl logs --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=frontend" --follow
+   
+   {{- if .Values.postgres.enabled }}
+   # Postgres logs
+   kubectl logs --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=postgres" --follow
+   {{- end }}
+
+4. Configuration:
+   
+   {{- if eq .Values.config.twitchChannel "" }}
+   ⚠️  WARNING: TWITCH_CHANNEL is not set. Update ConfigMap:
+   
+   kubectl edit configmap {{ include "vod-tender.fullname" . }}-config -n {{ .Release.Namespace }}
+   {{- end }}
+   
+   {{- if eq .Values.config.twitchBotUsername "" }}
+   ⚠️  WARNING: TWITCH_BOT_USERNAME is not set. Update ConfigMap:
+   
+   kubectl edit configmap {{ include "vod-tender.fullname" . }}-config -n {{ .Release.Namespace }}
+   {{- end }}
+   
+   {{- if and .Values.secrets.create (eq .Values.secrets.twitch.clientId "") }}
+   ⚠️  WARNING: Twitch credentials are not set. Update Secret:
+   
+   kubectl edit secret {{ include "vod-tender.fullname" . }}-secrets -n {{ .Release.Namespace }}
+   {{- end }}
+
+5. Health checks:
+   
+   # Check API health
+   kubectl exec --namespace {{ .Release.Namespace }} -it deployment/{{ include "vod-tender.fullname" . }}-api -- wget -O- http://localhost:8080/healthz
+   
+   {{- if .Values.monitoring.enabled }}
+   # Check metrics
+   kubectl exec --namespace {{ .Release.Namespace }} -it deployment/{{ include "vod-tender.fullname" . }}-api -- wget -O- http://localhost:8080/metrics
+   {{- end }}
+
+{{- if .Values.persistence.data.enabled }}
+
+6. Persistent storage:
+   
+   Data volume: {{ include "vod-tender.fullname" . }}-data ({{ .Values.persistence.data.size }})
+   
+   Check PVC status:
+   kubectl get pvc {{ include "vod-tender.fullname" . }}-data -n {{ .Release.Namespace }}
+{{- end }}
+
+{{- if .Values.frontend.autoscaling.enabled }}
+
+7. Autoscaling:
+   
+   Frontend HPA is enabled ({{ .Values.frontend.autoscaling.minReplicas }}-{{ .Values.frontend.autoscaling.maxReplicas }} replicas)
+   
+   Check HPA status:
+   kubectl get hpa {{ include "vod-tender.fullname" . }}-frontend-hpa -n {{ .Release.Namespace }}
+{{- end }}
+
+{{- if .Values.externalSecrets.enabled }}
+
+8. External Secrets:
+   
+   External Secrets Operator is enabled. Verify ExternalSecret:
+   kubectl get externalsecret {{ include "vod-tender.fullname" . }}-secrets -n {{ .Release.Namespace }}
+{{- end }}
+
+For more information:
+- Documentation: https://github.com/subculture-collective/vod-tender/tree/main/docs
+- Issues: https://github.com/subculture-collective/vod-tender/issues

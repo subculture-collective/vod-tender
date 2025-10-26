@@ -1,0 +1,42 @@
+{{- if .Values.frontend.podDisruptionBudget.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "vod-tender.fullname" . }}-frontend-pdb
+  labels:
+    {{- include "vod-tender.frontend.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.frontend.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "vod-tender.frontend.selectorLabels" . | nindent 6 }}
+{{- end }}
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "vod-tender.fullname" . }}-api-pdb
+  labels:
+    {{- include "vod-tender.api.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: 0  # API uses Recreate strategy
+  selector:
+    matchLabels:
+      {{- include "vod-tender.api.selectorLabels" . | nindent 6 }}
+
+{{- if and .Values.postgres.enabled .Values.postgres.podDisruptionBudget.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "vod-tender.fullname" . }}-postgres-pdb
+  labels:
+    {{- include "vod-tender.postgres.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: {{ .Values.postgres.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "vod-tender.postgres.selectorLabels" . | nindent 6 }}
+{{- end }}

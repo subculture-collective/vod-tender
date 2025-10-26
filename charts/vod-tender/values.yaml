@@ -1,0 +1,396 @@
+# Default values for vod-tender
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Override the chart name
+nameOverride: ""
+# Override the full release name
+fullnameOverride: ""
+
+# Container images configuration
+image:
+  api:
+    repository: ghcr.io/subculture-collective/vod-tender-api
+    tag: latest
+    pullPolicy: IfNotPresent
+  frontend:
+    repository: ghcr.io/subculture-collective/vod-tender-frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+  postgres:
+    repository: postgres
+    tag: "17-alpine"
+    pullPolicy: IfNotPresent
+
+# Image pull secrets for private registries
+imagePullSecrets: []
+
+# Application configuration (maps to environment variables)
+config:
+  # Twitch configuration (required)
+  twitchChannel: ""  # Must be set via values override or --set
+  twitchBotUsername: ""  # Must be set
+  
+  # Feature toggles
+  chatAutoStart: "1"
+  
+  # Processing intervals
+  vodCatalogBackfillInterval: "6h"
+  vodProcessInterval: "1m"
+  processingRetryCooldown: "600"
+  
+  # Download settings
+  downloadMaxAttempts: "5"
+  downloadBackoffBase: "2s"
+  uploadMaxAttempts: "5"
+  uploadBackoffBase: "2s"
+  
+  # Circuit breaker
+  circuitOpenCooldown: "5m"
+  
+  # Storage
+  dataDir: "/data"
+  
+  # Backfill settings
+  backfillAutoclean: "1"
+  retainKeepNewerThanDays: "7"
+  backfillUploadDailyLimit: "10"
+  
+  # Chat auto settings
+  chatAutoPollInterval: "30s"
+  vodReconcileDelay: "1m"
+
+# Secrets configuration
+# IMPORTANT: For production, use External Secrets Operator or other secret management
+secrets:
+  # Set to true to create a Secret resource (not recommended for production)
+  create: true
+  
+  # Name of existing secret to use (if create is false)
+  existingSecret: ""
+  
+  # Twitch OAuth credentials
+  twitch:
+    clientId: ""
+    clientSecret: ""
+    oauthToken: ""
+    redirectUri: ""  # If empty, derived from ingress.api.host
+    scopes: "chat:read chat:edit"
+  
+  # YouTube OAuth credentials
+  youtube:
+    clientId: ""
+    clientSecret: ""
+    redirectUri: ""  # If empty, derived from ingress.api.host
+    scopes: "https://www.googleapis.com/auth/youtube.upload"
+  
+  # Postgres password
+  postgres:
+    password: "vod"  # Change for production!
+
+# API backend configuration
+api:
+  replicas: 1  # Do not increase - single-channel concurrency model
+  
+  strategy:
+    type: Recreate
+  
+  resources:
+    requests:
+      memory: 512Mi
+      cpu: 500m
+    limits:
+      memory: 2Gi
+      cpu: 2000m
+  
+  # Probes configuration
+  readinessProbe:
+    httpGet:
+      path: /healthz
+      port: 8080
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+  
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 8080
+  
+  # Annotations
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+
+# Frontend configuration
+frontend:
+  replicas: 2
+  
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 100m
+    limits:
+      memory: 256Mi
+      cpu: 500m
+  
+  # Autoscaling configuration
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 80
+  
+  # Probes configuration
+  readinessProbe:
+    httpGet:
+      path: /
+      port: 80
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+  
+  livenessProbe:
+    httpGet:
+      path: /
+      port: 80
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 101  # nginx
+    fsGroup: 101
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 80
+  
+  # PodDisruptionBudget
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+# Postgres configuration
+postgres:
+  enabled: true  # Set to false to use external database
+  
+  replicas: 1
+  
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 250m
+    limits:
+      memory: 1Gi
+      cpu: 1000m
+  
+  # Persistence configuration
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClass: ""  # Use default StorageClass
+    accessMode: ReadWriteOnce
+  
+  # Database configuration
+  database: vod
+  username: vod
+  
+  # Probes configuration
+  readinessProbe:
+    exec:
+      command:
+      - pg_isready
+      - -U
+      - vod
+      - -d
+      - vod
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+  
+  livenessProbe:
+    exec:
+      command:
+      - pg_isready
+      - -U
+      - vod
+      - -d
+      - vod
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 70  # postgres
+    fsGroup: 70
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 5432
+  
+  # PodDisruptionBudget
+  podDisruptionBudget:
+    enabled: true
+    maxUnavailable: 0
+  
+  # Automated backup configuration
+  backup:
+    enabled: false  # Set to true to enable automated backups
+    schedule: "0 2 * * *"  # Daily at 2 AM UTC
+    retentionDays: 7  # Keep backups for 7 days
+    successfulJobsHistoryLimit: 3
+    failedJobsHistoryLimit: 3
+    backoffLimit: 2
+    
+    # Backup storage
+    persistence:
+      size: 10Gi
+      storageClass: ""  # Use default StorageClass
+    
+    # S3 upload configuration (optional)
+    s3:
+      enabled: false
+      bucket: ""  # S3 bucket name
+      region: us-east-1
+    
+    # Resource limits for backup job
+    resources:
+      requests:
+        memory: 128Mi
+        cpu: 100m
+      limits:
+        memory: 512Mi
+        cpu: 500m
+
+# Persistent storage for VOD data
+persistence:
+  data:
+    enabled: true
+    size: 100Gi  # Adjust based on VOD retention policy
+    storageClass: ""  # Use default StorageClass
+    accessMode: ReadWriteOnce
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: nginx
+  
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+  
+  # Frontend host
+  frontend:
+    host: vod-tender.example.com
+    path: /
+    pathType: Prefix
+  
+  # API host
+  api:
+    host: vod-api.example.com
+    path: /
+    pathType: Prefix
+  
+  # TLS configuration
+  tls:
+    enabled: true
+    secretName: vod-tender-tls
+
+# Network policies
+networkPolicy:
+  enabled: true
+
+# Monitoring configuration
+monitoring:
+  enabled: true
+  
+  # Prometheus ServiceMonitor
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    scrapeTimeout: 10s
+  
+  # Grafana dashboard
+  grafana:
+    enabled: true  # Deploy Grafana dashboard ConfigMap
+
+# External Secrets Operator integration
+externalSecrets:
+  enabled: false
+  
+  # Refresh interval
+  refreshInterval: 1h
+  
+  # Secret store reference
+  secretStoreRef:
+    name: aws-secrets-manager
+    kind: ClusterSecretStore
+  
+  # Data mapping (customize for your secret store)
+  data:
+    - secretKey: twitch-client-id
+      remoteRef:
+        key: vod-tender/twitch
+        property: client_id
+    - secretKey: twitch-client-secret
+      remoteRef:
+        key: vod-tender/twitch
+        property: client_secret
+    - secretKey: twitch-oauth-token
+      remoteRef:
+        key: vod-tender/twitch
+        property: oauth_token
+    - secretKey: yt-client-id
+      remoteRef:
+        key: vod-tender/youtube
+        property: client_id
+    - secretKey: yt-client-secret
+      remoteRef:
+        key: vod-tender/youtube
+        property: client_secret
+    - secretKey: postgres-password
+      remoteRef:
+        key: vod-tender/postgres
+        property: password
+
+# Additional labels to add to all resources
+labels: {}
+
+# Additional annotations to add to all resources
+annotations: {}

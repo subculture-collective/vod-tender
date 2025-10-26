@@ -1,6 +1,6 @@
 # Minimal Makefile for vod-tender
 
-.PHONY: help up dcu down restart ps logs logs-backend logs-frontend logs-db db-reset
+.PHONY: help up dcu down restart ps logs logs-backend logs-frontend logs-db db-reset k8s-validate helm-validate
 
 .DEFAULT_GOAL := help
 
@@ -36,9 +36,6 @@ logs-backend: ## Follow backend logs
 logs-frontend: ## Follow frontend logs
 	$(DC) logs -f --tail=200 frontend
 
-logs-frontend: ## Follow frontend logs
-	$(DC) logs -f --tail=200 frontend
-
 logs-db: ## Follow Postgres logs
 	$(DC) logs -f --tail=200 postgres
 
@@ -51,3 +48,29 @@ db-reset: ## Drop and recreate the Postgres database for this stack
 	DB_NAME_CMD=': "$${POSTGRES_DB:?}"; : "$${POSTGRES_USER:?}"; psql -U "$$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS \"$$POSTGRES_DB\" WITH (FORCE);" -c "CREATE DATABASE \"$$POSTGRES_DB\";"'; \
 	( $(DC) exec -T postgres bash -lc "set -e; $$DB_NAME_CMD" ) || ( echo "compose exec failed, trying docker exec on $$POSTGRES_CONTAINER"; docker start $$POSTGRES_CONTAINER >/dev/null 2>&1 || true; docker exec -i $$POSTGRES_CONTAINER bash -lc "set -e; $$DB_NAME_CMD" ); \
 	echo "Database reset completed."
+
+# Development
+lint: ## Run golangci-lint on backend code
+	@echo "Running golangci-lint..."
+	@cd backend && golangci-lint run --timeout=5m
+
+lint-fix: ## Run golangci-lint with auto-fix on backend code
+	@echo "Running golangci-lint with --fix..."
+	@cd backend && golangci-lint run --timeout=5m --fix
+
+# Kubernetes and Helm
+k8s-validate: ## Validate Kubernetes manifests with kustomize
+	@echo "Validating Kubernetes manifests..."
+	@kubectl kustomize k8s/base > /dev/null && echo "✓ Base manifests valid"
+	@kubectl kustomize k8s/overlays/dev > /dev/null && echo "✓ Dev overlay valid"
+	@kubectl kustomize k8s/overlays/staging > /dev/null && echo "✓ Staging overlay valid"
+	@kubectl kustomize k8s/overlays/production > /dev/null && echo "✓ Production overlay valid"
+
+helm-validate: ## Validate Helm chart
+	@echo "Validating Helm chart..."
+	@helm lint charts/vod-tender && echo "✓ Chart linting passed"
+	@helm template vod-tender charts/vod-tender > /dev/null && echo "✓ Chart rendering passed"
+
+helm-docs: ## Generate Helm chart documentation
+	@echo "Generating Helm documentation..."
+	@cd charts/vod-tender && helm-docs || echo "helm-docs not installed, skipping"

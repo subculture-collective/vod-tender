@@ -12,6 +12,8 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"strings"
@@ -39,9 +41,12 @@ func main() {
 	// Configure logging (level + format). Defaults: level=info, format=text.
 	lvl := slog.LevelInfo
 	switch strings.ToLower(os.Getenv("LOG_LEVEL")) {
-	case "debug": lvl = slog.LevelDebug
-	case "warn": lvl = slog.LevelWarn
-	case "error": lvl = slog.LevelError
+	case "debug":
+		lvl = slog.LevelDebug
+	case "warn":
+		lvl = slog.LevelWarn
+	case "error":
+		lvl = slog.LevelError
 	case "info", "":
 		// keep default
 	default:
@@ -58,16 +63,25 @@ func main() {
 		handler = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: lvl})
 	}
 	slog.SetDefault(slog.New(handler))
-	slog.Info("logger initialized", slog.String("level", lvl.String()), slog.String("format", map[bool]string{true: "json", false: "text"}[format=="json"]))
+	slog.Info("logger initialized", slog.String("level", lvl.String()), slog.String("format", map[bool]string{true: "json", false: "text"}[format == "json"]))
 
 	// Config
 	cfg, err := config.Load()
-	// Metrics / telemetry init
-	telemetry.Init()
 	if err != nil {
 		slog.Error("config load failed", slog.Any("err", err))
 		os.Exit(1)
 	}
+	
+	// Metrics / telemetry init
+	telemetry.Init()
+	
+	// Initialize OpenTelemetry tracing (optional; requires OTEL_EXPORTER_OTLP_ENDPOINT)
+	shutdown, err := telemetry.InitTracing("vod-tender", "1.0.0")
+	if err != nil {
+		slog.Error("tracing initialization failed", slog.Any("err", err))
+		os.Exit(1)
+	}
+	defer shutdown()
 
 	// Best-effort: fetch a Twitch app access token (client-credentials) if client id/secret provided.
 	// This token is used for Helix API calls (discovery, auto-chat polling). It is NOT used for IRC chat.
@@ -88,8 +102,15 @@ func main() {
 		slog.Error("failed to open db", slog.Any("err", err))
 		os.Exit(1)
 	}
-	defer database.Close()
-	if err := db.Migrate(database); err != nil {
+	defer func() {
+		if err := database.Close(); err != nil {
+			slog.Error("failed to close database", slog.Any("err", err))
+		}
+	}()
+	
+	// Create a context for migration
+	migrationCtx := context.Background()
+	if err := db.Migrate(migrationCtx, database); err != nil {
 		slog.Error("failed to migrate db", slog.Any("err", err))
 		os.Exit(1)
 	}
@@ -113,18 +134,38 @@ func main() {
 	// Centralized OAuth token refreshers
 	oauth.StartRefresher(ctx, database, "twitch", 5*time.Minute, 15*time.Minute, func(rctx context.Context, refreshToken string) (string, string, time.Time, string, error) {
 		res, err := twitchapi.RefreshToken(rctx, cfg.TwitchClientID, cfg.TwitchClientSecret, refreshToken)
-		if err != nil { return "", "", time.Time{}, "", err }
+		if err != nil {
+			return "", "", time.Time{}, "", err
+		}
 		return res.AccessToken, res.RefreshToken, twitchapi.ComputeExpiry(res.ExpiresIn), strings.Join(res.Scope, " "), nil
 	})
 	oauth.StartRefresher(ctx, database, "youtube", 10*time.Minute, 20*time.Minute, func(rctx context.Context, refreshToken string) (string, string, time.Time, string, error) {
 		cfg2, _ := config.Load()
 		ts := &oauth2.Token{RefreshToken: refreshToken}
-		if cfg2.YTClientID == "" { return "", "", time.Time{}, "", context.Canceled }
+		if cfg2.YTClientID == "" {
+			return "", "", time.Time{}, "", context.Canceled
+		}
 		oc := &oauth2.Config{ClientID: cfg2.YTClientID, ClientSecret: cfg2.YTClientSecret, Endpoint: google.Endpoint, RedirectURL: cfg2.YTRedirectURI}
 		newTok, err := oc.TokenSource(rctx, ts).Token()
-		if err != nil { return "", "", time.Time{}, "", err }
+		if err != nil {
+			return "", "", time.Time{}, "", err
+		}
 		return newTok.AccessToken, newTok.RefreshToken, newTok.Expiry, "", nil
 	})
+
+	// Enable pprof profiling endpoints in debug mode (ENABLE_PPROF=1)
+	if os.Getenv("ENABLE_PPROF") == "1" {
+		pprofAddr := os.Getenv("PPROF_ADDR")
+		if pprofAddr == "" {
+			pprofAddr = "localhost:6060"
+		}
+		go func() {
+			slog.Info("pprof profiling enabled", slog.String("addr", pprofAddr))
+			if err := http.ListenAndServe(pprofAddr, nil); err != nil {
+				slog.Error("pprof server error", slog.Any("err", err))
+			}
+		}()
+	}
 
 	// HTTP server (health/status/metrics)
 	// Allow config override via kv (cfg:HTTP_ADDR) if set through the admin API
@@ -142,4 +183,3 @@ func main() {
 	<-ctx.Done()
 	slog.Info("shutting down")
 }
-

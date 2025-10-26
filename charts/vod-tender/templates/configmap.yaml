@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vod-tender.fullname" . }}-config
+  labels:
+    {{- include "vod-tender.labels" . | nindent 4 }}
+data:
+  TWITCH_CHANNEL: {{ .Values.config.twitchChannel | quote }}
+  TWITCH_BOT_USERNAME: {{ .Values.config.twitchBotUsername | quote }}
+  CHAT_AUTO_START: {{ .Values.config.chatAutoStart | quote }}
+  VOD_CATALOG_BACKFILL_INTERVAL: {{ .Values.config.vodCatalogBackfillInterval | quote }}
+  VOD_PROCESS_INTERVAL: {{ .Values.config.vodProcessInterval | quote }}
+  PROCESSING_RETRY_COOLDOWN: {{ .Values.config.processingRetryCooldown | quote }}
+  DOWNLOAD_MAX_ATTEMPTS: {{ .Values.config.downloadMaxAttempts | quote }}
+  DOWNLOAD_BACKOFF_BASE: {{ .Values.config.downloadBackoffBase | quote }}
+  UPLOAD_MAX_ATTEMPTS: {{ .Values.config.uploadMaxAttempts | quote }}
+  UPLOAD_BACKOFF_BASE: {{ .Values.config.uploadBackoffBase | quote }}
+  CIRCUIT_OPEN_COOLDOWN: {{ .Values.config.circuitOpenCooldown | quote }}
+  DATA_DIR: {{ .Values.config.dataDir | quote }}
+  BACKFILL_AUTOCLEAN: {{ .Values.config.backfillAutoclean | quote }}
+  RETAIN_KEEP_NEWER_THAN_DAYS: {{ .Values.config.retainKeepNewerThanDays | quote }}
+  BACKFILL_UPLOAD_DAILY_LIMIT: {{ .Values.config.backfillUploadDailyLimit | quote }}
+  CHAT_AUTO_POLL_INTERVAL: {{ .Values.config.chatAutoPollInterval | quote }}
+  VOD_RECONCILE_DELAY: {{ .Values.config.vodReconcileDelay | quote }}

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/onnwee/vod-tender/backend/config"
 	"github.com/onnwee/vod-tender/backend/twitchapi"
 )
 
@@ -26,7 +27,7 @@ func BackfillMetadata(ctx context.Context, db *sql.DB) error {
 // FetchAllChannelVODs pages through the channel's archive VODs up to maxCount or maxAge.
 func FetchAllChannelVODs(ctx context.Context, db *sql.DB, maxCount int, maxAge time.Duration) ([]VOD, error) {
 	channel := os.Getenv("TWITCH_CHANNEL")
-	if channel == "" {
+	if channel == config.DefaultChannel {
 		return nil, nil
 	}
 	client := helixClient()

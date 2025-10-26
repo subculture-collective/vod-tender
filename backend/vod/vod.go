@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/onnwee/vod-tender/backend/config"
 	"github.com/onnwee/vod-tender/backend/telemetry"
 	"github.com/onnwee/vod-tender/backend/twitchapi"
 )
@@ -51,7 +52,7 @@ func CancelDownload(id string) bool {
 // (Historical / paged listing lives in catalog.go)
 func FetchChannelVODs(ctx context.Context) ([]VOD, error) {
 	channel := os.Getenv("TWITCH_CHANNEL")
-	if channel == "" {
+	if channel == config.DefaultChannel {
 		return nil, nil
 	}
 	hc := &twitchapi.HelixClient{AppTokenSource: &twitchapi.TokenSource{ClientID: os.Getenv("TWITCH_CLIENT_ID"), ClientSecret: os.Getenv("TWITCH_CLIENT_SECRET")}, ClientID: os.Getenv("TWITCH_CLIENT_ID")}

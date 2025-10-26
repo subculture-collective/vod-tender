@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/onnwee/vod-tender/backend/config"
 	"github.com/onnwee/vod-tender/backend/twitchapi"
 	vodpkg "github.com/onnwee/vod-tender/backend/vod"
 )
@@ -23,7 +24,7 @@ import (
 //	TWITCH_CHANNEL, TWITCH_BOT_USERNAME, TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET required (plus stored oauth token)
 func StartAutoChatRecorder(ctx context.Context, db *sql.DB) {
 	channel := os.Getenv("TWITCH_CHANNEL")
-	if channel == "" {
+	if channel == config.DefaultChannel {
 		slog.Info("auto chat: TWITCH_CHANNEL empty; abort")
 		return
 	}

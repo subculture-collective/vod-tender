@@ -1,6 +1,6 @@
 # Minimal Makefile for vod-tender
 
-.PHONY: help up dcu down restart ps logs logs-backend logs-frontend logs-db db-reset migrate-install migrate-create migrate-up migrate-down migrate-status migrate-force k8s-validate helm-validate
+.PHONY: help lint lint-backend lint-frontend lint-fix lint-fix-backend lint-fix-frontend test test-backend test-frontend build build-backend build-frontend up dcu down restart ps logs logs-backend logs-frontend logs-db db-reset migrate-install migrate-create migrate-up migrate-down migrate-status migrate-force k8s-validate helm-validate
 
 .DEFAULT_GOAL := help
 
@@ -39,6 +39,47 @@ logs-frontend: ## Follow frontend logs
 logs-db: ## Follow Postgres logs
 	$(DC) logs -f --tail=200 postgres
 
+
+# Development - Unified targets for backend and frontend
+lint: lint-backend lint-frontend ## Run all linters (backend + frontend)
+
+lint-backend: ## Run golangci-lint on backend code
+	@echo "Running backend linter..."
+	@cd backend && golangci-lint run --timeout=5m
+
+lint-frontend: ## Run ESLint and Prettier check on frontend code
+	@echo "Running frontend linters..."
+	@cd frontend && npm run lint && npm run format:check
+
+lint-fix: lint-fix-backend lint-fix-frontend ## Auto-fix linter issues (backend + frontend)
+
+lint-fix-backend: ## Run golangci-lint with auto-fix on backend code
+	@echo "Running golangci-lint with --fix..."
+	@cd backend && golangci-lint run --timeout=5m --fix
+
+lint-fix-frontend: ## Auto-fix frontend linter issues
+	@echo "Auto-fixing frontend linter issues..."
+	@cd frontend && npm run lint:fix && npm run format
+
+test: test-backend test-frontend ## Run all tests (backend + frontend)
+
+test-backend: ## Run backend Go tests
+	@echo "Running backend tests..."
+	@cd backend && go test ./... -v
+
+test-frontend: ## Run frontend tests with coverage
+	@echo "Running frontend tests..."
+	@cd frontend && npm run test:coverage
+
+build: build-backend build-frontend ## Build all components (backend + frontend)
+
+build-backend: ## Build backend Go binary
+	@echo "Building backend..."
+	@cd backend && go build -o vod-tender .
+
+build-frontend: ## Build frontend production bundle
+	@echo "Building frontend..."
+	@cd frontend && npm run build
 
 # Database
 # Tries docker compose exec first; if unavailable, falls back to docker exec on ${STACK_NAME:-vod}-postgres
@@ -94,15 +135,6 @@ migrate-force: ## Force set migration version (DANGEROUS - Usage: make migrate-f
 	@migrate -path $(MIGRATE_PATH) -database "$(MIGRATE_DSN)" force $(VERSION)
 	@echo "✓ Migration version forced to $(VERSION)"
 
-
-# Development
-lint: ## Run golangci-lint on backend code
-	@echo "Running golangci-lint..."
-	@cd backend && golangci-lint run --timeout=5m
-
-lint-fix: ## Run golangci-lint with auto-fix on backend code
-	@echo "Running golangci-lint with --fix..."
-	@cd backend && golangci-lint run --timeout=5m --fix
 
 # Kubernetes and Helm
 k8s-validate: ## Validate Kubernetes manifests with kustomize

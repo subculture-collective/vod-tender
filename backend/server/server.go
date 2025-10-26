@@ -173,8 +173,8 @@ func NewMux(db *sql.DB) http.Handler {
 	// Readiness (can handle traffic)
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
 		checks := []struct {
-			fn   func() error
 			name string
+			fn   func() error
 		}{
 			{"database", func() error { return db.PingContext(r.Context()) }},
 			{"circuit_breaker", func() error {
@@ -205,8 +205,9 @@ func NewMux(db *sql.DB) http.Handler {
 
 		for _, check := range checks {
 			if err := check.fn(); err != nil {
-				w.WriteHeader(http.StatusServiceUnavailable)
+				// Set headers before writing status code
 				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
 				_ = json.NewEncoder(w).Encode(map[string]string{
 					"status":       "not_ready",
 					"failed_check": check.name,

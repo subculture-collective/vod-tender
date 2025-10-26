@@ -13,7 +13,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
-	_ "net/http/pprof"
+	_ "net/http/pprof" //nolint:gosec // G108: pprof endpoints enabled only when ENABLE_PPROF=1
 	"os"
 	"os/signal"
 	"strings"
@@ -161,7 +161,16 @@ func main() {
 		}
 		go func() {
 			slog.Info("pprof profiling enabled", slog.String("addr", pprofAddr))
-			if err := http.ListenAndServe(pprofAddr, nil); err != nil {
+			// Use an http.Server with timeouts to satisfy G114 and avoid DoS risks
+			srv := &http.Server{
+				Addr:              pprofAddr,
+				Handler:           nil, // default mux exposes /debug/pprof
+				ReadHeaderTimeout: 5 * time.Second,
+				ReadTimeout:       10 * time.Second,
+				WriteTimeout:      10 * time.Second,
+				IdleTimeout:       60 * time.Second,
+			}
+			if err := srv.ListenAndServe(); err != nil {
 				slog.Error("pprof server error", slog.Any("err", err))
 			}
 		}()

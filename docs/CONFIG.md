@@ -192,6 +192,97 @@ Database backups contain encrypted tokens (when encryption enabled), but encrypt
 | --------- | ------- | ---------------------------------------- |
 | HTTP_ADDR | `:8080` | Listen address for API/health endpoints. |
 
+### Admin Authentication & Security
+
+| Variable                    | Default | Required?                    | Description                                                                                                             |
+| --------------------------- | ------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| ADMIN_USERNAME              | (unset) | Recommended for production   | Username for Basic Auth on admin endpoints (e.g., `/admin/*`). Must be set with `ADMIN_PASSWORD`.                       |
+| ADMIN_PASSWORD              | (unset) | Recommended for production   | Password for Basic Auth on admin endpoints. Must be set with `ADMIN_USERNAME`.                                          |
+| ADMIN_TOKEN                 | (unset) | Recommended for production   | Token for header-based auth on admin endpoints (via `X-Admin-Token` header). Can be used instead of or alongside Basic Auth. |
+| RATE_LIMIT_ENABLED          | `1`     | No                           | Enable rate limiting on admin and sensitive endpoints. Set to `0` to disable (not recommended for production).          |
+| RATE_LIMIT_REQUESTS_PER_IP  | `10`    | No                           | Maximum requests per IP per time window for rate-limited endpoints.                                                     |
+| RATE_LIMIT_WINDOW_SECONDS   | `60`    | No                           | Time window in seconds for rate limiting.                                                                               |
+
+**Security Notice**: When `ADMIN_USERNAME`/`ADMIN_PASSWORD` or `ADMIN_TOKEN` are not set, admin endpoints are **UNPROTECTED**. This is acceptable for local development but **not recommended for production**.
+
+#### Admin Authentication Methods
+
+1. **Basic Auth**: Set both `ADMIN_USERNAME` and `ADMIN_PASSWORD`. Clients must provide credentials via HTTP Basic Authentication.
+
+   ```bash
+   ADMIN_USERNAME=admin
+   ADMIN_PASSWORD=$(openssl rand -base64 24)  # Generate secure password
+   ```
+
+   Example request:
+   ```bash
+   curl -u admin:secret123 https://vod-api.example.com/admin/vod/scan
+   ```
+
+2. **Token-Based Auth**: Set `ADMIN_TOKEN`. Clients must provide token via `X-Admin-Token` header.
+
+   ```bash
+   ADMIN_TOKEN=$(openssl rand -hex 32)  # Generate secure token
+   ```
+
+   Example request:
+   ```bash
+   curl -H "X-Admin-Token: abc123xyz" https://vod-api.example.com/admin/vod/scan
+   ```
+
+3. **Both**: You can configure both methods. Token auth takes precedence when both credentials are provided.
+
+#### Protected Endpoints
+
+The following endpoints require authentication when admin auth is configured:
+
+- `/admin/*` - All admin endpoints (catalog, monitoring, manual triggers)
+- `/vods/*/cancel` - VOD download cancellation
+- `/vods/*/reprocess` - VOD reprocessing trigger
+
+#### Rate Limiting
+
+Rate limiting is **enabled by default** for the following endpoints:
+
+- All `/admin/*` endpoints
+- `/vods/*/cancel`
+- `/vods/*/reprocess`
+
+Default limits: **10 requests per IP per 60 seconds**
+
+When rate limit is exceeded, the API returns:
+- HTTP Status: `429 Too Many Requests`
+- Header: `Retry-After: 60` (seconds)
+
+**Recommendation**: Keep rate limiting enabled in production. Disable only for testing/debugging.
+
+### CORS (Cross-Origin Resource Sharing)
+
+| Variable                | Default           | Description                                                                                                      |
+| ----------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------- |
+| ENV                     | `dev`             | Environment mode: `dev`/`development` (permissive CORS) or `production`/`prod` (restricted CORS).                |
+| CORS_PERMISSIVE         | (auto from ENV)   | Explicit CORS mode override: `1` or `true` for permissive (allow all origins), `0` or `false` for restricted.   |
+| CORS_ALLOWED_ORIGINS    | (empty)           | Comma-separated list of allowed origins for production mode (e.g., `https://vod.example.com,https://app.example.com`). Supports wildcards (e.g., `*.example.com`). |
+
+**CORS Behavior**:
+
+- **Development Mode** (default): Permissive CORS with `Access-Control-Allow-Origin: *`. Accepts requests from any origin.
+- **Production Mode**: Restricted CORS. Only requests from origins listed in `CORS_ALLOWED_ORIGINS` are allowed.
+
+**Production Example**:
+
+```bash
+ENV=production
+CORS_ALLOWED_ORIGINS=https://vod.example.com,https://vod-admin.example.com,*.apps.example.com
+```
+
+**Wildcard Support**:
+
+- `*.example.com` matches `https://app.example.com`, `https://api.example.com`, etc.
+- Wildcards also match the parent domain (e.g., `https://example.com`)
+
+**Security Best Practice**: Always set `ENV=production` and configure `CORS_ALLOWED_ORIGINS` for production deployments.
+
 ### Miscellaneous / Logging
 
 | Variable   | Default | Description                                                         |

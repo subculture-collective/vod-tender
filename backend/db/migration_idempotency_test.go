@@ -38,7 +38,7 @@ func TestMigrateIdempotency(t *testing.T) {
 	verifyOAuthTokensPK := func(t *testing.T) {
 		var keyColumns string
 		err := db.QueryRowContext(ctx, `
-			SELECT string_agg(a.attname, ',' ORDER BY array_position(i.indkey, a.attnum::smallint))
+			SELECT string_agg(a.attname, ',' ORDER BY COALESCE(array_position(i.indkey, a.attnum::smallint), 999))
 			FROM   pg_index i
 			JOIN   pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
 			WHERE  i.indrelid = 'oauth_tokens'::regclass
@@ -56,7 +56,7 @@ func TestMigrateIdempotency(t *testing.T) {
 	verifyKvPK := func(t *testing.T) {
 		var keyColumns string
 		err := db.QueryRowContext(ctx, `
-			SELECT string_agg(a.attname, ',' ORDER BY array_position(i.indkey, a.attnum::smallint))
+			SELECT string_agg(a.attname, ',' ORDER BY COALESCE(array_position(i.indkey, a.attnum::smallint), 999))
 			FROM   pg_index i
 			JOIN   pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
 			WHERE  i.indrelid = 'kv'::regclass
@@ -210,7 +210,7 @@ func TestMigrateFromOldSchema(t *testing.T) {
 	// Verify oauth_tokens has new primary key and channel column
 	var keyColumns string
 	err = db.QueryRowContext(ctx, `
-		SELECT string_agg(a.attname, ',' ORDER BY array_position(i.indkey, a.attnum::smallint))
+		SELECT string_agg(a.attname, ',' ORDER BY COALESCE(array_position(i.indkey, a.attnum::smallint), 999))
 		FROM   pg_index i
 		JOIN   pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
 		WHERE  i.indrelid = 'oauth_tokens'::regclass
@@ -238,7 +238,7 @@ func TestMigrateFromOldSchema(t *testing.T) {
 
 	// Verify kv has new primary key
 	err = db.QueryRowContext(ctx, `
-		SELECT string_agg(a.attname, ',' ORDER BY array_position(i.indkey, a.attnum::smallint))
+		SELECT string_agg(a.attname, ',' ORDER BY COALESCE(array_position(i.indkey, a.attnum::smallint), 999))
 		FROM   pg_index i
 		JOIN   pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
 		WHERE  i.indrelid = 'kv'::regclass
@@ -271,7 +271,7 @@ func TestMigrateFromOldSchema(t *testing.T) {
 
 	// Verify constraints are still correct
 	err = db.QueryRowContext(ctx, `
-		SELECT string_agg(a.attname, ',' ORDER BY array_position(i.indkey, a.attnum::smallint))
+		SELECT string_agg(a.attname, ',' ORDER BY COALESCE(array_position(i.indkey, a.attnum::smallint), 999))
 		FROM   pg_index i
 		JOIN   pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
 		WHERE  i.indrelid = 'oauth_tokens'::regclass

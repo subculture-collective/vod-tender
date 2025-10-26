@@ -144,3 +144,4 @@ secrets/
 # Go test coverage
 *.out
 coverage.out
+backend

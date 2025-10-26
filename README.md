@@ -1,5 +1,9 @@
 # vod-tender
 
+[![CI](https://github.com/subculture-collective/vod-tender/actions/workflows/ci.yml/badge.svg)](https://github.com/subculture-collective/vod-tender/actions/workflows/ci.yml)
+[![Quality Gates](https://github.com/subculture-collective/vod-tender/actions/workflows/quality-gates.yml/badge.svg)](https://github.com/subculture-collective/vod-tender/actions/workflows/quality-gates.yml)
+[![Release](https://github.com/subculture-collective/vod-tender/actions/workflows/release.yml/badge.svg)](https://github.com/subculture-collective/vod-tender/actions/workflows/release.yml)
+
 Small Go service that discovers Twitch VODs for a channel, downloads them with yt-dlp, records live chat tied to VODs, and optionally uploads to YouTube. It ships with a minimal API and a small frontend for browsing VODs and chat replay.
 
 ## Quick start
@@ -18,6 +22,40 @@ make docker-build
 docker run --env-file backend/.env --rm vod-tender
 ```
 
+## Development
+
+### Linting
+
+This project uses [golangci-lint](https://golangci-lint.run/) for static analysis of Go code.
+
+Install golangci-lint:
+
+```bash
+# macOS
+brew install golangci-lint
+
+# Linux
+curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
+
+# Windows
+# See https://golangci-lint.run/welcome/install/
+```
+
+Run lint locally:
+
+```bash
+make lint          # Check for issues
+make lint-fix      # Auto-fix issues where possible
+```
+
+Format code before committing:
+
+```bash
+cd backend && gofmt -w .
+```
+
+The linter configuration is in `.golangci.yml` and is tuned for CI with appropriate timeouts. Several linters are currently disabled as part of the baseline to achieve a clean build. These can be gradually enabled as issues are addressed.
+
 ### Docker Compose (server)
 
 Project ships a `docker-compose.yml` with:
@@ -26,6 +64,7 @@ Project ships a `docker-compose.yml` with:
 - API (Go backend with yt-dlp + ffmpeg)
 - Frontend (Vite build served by nginx)
 - Backup service (daily pg_dump to a backup volume)
+- Jaeger (distributed tracing UI and collector)
 
 Basic ops:
 
@@ -41,7 +80,34 @@ docker compose ps
 
 # Tail logs
 docker logs -f vod-api
+
+# Access Jaeger UI (tracing)
+open http://localhost:16686
 ```
+
+## Observability
+
+vod-tender includes production-ready observability features:
+
+- **Distributed Tracing** (OpenTelemetry + Jaeger) - Trace VOD processing pipelines end-to-end
+- **Enhanced Metrics** (Prometheus) - 20+ metrics including step-level durations, chat, OAuth, API calls
+- **Alert Rules** (Prometheus Alertmanager) - 8 production alerts for critical failure scenarios
+- **Grafana Dashboard** - 10-panel dashboard with queue depth, circuit breaker, performance metrics
+- **Performance Profiling** (pprof) - CPU, memory, and goroutine profiling
+- **Health Endpoints** - `/healthz` (liveness) and `/readyz` (readiness with detailed checks)
+
+See [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) for complete documentation including:
+- Setup instructions and configuration
+- Metrics reference with descriptions
+- Alert rules and thresholds
+- Dashboard usage guide
+- Profiling procedures
+- Troubleshooting guides
+
+**Quick links:**
+- Jaeger UI: `http://localhost:16686` (traces)
+- Prometheus metrics: `http://localhost:8080/metrics`
+- Readiness check: `http://localhost:8080/readyz`
 
 ## Configuration
 
@@ -66,6 +132,8 @@ Full configuration reference and operational guidance:
 - Architecture: `docs/ARCHITECTURE.md`
 - Configuration: `docs/CONFIG.md`
 - Operations / Runbook: `docs/OPERATIONS.md`
+- CI/CD Pipeline: `docs/CICD.md`
+- CI/CD Quick Reference: `docs/CICD-QUICK-REFERENCE.md`
 
 ## End-to-end overview
 
@@ -197,6 +265,7 @@ Simple CORS is enabled for dev (Access-Control-Allow-Origin: \*). For production
 
 - OAuth tokens are stored in plaintext in Postgres for convenience. For production, consider encrypting at rest or using a dedicated secret store.
 - Avoid enabling `YTDLP_VERBOSE=1` when passing cookies; secrets may leak in verbose output.
+- Container images are automatically scanned for vulnerabilities using Trivy in CI. Builds fail on CRITICAL/HIGH severity issues. Scan reports are available as CI artifacts.
 
 
 # feature ideas

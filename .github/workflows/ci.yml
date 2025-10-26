@@ -11,20 +11,64 @@ concurrency:
     cancel-in-progress: true
 
 jobs:
-    build-test-lint:
+    backend:
+    gitleaks:
         runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            actions: read
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@v5
+              with:
+                  fetch-depth: 0
+
+            - name: Run Gitleaks
+              uses: gitleaks/gitleaks-action@v2
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GITLEAKS_ENABLE_SUMMARY: true
+              # Fails on any secret findings. Use .gitleaks.toml for baseline suppressions.
+
+    govulncheck:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v5
+
+            - name: Setup Go
+              uses: actions/setup-go@v6
+              with:
+                  go-version: "1.24.x"
+                  cache: true
+
+            - name: Install govulncheck
+              run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+            - name: Run govulncheck
+              working-directory: backend
+              run: govulncheck ./...
+              # Fails on any known vulnerabilities affecting this code. Go vuln DB is curated for exploitable vulns.
+
+    build-test-lint:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v5
 
             - name: Install system deps (sqlite3 for cgo)
               run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
 
             - name: Setup Go
-              uses: actions/setup-go@v5
+              uses: actions/setup-go@v6
               with:
-                  go-version: '1.22.x'
+                  go-version: "1.24.x"
                   cache: true
+                  cache-dependency-path: backend/go.sum
 
             - name: Go env
               run: |
@@ -39,11 +83,454 @@ jobs:
               working-directory: backend
               run: go test ./... -v
 
+            - name: Test with coverage
+              working-directory: backend
+              run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+
+            - name: Upload coverage to Codecov
+              uses: codecov/codecov-action@v5
+              with:
+                  files: ./backend/coverage.out
+                  fail_ci_if_error: false
+                  token: ${{ secrets.CODECOV_TOKEN }}
+
+            - name: Check coverage threshold
+              working-directory: backend
+              run: |
+                  COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+                  echo "Total coverage: ${COVERAGE}%"
+
+                  # Note: Coverage threshold is currently relaxed to 50% to allow gradual improvement
+                  # Target is 70% as per project standards
+                  THRESHOLD=50
+
+                  if (( $(echo "$COVERAGE < $THRESHOLD" | bc -l) )); then
+                      echo "❌ Coverage ${COVERAGE}% is below ${THRESHOLD}% threshold"
+                      echo "Target coverage is 70%, current threshold is ${THRESHOLD}%"
+                      exit 1
+                  else
+                      echo "✅ Coverage ${COVERAGE}% meets ${THRESHOLD}% threshold"
+                  fi
+
+            - name: Vet
+              working-directory: backend
+              run: go vet ./...
+
+            - name: govulncheck
+              working-directory: backend
+              run: |
+                  go install golang.org/x/vuln/cmd/govulncheck@latest
+                  $(go env GOPATH)/bin/govulncheck ./...
+
             - name: Lint
-              uses: golangci/golangci-lint-action@v6
+              uses: golangci/golangci-lint-action@v8
               with:
                   version: latest
                   working-directory: backend
 
             - name: Docker build
               run: docker build -t vod-tender .
+
+    frontend:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v5
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v6
+              with:
+                  node-version: "20"
+                  cache: "npm"
+                  cache-dependency-path: |
+                      frontend/package-lock.json
+                      frontend/package.json
+
+            - name: Install dependencies
+              working-directory: frontend
+              run: npm ci
+
+            - name: TypeScript type checking
+              working-directory: frontend
+              run: npx tsc --noEmit
+
+            - name: Lint
+              working-directory: frontend
+              run: npm run lint
+
+            - name: Prettier check
+              working-directory: frontend
+              run: npm run format:check
+
+            - name: Unit tests
+              working-directory: frontend
+              run: npm run test:coverage
+
+            - name: Upload coverage to Codecov
+              uses: codecov/codecov-action@v4
+              with:
+                  files: ./frontend/coverage/lcov.info
+                  flags: frontend
+                  token: ${{ secrets.CODECOV_TOKEN }}
+                  fail_ci_if_error: false
+
+            - name: Upload coverage artifacts
+              uses: actions/upload-artifact@v4
+              if: always()
+              with:
+                  name: frontend-coverage
+                  path: frontend/coverage/
+                  retention-days: 30
+
+            - name: Build
+              working-directory: frontend
+              run: npm run build
+
+            - name: Track bundle size
+              working-directory: frontend
+              run: |
+                  if [ -d dist ]; then
+                    echo "### Bundle Size Report" >> $GITHUB_STEP_SUMMARY
+                    echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+                    du -sh dist >> $GITHUB_STEP_SUMMARY
+                    find dist -type f \( -name "*.js" -o -name "*.css" \) -print0 | xargs -0 ls -lh >> $GITHUB_STEP_SUMMARY
+                    echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+                  fi
+
+    frontend-e2e:
+        runs-on: ubuntu-latest
+        needs: [frontend]
+        services:
+            postgres:
+                image: postgres:16
+                env:
+                    POSTGRES_DB: vod_test
+                    POSTGRES_USER: vod_test
+                    POSTGRES_PASSWORD: vod_test
+                options: >-
+                    --health-cmd pg_isready
+                    --health-interval 10s
+                    --health-timeout 5s
+                    --health-retries 5
+                ports:
+                    - 5432:5432
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v6
+              with:
+                  node-version: "20"
+                  cache: "npm"
+                  cache-dependency-path: |
+                      frontend/package-lock.json
+                      frontend/package.json
+
+            - name: Setup Go
+              uses: actions/setup-go@v6
+              with:
+                  go-version: "1.24.x"
+                  cache: true
+                  cache-dependency-path: backend/go.sum
+
+            - name: Install frontend dependencies
+              working-directory: frontend
+              run: npm ci
+
+            - name: Install Playwright browsers
+              working-directory: frontend
+              run: npx playwright install --with-deps chromium
+
+            - name: Build backend
+              working-directory: backend
+              run: go build -o vod-tender ./cmd/vod-tender
+
+            - name: Start backend server
+              working-directory: backend
+              env:
+                  DB_DSN: postgres://vod_test:vod_test@localhost:5432/vod_test?sslmode=disable
+                  HTTP_ADDR: ":8080"
+                  LOG_LEVEL: info
+              run: |
+                  ./vod-tender &
+                  echo $! > backend.pid
+                  sleep 5
+
+            - name: Wait for backend to be ready
+              run: |
+                  timeout 30 bash -c 'until curl -f http://localhost:8080/healthz; do sleep 1; done'
+
+            - name: Run E2E tests
+              working-directory: frontend
+              env:
+                  PLAYWRIGHT_BASE_URL: http://localhost:3000
+                  VITE_API_BASE_URL: http://localhost:8080
+              run: npx playwright test --project=chromium
+
+            - name: Upload Playwright report
+              uses: actions/upload-artifact@v4
+              if: always()
+              with:
+                  name: playwright-report
+                  path: frontend/playwright-report/
+                  retention-days: 30
+
+            - name: Upload Playwright test results
+              uses: actions/upload-artifact@v4
+              if: always()
+              with:
+                  name: playwright-test-results
+                  path: frontend/test-results/
+                  retention-days: 30
+
+            - name: Stop backend server
+              if: always()
+              run: |
+                  if [ -f backend/backend.pid ]; then
+                    kill $(cat backend/backend.pid) || true
+                  fi
+
+    docker-images:
+        runs-on: ubuntu-latest
+        needs: [build-test-lint, frontend, frontend-e2e]
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v5
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v3
+
+            - name: Build backend Docker image
+              uses: docker/build-push-action@v6
+              with:
+                  context: ./backend
+                  platforms: linux/amd64
+                  push: false
+                  tags: vod-tender-backend:${{ github.sha }}
+                  cache-from: type=gha
+                  cache-to: type=gha,mode=max
+                  load: true
+
+            - name: Build frontend Docker image
+              uses: docker/build-push-action@v6
+              with:
+                  context: ./frontend
+                  platforms: linux/amd64
+                  push: false
+                  tags: vod-tender-frontend:${{ github.sha }}
+                  cache-from: type=gha
+                  cache-to: type=gha,mode=max
+                  load: true
+
+            - name: Run Trivy vulnerability scanner on backend
+              uses: aquasecurity/trivy-action@0.33.1
+              with:
+                  image-ref: "vod-tender-backend:${{ github.sha }}"
+                  format: "sarif"
+                  output: "trivy-backend-results.sarif"
+                  severity: "CRITICAL,HIGH"
+                  exit-code: "1"
+
+            - name: Upload backend Trivy results to GitHub Security
+              uses: github/codeql-action/upload-sarif@v4
+              if: always()
+              with:
+                  sarif_file: "trivy-backend-results.sarif"
+                  category: "trivy-backend"
+
+            - name: Run Trivy vulnerability scanner on backend (JSON report)
+              uses: aquasecurity/trivy-action@0.33.1
+              if: always()
+              with:
+                  image-ref: "vod-tender-backend:${{ github.sha }}"
+                  format: "json"
+                  output: "trivy-backend-results.json"
+                  severity: "CRITICAL,HIGH,MEDIUM,LOW"
+
+            - name: Run Trivy vulnerability scanner on frontend
+              uses: aquasecurity/trivy-action@0.33.1
+              with:
+                  image-ref: "vod-tender-frontend:${{ github.sha }}"
+                  format: "sarif"
+                  output: "trivy-frontend-results.sarif"
+                  severity: "CRITICAL,HIGH"
+                  exit-code: "1"
+
+            - name: Upload frontend Trivy results to GitHub Security
+              uses: github/codeql-action/upload-sarif@v4
+              if: always()
+              with:
+                  sarif_file: "trivy-frontend-results.sarif"
+                  category: "trivy-frontend"
+
+            - name: Run Trivy vulnerability scanner on frontend (JSON report)
+              uses: aquasecurity/trivy-action@0.33.1
+              if: always()
+              with:
+                  image-ref: "vod-tender-frontend:${{ github.sha }}"
+                  format: "json"
+                  output: "trivy-frontend-results.json"
+                  severity: "CRITICAL,HIGH,MEDIUM,LOW"
+
+            - name: Upload Trivy scan reports
+              uses: actions/upload-artifact@v4
+              if: always()
+              with:
+                  name: trivy-reports
+                  path: |
+                      trivy-backend-results.json
+                      trivy-backend-results.sarif
+                      trivy-frontend-results.json
+                      trivy-frontend-results.sarif
+                  retention-days: 30
+
+    multi-arch-builds:
+        runs-on: ubuntu-latest
+        needs: [build-test-lint, frontend]
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v3
+
+            - name: Build backend multi-arch (verification only)
+              uses: docker/build-push-action@v5
+              with:
+                  context: ./backend
+                  platforms: linux/amd64,linux/arm64
+                  push: false
+                  tags: vod-tender-backend-multiarch:${{ github.sha }}
+                  cache-from: type=gha
+                  cache-to: type=gha,mode=max
+
+            - name: Build frontend multi-arch (verification only)
+              uses: docker/build-push-action@v5
+              with:
+                  context: ./frontend
+                  platforms: linux/amd64,linux/arm64
+                  push: false
+                  tags: vod-tender-frontend-multiarch:${{ github.sha }}
+                  cache-from: type=gha
+                  cache-to: type=gha,mode=max
+
+    database-migration-tests:
+        runs-on: ubuntu-latest
+        services:
+            postgres:
+                image: postgres:16
+                env:
+                    POSTGRES_DB: vod_test
+                    POSTGRES_USER: vod_test
+                    POSTGRES_PASSWORD: vod_test
+                options: >-
+                    --health-cmd pg_isready
+                    --health-interval 10s
+                    --health-timeout 5s
+                    --health-retries 5
+                ports:
+                    - 5432:5432
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v5
+
+            - name: Setup Go
+              uses: actions/setup-go@v6
+              with:
+                  go-version: "1.24.x"
+                  cache: true
+                  cache-dependency-path: backend/go.sum
+
+            - name: Run migration tests
+              working-directory: backend
+              env:
+                  TEST_PG_DSN: postgres://vod_test:vod_test@localhost:5432/vod_test?sslmode=disable
+              run: go test ./db -v
+
+            - name: Verify schema integrity
+              run: |
+                  PGPASSWORD=vod_test psql -h localhost -U vod_test -d vod_test -c "\dt" || true
+
+    integration-tests:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v5
+
+            - name: Create docker network
+              run: docker network create web || true
+
+            - name: Create test environment file
+              run: |
+                  cat > .env << EOF
+                  STACK_NAME=ci-test
+                  WEB_NETWORK=web
+                  TWITCH_CHANNEL=test-channel
+                  API_PORT=8080
+                  FRONTEND_PORT=8081
+                  DB_NAME=vod
+                  DB_USER=vod
+                  DB_PASSWORD=vod
+                  DB_HOST=postgres
+                  BACKEND_ENV_FILE=./backend/.env.example
+                  SECRETS_DIR=./secrets
+                  YTDLP_COOKIES_PATH=/run/cookies/twitch-cookies.txt
+                  EOF
+
+            - name: Create backend env file
+              run: |
+                  mkdir -p backend
+                  cat > backend/.env << EOF
+                  LOG_LEVEL=info
+                  LOG_FORMAT=text
+                  HTTP_ADDR=:8080
+                  EOF
+
+            - name: Create secrets directory
+              run: mkdir -p secrets
+
+            - name: Start stack
+              run: docker compose up -d --build
+              timeout-minutes: 10
+
+            - name: Wait for postgres to be healthy
+              run: |
+                  echo "Waiting for postgres to be healthy..."
+                  timeout 90 bash -c 'until docker compose ps postgres | grep -q "healthy"; do sleep 2; done'
+
+            - name: Wait for API to be healthy
+              run: |
+                  echo "Waiting for API to be healthy..."
+                  timeout 120 bash -c 'until docker compose ps api | grep -q "healthy"; do sleep 2; done'
+
+            - name: Wait for frontend to be healthy
+              run: |
+                  echo "Waiting for frontend to be healthy..."
+                  timeout 120 bash -c 'until docker compose ps frontend | grep -q "healthy"; do sleep 2; done'
+
+            - name: Show running services
+              run: docker compose ps
+
+            - name: Run smoke tests
+              run: |
+                  # Test API endpoints
+                  echo "Testing API health endpoint..."
+                  curl -f http://localhost:8080/healthz || exit 1
+
+                  echo "Testing API status endpoint..."
+                  curl -f http://localhost:8080/status || exit 1
+
+                  echo "Testing API metrics endpoint..."
+                  curl -f http://localhost:8080/metrics || exit 1
+
+                  echo "Testing frontend..."
+                  wget -q -O - http://localhost:8081/ > /dev/null || exit 1
+
+            - name: Show service logs on failure
+              if: failure()
+              run: docker compose logs
+
+            - name: Cleanup
+              if: always()
+              run: docker compose down -v

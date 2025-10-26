@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: vod-tender
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secret.yaml
+  - pvc.yaml
+  - postgres-statefulset.yaml
+  - api-deployment.yaml
+  - frontend-deployment.yaml
+  - services.yaml
+  - ingress.yaml
+  - networkpolicy.yaml
+  # Optional: Uncomment to enable automated backups
+  # - backup-pvc.yaml
+  # - backup-cronjob.yaml
+  # Optional: Uncomment to enable Grafana dashboard
+  # - grafana-dashboard.yaml
+  # Optional: Use External Secrets Operator instead of secret.yaml
+  # See external-secret.yaml.example for configuration
+  # - external-secret.yaml

@@ -1,0 +1,140 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vod-tender-api-policy
+  namespace: vod-tender
+  labels:
+    app: vod-tender
+spec:
+  podSelector:
+    matchLabels:
+      app: vod-tender
+      component: api
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow from frontend
+  - from:
+    - podSelector:
+        matchLabels:
+          app: vod-tender
+          component: frontend
+    ports:
+    - protocol: TCP
+      port: 8080
+  # Allow from ingress controller
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  # Allow to Postgres
+  - to:
+    - podSelector:
+        matchLabels:
+          app: vod-tender
+          component: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+  # Allow DNS
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+  # Allow external HTTPS (Twitch API, YouTube API)
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 80
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vod-tender-frontend-policy
+  namespace: vod-tender
+  labels:
+    app: vod-tender
+spec:
+  podSelector:
+    matchLabels:
+      app: vod-tender
+      component: frontend
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow from ingress controller
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 80
+  egress:
+  # Allow to API
+  - to:
+    - podSelector:
+        matchLabels:
+          app: vod-tender
+          component: api
+    ports:
+    - protocol: TCP
+      port: 8080
+  # Allow DNS
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-policy
+  namespace: vod-tender
+  labels:
+    app: vod-tender
+spec:
+  podSelector:
+    matchLabels:
+      app: vod-tender
+      component: postgres
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow from API only
+  - from:
+    - podSelector:
+        matchLabels:
+          app: vod-tender
+          component: api
+    ports:
+    - protocol: TCP
+      port: 5432
+  egress:
+  # Allow DNS
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53

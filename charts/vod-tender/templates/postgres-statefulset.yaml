@@ -1,0 +1,79 @@
+{{- if .Values.postgres.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "vod-tender.fullname" . }}-postgres
+  labels:
+    {{- include "vod-tender.postgres.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "vod-tender.fullname" . }}-postgres
+  replicas: {{ .Values.postgres.replicas }}
+  selector:
+    matchLabels:
+      {{- include "vod-tender.postgres.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "vod-tender.postgres.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.postgres.securityContext | nindent 8 }}
+      
+      containers:
+      - name: postgres
+        image: "{{ .Values.image.postgres.repository }}:{{ .Values.image.postgres.tag }}"
+        imagePullPolicy: {{ .Values.image.postgres.pullPolicy }}
+        ports:
+        - name: postgres
+          containerPort: 5432
+          protocol: TCP
+        
+        env:
+        - name: POSTGRES_USER
+          value: {{ .Values.postgres.username | quote }}
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "vod-tender.secretName" . }}
+              key: postgres-password
+        - name: POSTGRES_DB
+          value: {{ .Values.postgres.database | quote }}
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        
+        {{- if .Values.postgres.persistence.enabled }}
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+        {{- end }}
+        
+        resources:
+          {{- toYaml .Values.postgres.resources | nindent 10 }}
+        
+        readinessProbe:
+          {{- toYaml .Values.postgres.readinessProbe | nindent 10 }}
+        
+        livenessProbe:
+          {{- toYaml .Values.postgres.livenessProbe | nindent 10 }}
+  
+  {{- if .Values.postgres.persistence.enabled }}
+  volumeClaimTemplates:
+  - metadata:
+      name: postgres-data
+      labels:
+        {{- include "vod-tender.postgres.labels" . | nindent 8 }}
+    spec:
+      accessModes:
+      - {{ .Values.postgres.persistence.accessMode }}
+      {{- if .Values.postgres.persistence.storageClass }}
+      storageClassName: {{ .Values.postgres.persistence.storageClass }}
+      {{- end }}
+      resources:
+        requests:
+          storage: {{ .Values.postgres.persistence.size }}
+  {{- end }}
+{{- end }}

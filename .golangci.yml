@@ -1,10 +1,44 @@
-version: '1'
+version: '2'
 run:
-    timeout: 3m
+    timeout: 5m
+    go: '1.22'
+
 linters:
     enable:
-        - govet
-        - gosimple
-        - ineffassign
-        - staticcheck
-        - unused
+        # Default linters
+        - govet             # Vet examines Go source code and reports suspicious constructs
+        - ineffassign       # Detects when assignments to existing variables are not used
+        
+        # Additional useful linters  
+        - bodyclose         # Checks whether HTTP response body is closed successfully
+        - errname           # Checks that sentinel errors are prefixed with Err
+        - errorlint         # Find code that can cause problems with error wrapping
+        - misspell          # Finds commonly misspelled English words in comments
+        
+        # Previously disabled - now enabled and fixed
+        - errcheck          # Check for unchecked errors
+        - staticcheck       # Static analysis checks
+        - unused            # Check for unused code
+        - contextcheck      # Check for non-inherited contexts
+        - noctx             # Check for DB calls without context
+        - unparam           # Check for unused function parameters
+        - gosec             # Security checks
+
+linters-settings:
+    govet:
+        enable-all: true
+    gosec:
+        excludes-generated: true
+
+issues:
+    # Maximum issues count per one linter. Set to 0 to disable.
+    max-issues-per-linter: 0
+    
+    # Maximum count of issues with the same text. Set to 0 to disable.
+    max-same-issues: 0
+    
+    exclude-rules:
+        # Exclude gosec from test files
+        - path: _test\.go
+          linters:
+              - gosec

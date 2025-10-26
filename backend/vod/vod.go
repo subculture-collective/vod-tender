@@ -3,7 +3,6 @@
 package vod
 
 import (
-	"bufio"
 	"context"
 	"database/sql"
 	"fmt"
@@ -38,8 +37,13 @@ var (
 )
 
 func CancelDownload(id string) bool {
-	activeMu.Lock(); defer activeMu.Unlock()
-	if c, ok := activeCancels[id]; ok { c(); delete(activeCancels, id); return true }
+	activeMu.Lock()
+	defer activeMu.Unlock()
+	if c, ok := activeCancels[id]; ok {
+		c()
+		delete(activeCancels, id)
+		return true
+	}
 	return false
 }
 
@@ -47,12 +51,18 @@ func CancelDownload(id string) bool {
 // (Historical / paged listing lives in catalog.go)
 func FetchChannelVODs(ctx context.Context) ([]VOD, error) {
 	channel := os.Getenv("TWITCH_CHANNEL")
-	if channel == "" { return nil, nil }
+	if channel == "" {
+		return nil, nil
+	}
 	hc := &twitchapi.HelixClient{AppTokenSource: &twitchapi.TokenSource{ClientID: os.Getenv("TWITCH_CLIENT_ID"), ClientSecret: os.Getenv("TWITCH_CLIENT_SECRET")}, ClientID: os.Getenv("TWITCH_CLIENT_ID")}
 	uid, err := hc.GetUserID(ctx, channel)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	videos, _, err := hc.ListVideos(ctx, uid, "", 20)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	out := make([]VOD, 0, len(videos))
 	for _, v := range videos {
 		created, _ := time.Parse(time.RFC3339, v.CreatedAt)
@@ -64,12 +74,15 @@ func FetchChannelVODs(ctx context.Context) ([]VOD, error) {
 // DiscoverAndUpsert inserts newly discovered VODs (idempotent via INSERT OR IGNORE)
 func DiscoverAndUpsert(ctx context.Context, db *sql.DB) error {
 	vods, err := FetchChannelVODs(ctx)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	for _, v := range vods {
-		_, _ = db.Exec(`INSERT INTO vods (twitch_vod_id, title, date, duration_seconds, created_at) VALUES ($1,$2,$3,$4,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, v.ID, v.Title, v.Date, v.Duration)
+		_, _ = db.ExecContext(ctx, `INSERT INTO vods (twitch_vod_id, title, date, duration_seconds, created_at) VALUES ($1,$2,$3,$4,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, v.ID, v.Title, v.Date, v.Duration)
 	}
 	return nil
 }
+
 // (historical catalog logic moved to catalog.go)
 
 // (catalog backfill + duration parsing moved to catalog.go)
@@ -83,7 +96,9 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 	out := filepath.Join(dataDir, fmt.Sprintf("twitch_%s.mp4", id))
 	url := "https://www.twitch.tv/videos/" + id
 	logger := slog.Default().With(slog.String("vod_id", id), slog.String("component", "vod_download"))
-	if corr := ctx.Value(struct{ string }{"corr"}); corr != nil { logger = logger.With(slog.Any("corr", corr)) }
+	if corr := ctx.Value(struct{ string }{"corr"}); corr != nil {
+		logger = logger.With(slog.Any("corr", corr))
+	}
 	logger.Info("download start", slog.String("out", out))
 	telemetry.DownloadsStarted.Inc()
 
@@ -98,12 +113,12 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 
 	// yt-dlp flags tuned for resilient HLS; let yt-dlp auto-pick best formats (avoid deprecated -f best warning)
 	args := []string{
-		"--continue",                      // resume partial downloads
-		"--retries", "infinite",          // retry network errors
+		"--continue",            // resume partial downloads
+		"--retries", "infinite", // retry network errors
 		"--fragment-retries", "infinite", // retry fragment errors (HLS)
-		"--concurrent-fragments", "10",   // speed up HLS by parallel fragments
-		"--no-cache-dir",                  // avoid writing caches to disk
-		"-o", out,                         // output path
+		"--concurrent-fragments", "10", // speed up HLS by parallel fragments
+		"--no-cache-dir", // avoid writing caches to disk
+		"-o", out,        // output path
 		url,
 	}
 
@@ -120,9 +135,14 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 	}
 	if cf != "" {
 		// Create a private temp copy
+		//nolint:gosec // G304: Path is from environment variable TWITCH_COOKIES_FILE, operator-controlled
 		f, err := os.Open(cf)
 		if err == nil {
-			defer f.Close()
+			defer func() {
+				if err := f.Close(); err != nil {
+					slog.Warn("failed to close cookies file", slog.Any("err", err))
+				}
+			}()
 			tf, terr := os.CreateTemp("", fmt.Sprintf("yt_cookies_%s_*.txt", id))
 			if terr == nil {
 				tmpCookiesPath = tf.Name()
@@ -135,8 +155,8 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 			// Fallback to using source path directly
 			tmpCookiesPath = cf
 		}
-	logger.Debug("using cookies file for yt-dlp", slog.String("cookies_path", cf))
-	args = append([]string{"--cookies", tmpCookiesPath}, args...)
+		logger.Debug("using cookies file for yt-dlp", slog.String("cookies_path", cf))
+		args = append([]string{"--cookies", tmpCookiesPath}, args...)
 		hasSecrets = true
 	}
 	if extra := os.Getenv("YTDLP_ARGS"); strings.TrimSpace(extra) != "" {
@@ -155,14 +175,23 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 
 	// Retry loop with exponential backoff + jitter and configurable attempts
 	maxAttempts := 5
-	if s := os.Getenv("DOWNLOAD_MAX_ATTEMPTS"); s != "" { if n, err := strconv.Atoi(s); err == nil && n > 0 { maxAttempts = n } }
+	if s := os.Getenv("DOWNLOAD_MAX_ATTEMPTS"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			maxAttempts = n
+		}
+	}
 	baseBackoff := 2 * time.Second
-	if s := os.Getenv("DOWNLOAD_BACKOFF_BASE"); s != "" { if d, err := time.ParseDuration(s); err == nil && d > 0 { baseBackoff = d } }
+	if s := os.Getenv("DOWNLOAD_BACKOFF_BASE"); s != "" {
+		if d, err := time.ParseDuration(s); err == nil && d > 0 {
+			baseBackoff = d
+		}
+	}
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		logger.Debug("download attempt", slog.Int("attempt", attempt+1), slog.Int("max", maxAttempts))
 		if attempt > 0 {
 			backoff := baseBackoff * time.Duration(1<<attempt)
+			//nolint:gosec // G404: math/rand is sufficient for exponential backoff jitter, not used for security
 			jitter := time.Duration(rand.Int63n(int64(baseBackoff))) // up to baseBackoff extra
 			backoff += jitter
 			logger.Warn("retrying download", slog.Int("attempt", attempt), slog.Duration("backoff", backoff))
@@ -171,11 +200,20 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 			delete(activeCancels, id)
 			activeMu.Unlock()
 		}
+		//nolint:gosec // G204: ytDLP command path is from environment variable or hardcoded constant, args are controlled
 		cmd := exec.CommandContext(ctx, ytDLP, args...)
 		stderr, errPipe := cmd.StderrPipe()
-		if errPipe != nil { lastErr = errPipe; break }
-		if err := cmd.Start(); err != nil { lastErr = err; break }
-		activeMu.Lock(); activeCancels[id] = func(){ _ = cmd.Process.Kill() }; activeMu.Unlock()
+		if errPipe != nil {
+			lastErr = errPipe
+			break
+		}
+		if err := cmd.Start(); err != nil {
+			lastErr = err
+			break
+		}
+		activeMu.Lock()
+		activeCancels[id] = func() { _ = cmd.Process.Kill() }
+		activeMu.Unlock()
 		progressRe := regexp.MustCompile(`(?i)\[download\]\s+([0-9.]+)%.*?of\s+~?([0-9.]+)([KMG]iB).*?at\s+([0-9.]+)([KMG]iB)/s.*?ETA\s+([0-9:]+)`) // best-effort
 		totalBytes := int64(0)
 		var lastPercent float64
@@ -184,14 +222,21 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 			// Convert to bytes
 			f := 0.0
 			for _, c := range val {
-				if c == '.' { continue }
+				if c == '.' {
+					continue
+				}
 			}
-			fmt.Sscanf(val, "%f", &f)
+			if _, err := fmt.Sscanf(val, "%f", &f); err != nil {
+				slog.Debug("failed to parse download size", slog.String("val", val), slog.Any("err", err))
+			}
 			mult := float64(1)
 			switch strings.ToUpper(unit) {
-			case "KIB": mult = 1024
-			case "MIB": mult = 1024 * 1024
-			case "GIB": mult = 1024 * 1024 * 1024
+			case "KIB":
+				mult = 1024
+			case "MIB":
+				mult = 1024 * 1024
+			case "GIB":
+				mult = 1024 * 1024 * 1024
 			}
 			return int64(f * mult)
 		}
@@ -210,9 +255,13 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 			return s
 		}
 		appendLine := func(s string) {
-			if s == "" { return }
+			if s == "" {
+				return
+			}
 			s = sanitize(s)
-			if len(lastLines) >= maxTail { lastLines = lastLines[1:] }
+			if len(lastLines) >= maxTail {
+				lastLines = lastLines[1:]
+			}
 			lastLines = append(lastLines, s)
 		}
 		// Reader loop
@@ -230,7 +279,7 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 							if m := progressRe.FindStringSubmatch(s); len(m) > 0 {
 								// m[1]=percent, m[2]=size, m[3]=unit
 								if totalBytes == 0 {
-									if mm := bytesRe.FindStringSubmatch(m[2]+m[3]); len(mm) == 3 {
+									if mm := bytesRe.FindStringSubmatch(m[2] + m[3]); len(mm) == 3 {
 										totalBytes = decUnit(mm[1], mm[2])
 									}
 								}
@@ -243,7 +292,7 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 									curBytes = int64((lastPercent / 100.0) * float64(totalBytes))
 								}
 								// Update DB with approximate progress
-								_, _ = db.Exec(`UPDATE vods SET download_state=$1, download_total=$2, download_bytes=$3, progress_updated_at=NOW() WHERE twitch_vod_id=$4`, s, totalBytes, curBytes, id)
+								_, _ = db.ExecContext(ctx, `UPDATE vods SET download_state=$1, download_total=$2, download_bytes=$3, progress_updated_at=NOW() WHERE twitch_vod_id=$4`, s, totalBytes, curBytes, id)
 							} else if strings.TrimSpace(s) != "" {
 								appendLine(strings.TrimSpace(s))
 							}
@@ -267,8 +316,10 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 		if err == nil {
 			// Finalize progress to 100%; determine actual file size if available
 			actual := totalBytes
-			if fi, statErr := os.Stat(out); statErr == nil { actual = fi.Size() }
-			_, _ = db.Exec(`UPDATE vods SET download_state=$1, download_total=$2, download_bytes=$3, downloaded_path=$4, progress_updated_at=NOW() WHERE twitch_vod_id=$5`, "complete", actual, actual, out, id)
+			if fi, statErr := os.Stat(out); statErr == nil {
+				actual = fi.Size()
+			}
+			_, _ = db.ExecContext(ctx, `UPDATE vods SET download_state=$1, download_total=$2, download_bytes=$3, downloaded_path=$4, progress_updated_at=NOW() WHERE twitch_vod_id=$5`, "complete", actual, actual, out, id)
 			logger.Info("download finished", slog.Int64("bytes", actual))
 			telemetry.DownloadsSucceeded.Inc()
 			return out, nil
@@ -281,7 +332,7 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 		}
 		lastErr = fmt.Errorf("yt-dlp: %w\nlast output:\n%s", err, detail)
 		// Increment retry counter
-		_, _ = db.Exec(`UPDATE vods SET download_retries = COALESCE(download_retries,0) + 1, progress_updated_at=NOW() WHERE twitch_vod_id=$1`, id)
+		_, _ = db.ExecContext(ctx, `UPDATE vods SET download_retries = COALESCE(download_retries,0) + 1, progress_updated_at=NOW() WHERE twitch_vod_id=$1`, id)
 		// If context canceled, stop immediately
 		if ctx.Err() != nil {
 			return "", ctx.Err()
@@ -292,56 +343,56 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 	return "", lastErr
 }
 
-// buildCookieHeaderFromNetscape constructs a Cookie header from a Netscape cookies file.
-func buildCookieHeaderFromNetscape(path string, domainSuffix string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil { return "", err }
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	pairs := make([]string, 0, 16)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" || strings.HasPrefix(line, "#") { continue }
-		parts := strings.Split(line, "\t")
-		if len(parts) < 7 { parts = strings.Fields(line) }
-		if len(parts) < 7 { continue }
-		dom, name, val := parts[0], parts[5], parts[6]
-		if !strings.HasSuffix(strings.ToLower(dom), strings.ToLower(domainSuffix)) { continue }
-		if strings.EqualFold(name, "#httponly_"+name) { name = strings.TrimPrefix(name, "#HttpOnly_") }
-		if name == "" { continue }
-		pairs = append(pairs, fmt.Sprintf("%s=%s", name, val))
-	}
-	if err := sc.Err(); err != nil { return "", err }
-	return strings.Join(pairs, "; "), nil
-}
-
 // uploadToYouTube uploads the given video file using stored OAuth token.
 // (moved uploadToYouTube implementation to processing.go)
 
 // Circuit breaker helpers
 func updateCircuitOnFailure(ctx context.Context, db *sql.DB) {
 	threshold := 0
-	if s := os.Getenv("CIRCUIT_FAILURE_THRESHOLD"); s != "" { if n, err := strconv.Atoi(s); err == nil { threshold = n } }
-	if threshold <= 0 { return }
+	if s := os.Getenv("CIRCUIT_FAILURE_THRESHOLD"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil {
+			threshold = n
+		}
+	}
+	if threshold <= 0 {
+		return
+	}
 	var fails int
 	row := db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key='circuit_failures'`)
 	var val string
 	_ = row.Scan(&val)
-	if val != "" { _ = func() error { n, e := strconv.Atoi(val); if e==nil { fails = n }; return nil }() }
+	if val != "" {
+		if n, err := strconv.Atoi(val); err == nil {
+			fails = n
+		}
+	}
 	fails++
 	_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_failures',$1,NOW())
 		ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, fmt.Sprintf("%d", fails))
 	if fails >= threshold {
 		// open circuit
 		cool := 5 * time.Minute
-		if s := os.Getenv("CIRCUIT_OPEN_COOLDOWN"); s != "" { if d, err := time.ParseDuration(s); err == nil { cool = d } }
+		if s := os.Getenv("CIRCUIT_OPEN_COOLDOWN"); s != "" {
+			if d, err := time.ParseDuration(s); err == nil {
+				cool = d
+			}
+		}
 		until := time.Now().Add(cool).UTC().Format(time.RFC3339)
+		
+		// Check previous state for metrics
+		var prevState string
+		_ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key='circuit_state'`).Scan(&prevState)
+		if prevState == "" {
+			prevState = "closed"
+		}
+		
 		_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_state','open',NOW())
 			ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`)
 		_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_open_until',$1,NOW())
 			ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, until)
 		slog.Warn("circuit opened", slog.Int("failures", fails), slog.String("until", until))
 		telemetry.UpdateCircuitGauge(true)
+		telemetry.RecordCircuitStateChange(prevState, "open")
 	}
 }
 
@@ -349,7 +400,15 @@ func resetCircuit(ctx context.Context, db *sql.DB) {
 	// success path: if half-open or open we close; reset failures
 	var state string
 	_ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key='circuit_state'`).Scan(&state)
-	if state == "closed" && os.Getenv("CIRCUIT_FAILURE_THRESHOLD") == "" { return }
+	if state == "closed" && os.Getenv("CIRCUIT_FAILURE_THRESHOLD") == "" {
+		return
+	}
+	
+	// Record state change if transitioning
+	if state != "" && state != "closed" {
+		telemetry.RecordCircuitStateChange(state, "closed")
+	}
+	
 	_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_failures','0',NOW())
 		ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`)
 	_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_state','closed',NOW())

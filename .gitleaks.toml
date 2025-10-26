@@ -1,0 +1,17 @@
+# Gitleaks configuration for vod-tender
+# See https://github.com/gitleaks/gitleaks for full configuration options
+
+[extend]
+# Use the default gitleaks rules
+useDefault = true
+
+# Add custom rules or allowlist entries below as needed
+# Example allowlist for false positives:
+# [[allowlist]]
+#   description = "Example allowlist entry"
+#   paths = [
+#     '''path/to/file\.ext''',
+#   ]
+#   regexes = [
+#     '''example-pattern-to-ignore''',
+#   ]

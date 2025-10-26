@@ -131,12 +131,50 @@ Suggested next steps:
 4. Inspect `download_state` and retry counters for stuck items.
 5. Check system resources: disk IO, free space, network throughput.
 
+### Security Scanning
+
+The CI pipeline includes automated container security scanning using Trivy:
+
+- **Backend image**: Scanned for OS and library vulnerabilities in `vod-tender-backend`
+- **Frontend image**: Scanned for OS and library vulnerabilities in `vod-tender-frontend`
+- **Severity threshold**: Build fails on CRITICAL or HIGH severity vulnerabilities
+- **Reports**: Available as CI artifacts (SARIF and JSON formats) with 30-day retention
+- **GitHub Security**: SARIF results automatically uploaded to GitHub Security tab for tracking
+- **Baseline allowlist**: Optional `.trivyignore` file available for suppressing reviewed/accepted vulnerabilities
+
+To manually scan images locally:
+
+```bash
+# Install Trivy
+curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+# Scan backend image
+trivy image vod-tender-backend:latest --severity CRITICAL,HIGH
+
+# Scan frontend image  
+trivy image vod-tender-frontend:latest --severity CRITICAL,HIGH
+
+# Generate detailed JSON report
+trivy image vod-tender-backend:latest --format json --output backend-scan.json
+```
+
 ### Maintenance Tasks
 
 - Postgres routine maintenance: autovacuum should suffice; consider manual `VACUUM ANALYZE` only if bloat observed.
 - Regular backups (`pg_dump` or WAL archiving) and periodic restore tests.
 - Rotate logs via process manager (if not using Docker log drivers with retention).
 - Periodically prune old completed downloads if space constrained (after confirming upload). Add retention policy script / cron.
+
+## CI/CD & Security
+
+### Security Scanning
+
+The CI pipeline includes automated security scans:
+
+- **Gitleaks** – Scans commits and PRs for secrets (API keys, tokens, passwords). Fails on any findings. Use `.gitleaks.toml` to suppress false positives if needed.
+- **govulncheck** – Checks Go dependencies for known vulnerabilities from the official Go vulnerability database. Fails on any exploitable vulnerabilities affecting the codebase.
+
+Both tools run automatically on every push to `main` and on all pull requests. The build will fail if security issues are detected.
 
 ---
 

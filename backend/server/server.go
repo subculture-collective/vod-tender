@@ -205,8 +205,8 @@ func NewMux(db *sql.DB) http.Handler {
 
 		for _, check := range checks {
 			if err := check.fn(); err != nil {
-				w.WriteHeader(http.StatusServiceUnavailable)
 				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
 				_ = json.NewEncoder(w).Encode(map[string]string{
 					"status":       "not_ready",
 					"failed_check": check.name,

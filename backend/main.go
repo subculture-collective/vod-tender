@@ -135,7 +135,7 @@ func main() {
 		// Chat recorder: either auto mode (poll live) or manual recorder when env has fixed VOD id/start
 		if os.Getenv("CHAT_AUTO_START") == "1" {
 			go chat.StartAutoChatRecorder(ctx, database, channel)
-		} else if err := cfg.ValidateChatReady(); err == nil && channel == cfg.TwitchChannel {
+		} else if err := cfg.ValidateChatReady(); err == nil && channel == os.Getenv("TWITCH_CHANNEL") {
 			// Manual recorder only for the configured TWITCH_CHANNEL
 			go chat.StartTwitchChatRecorder(ctx, database, cfg.TwitchVODID, cfg.TwitchVODStart)
 		} else if channel == "" && len(channels) == 1 {

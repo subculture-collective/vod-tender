@@ -6,11 +6,41 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 )
+
+// getMigrationsPath returns the path to the migrations directory.
+// It looks for the migrations in several locations to handle different execution contexts:
+// 1. db/migrations (when running from backend/)
+// 2. migrations (when running from backend/db/)
+// 3. backend/db/migrations (when running from repo root)
+func getMigrationsPath() (string, error) {
+	possiblePaths := []string{
+		"db/migrations",
+		"migrations",
+		"backend/db/migrations",
+		"./db/migrations",
+		"./migrations",
+		"./backend/db/migrations",
+	}
+
+	for _, path := range possiblePaths {
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			absPath, err := filepath.Abs(path)
+			if err != nil {
+				return "", fmt.Errorf("failed to get absolute path for %s: %w", path, err)
+			}
+			return "file://" + absPath, nil
+		}
+	}
+
+	return "", fmt.Errorf("migrations directory not found in any of the expected locations: %v", possiblePaths)
+}
 
 // RunMigrations runs versioned database migrations using golang-migrate.
 // Migrations are located in db/migrations/ directory.
@@ -30,7 +60,11 @@ import (
 //	    return err
 //	}
 func RunMigrations(db *sql.DB) error {
-	return RunMigrationsFromPath(db, "file://db/migrations")
+	migrationsPath, err := getMigrationsPath()
+	if err != nil {
+		return err
+	}
+	return RunMigrationsFromPath(db, migrationsPath)
 }
 
 // RunMigrationsFromPath runs migrations from a custom path.
@@ -83,7 +117,11 @@ func RunMigrationsFromPath(db *sql.DB, migrationsPath string) error {
 // This should only be used in development or emergency rollback scenarios.
 // WARNING: This may result in data loss depending on the migration.
 func MigrateDown(db *sql.DB) error {
-	return MigrateDownFromPath(db, "file://db/migrations")
+	migrationsPath, err := getMigrationsPath()
+	if err != nil {
+		return err
+	}
+	return MigrateDownFromPath(db, migrationsPath)
 }
 
 // MigrateDownFromPath rolls back the most recent migration from a custom path.
@@ -132,13 +170,18 @@ func MigrateDownFromPath(db *sql.DB, migrationsPath string) error {
 
 // GetMigrationVersion returns the current migration version and dirty state.
 func GetMigrationVersion(db *sql.DB) (version uint, dirty bool, err error) {
+	migrationsPath, mErr := getMigrationsPath()
+	if mErr != nil {
+		return 0, false, mErr
+	}
+
 	driver, err := postgres.WithInstance(db, &postgres.Config{})
 	if err != nil {
 		return 0, false, fmt.Errorf("failed to create postgres driver: %w", err)
 	}
 
 	m, err := migrate.NewWithDatabaseInstance(
-		"file://db/migrations",
+		migrationsPath,
 		"postgres",
 		driver,
 	)

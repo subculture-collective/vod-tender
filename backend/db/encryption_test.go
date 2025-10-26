@@ -37,7 +37,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 func TestEncryptedTokens(t *testing.T) {
 	// Generate a test encryption key
 	testKey := "dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcwo=" // base64 encoded "test-encryption-key-32-bytes\n"
-	
+
 	// Save original ENCRYPTION_KEY and restore after test
 	origKey := os.Getenv("ENCRYPTION_KEY")
 	defer func() {
@@ -54,7 +54,7 @@ func TestEncryptedTokens(t *testing.T) {
 
 	// Set encryption key for this test
 	os.Setenv("ENCRYPTION_KEY", testKey)
-	
+
 	// Reset the encryptor to pick up new key
 	encryptorOnce = sync.Once{}
 	encryptor = nil

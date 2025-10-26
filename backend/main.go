@@ -119,17 +119,31 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Start services
-	// Chat recorder: either auto mode (poll live) or manual recorder when env has fixed VOD id/start
-	if os.Getenv("CHAT_AUTO_START") == "1" {
-		go chat.StartAutoChatRecorder(ctx, database)
-	} else if err := cfg.ValidateChatReady(); err == nil {
-		go chat.StartTwitchChatRecorder(ctx, database, cfg.TwitchVODID, cfg.TwitchVODStart)
-	} else {
-		slog.Info("chat recorder disabled (missing twitch creds or auto not enabled)")
+	// Multi-channel support: start workers for each configured channel
+	// Falls back to single-channel mode if TwitchChannels is empty
+	channels := cfg.TwitchChannels
+	if len(channels) == 0 {
+		// Backward compatibility: if no channels configured, use default empty channel
+		channels = []string{""}
 	}
-	go vod.StartVODProcessingJob(ctx, database)
-	go vod.StartVODCatalogBackfillJob(ctx, database)
+	
+	slog.Info("starting workers", slog.Int("channel_count", len(channels)), slog.Any("channels", channels))
+	
+	for _, ch := range channels {
+		channel := ch // capture for goroutine
+		// Start per-channel jobs
+		// Chat recorder: either auto mode (poll live) or manual recorder when env has fixed VOD id/start
+		if os.Getenv("CHAT_AUTO_START") == "1" {
+			go chat.StartAutoChatRecorder(ctx, database, channel)
+		} else if err := cfg.ValidateChatReady(); err == nil && channel == os.Getenv("TWITCH_CHANNEL") {
+			// Manual recorder only for the configured TWITCH_CHANNEL
+			go chat.StartTwitchChatRecorder(ctx, database, cfg.TwitchVODID, cfg.TwitchVODStart)
+		} else if channel == "" && len(channels) == 1 {
+			slog.Info("chat recorder disabled (missing twitch creds or auto not enabled)")
+		}
+		go vod.StartVODProcessingJob(ctx, database, channel)
+		go vod.StartVODCatalogBackfillJob(ctx, database, channel)
+	}
 
 	// Centralized OAuth token refreshers
 	oauth.StartRefresher(ctx, database, "twitch", 5*time.Minute, 15*time.Minute, func(rctx context.Context, refreshToken string) (string, string, time.Time, string, error) {

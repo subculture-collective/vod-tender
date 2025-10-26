@@ -6,6 +6,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -18,6 +19,9 @@ type Config struct {
 	TwitchClientSecret string
 	TwitchRedirectURI  string
 	TwitchScopes       string
+
+	// Multi-channel support
+	TwitchChannels []string // Parsed from TWITCH_CHANNELS (comma-separated)
 
 	// VOD
 	TwitchVODID    string
@@ -51,6 +55,22 @@ func Load() (*Config, error) {
 	if cfg.TwitchScopes == "" {
 		// default scopes for chat bot
 		cfg.TwitchScopes = "chat:read chat:edit"
+	}
+
+	// Multi-channel mode: parse TWITCH_CHANNELS if provided
+	// Falls back to single TWITCH_CHANNEL for backward compatibility
+	channelsEnv := os.Getenv("TWITCH_CHANNELS")
+	if channelsEnv != "" {
+		channels := strings.Split(channelsEnv, ",")
+		for _, ch := range channels {
+			ch = strings.TrimSpace(ch)
+			if ch != "" {
+				cfg.TwitchChannels = append(cfg.TwitchChannels, ch)
+			}
+		}
+	} else if cfg.TwitchChannel != "" {
+		// Backward compatibility: single channel mode
+		cfg.TwitchChannels = []string{cfg.TwitchChannel}
 	}
 
 	// VOD

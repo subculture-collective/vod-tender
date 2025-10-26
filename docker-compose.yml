@@ -3,6 +3,8 @@ services:
     container_name: vod-postgres
     image: postgres:16
     restart: unless-stopped
+    ports:
+      - "5469:5432"
     environment:
       POSTGRES_DB: vod
       POSTGRES_USER: vod
@@ -24,9 +26,9 @@ services:
     image: jaegertracing/all-in-one:latest
     restart: unless-stopped
     ports:
-      - "16686:16686" # Jaeger UI
-      - "4317:4317" # OTLP gRPC receiver
-      - "4318:4318" # OTLP HTTP receiver
+      - "${JAEGER_UI_PORT:-16686}:16686" # Jaeger UI
+      - "${JAEGER_OTLP_GRPC_PORT:-4317}:4317" # OTLP gRPC receiver
+      - "${JAEGER_OTLP_HTTP_PORT:-4318}:4318" # OTLP HTTP receiver
     environment:
       - COLLECTOR_OTLP_ENABLED=true
     networks:

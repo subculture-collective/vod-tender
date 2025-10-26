@@ -316,8 +316,8 @@ func TestParseIntQuery(t *testing.T) {
 
 func TestDerivePercent(t *testing.T) {
 	tests := []struct {
-		want  *float64
 		state string
+		want  *float64
 	}{
 		{"", nil},
 		{"unknown", nil},

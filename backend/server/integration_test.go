@@ -11,7 +11,7 @@ import (
 // TestAdminEndpointsProtection validates that admin endpoints are protected when auth is configured
 func TestAdminEndpointsProtection(t *testing.T) {
 	db := testutil.SetupTestDB(t)
-	
+
 	tests := []struct {
 		name           string
 		path           string
@@ -86,7 +86,7 @@ func TestAdminEndpointsProtection(t *testing.T) {
 // TestRateLimitingOnAdminEndpoints validates that admin endpoints are rate limited
 func TestRateLimitingOnAdminEndpoints(t *testing.T) {
 	db := testutil.SetupTestDB(t)
-	
+
 	// Configure low rate limit for testing
 	t.Setenv("RATE_LIMIT_ENABLED", "1")
 	t.Setenv("RATE_LIMIT_REQUESTS_PER_IP", "3")
@@ -130,11 +130,11 @@ func TestCORSRestricted(t *testing.T) {
 	db := testutil.SetupTestDB(t)
 
 	tests := []struct {
-		name          string
-		env           string
+		name           string
+		env            string
 		allowedOrigins string
-		requestOrigin string
-		expectAllowed bool
+		requestOrigin  string
+		expectAllowed  bool
 	}{
 		{
 			name:          "dev mode allows any origin",
@@ -196,7 +196,7 @@ func TestCORSRestricted(t *testing.T) {
 // TestPublicEndpointsUnprotected validates that public endpoints remain accessible
 func TestPublicEndpointsUnprotected(t *testing.T) {
 	db := testutil.SetupTestDB(t)
-	
+
 	// Configure strict auth
 	t.Setenv("ADMIN_USERNAME", "admin")
 	t.Setenv("ADMIN_PASSWORD", "secret")

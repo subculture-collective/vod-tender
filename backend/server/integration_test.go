@@ -3,7 +3,6 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/onnwee/vod-tender/backend/testutil"
@@ -60,14 +59,9 @@ func TestAdminEndpointsProtection(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Set up auth config
-			os.Setenv("ADMIN_USERNAME", "admin")
-			os.Setenv("ADMIN_PASSWORD", "secret123")
-			os.Setenv("ADMIN_TOKEN", "test-token-12345")
-			defer func() {
-				os.Unsetenv("ADMIN_USERNAME")
-				os.Unsetenv("ADMIN_PASSWORD")
-				os.Unsetenv("ADMIN_TOKEN")
-			}()
+			t.Setenv("ADMIN_USERNAME", "admin")
+			t.Setenv("ADMIN_PASSWORD", "secret123")
+			t.Setenv("ADMIN_TOKEN", "test-token-12345")
 
 			handler := NewMux(db)
 
@@ -94,16 +88,10 @@ func TestRateLimitingOnAdminEndpoints(t *testing.T) {
 	db := testutil.SetupTestDB(t)
 	
 	// Configure low rate limit for testing
-	os.Setenv("RATE_LIMIT_ENABLED", "1")
-	os.Setenv("RATE_LIMIT_REQUESTS_PER_IP", "3")
-	os.Setenv("RATE_LIMIT_WINDOW_SECONDS", "60")
-	os.Setenv("ADMIN_TOKEN", "test-token")
-	defer func() {
-		os.Unsetenv("RATE_LIMIT_ENABLED")
-		os.Unsetenv("RATE_LIMIT_REQUESTS_PER_IP")
-		os.Unsetenv("RATE_LIMIT_WINDOW_SECONDS")
-		os.Unsetenv("ADMIN_TOKEN")
-	}()
+	t.Setenv("RATE_LIMIT_ENABLED", "1")
+	t.Setenv("RATE_LIMIT_REQUESTS_PER_IP", "3")
+	t.Setenv("RATE_LIMIT_WINDOW_SECONDS", "60")
+	t.Setenv("ADMIN_TOKEN", "test-token")
 
 	handler := NewMux(db)
 
@@ -179,14 +167,10 @@ func TestCORSRestricted(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			os.Setenv("ENV", tt.env)
+			t.Setenv("ENV", tt.env)
 			if tt.allowedOrigins != "" {
-				os.Setenv("CORS_ALLOWED_ORIGINS", tt.allowedOrigins)
+				t.Setenv("CORS_ALLOWED_ORIGINS", tt.allowedOrigins)
 			}
-			defer func() {
-				os.Unsetenv("ENV")
-				os.Unsetenv("CORS_ALLOWED_ORIGINS")
-			}()
 
 			handler := NewMux(db)
 
@@ -214,12 +198,8 @@ func TestPublicEndpointsUnprotected(t *testing.T) {
 	db := testutil.SetupTestDB(t)
 	
 	// Configure strict auth
-	os.Setenv("ADMIN_USERNAME", "admin")
-	os.Setenv("ADMIN_PASSWORD", "secret")
-	defer func() {
-		os.Unsetenv("ADMIN_USERNAME")
-		os.Unsetenv("ADMIN_PASSWORD")
-	}()
+	t.Setenv("ADMIN_USERNAME", "admin")
+	t.Setenv("ADMIN_PASSWORD", "secret")
 
 	handler := NewMux(db)
 

@@ -11,6 +11,7 @@ import (
 
 	twitch "github.com/gempir/go-twitch-irc/v4"
 
+	"github.com/onnwee/vod-tender/backend/config"
 	"github.com/onnwee/vod-tender/backend/db"
 )
 
@@ -30,7 +31,7 @@ func StartTwitchChatRecorder(ctx context.Context, dbx *sql.DB, vodID string, vod
 	if oauth != "" && !strings.HasPrefix(strings.ToLower(oauth), "oauth:") {
 		oauth = "oauth:" + oauth
 	}
-	if channel == "" || username == "" || oauth == "" {
+	if channel == config.DefaultChannel || username == "" || oauth == "" {
 		slog.Info("twitch creds not set (env or stored token); skipping chat recorder")
 		return
 	}

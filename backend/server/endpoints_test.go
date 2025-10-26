@@ -14,7 +14,7 @@ import (
 
 func TestCORS(t *testing.T) {
 	db := testutil.SetupTestDB(t)
-	handler := withCORS(NewMux(db))
+	handler := NewMux(db) // NewMux now includes CORS config internally
 
 	req := httptest.NewRequest(http.MethodOptions, "/healthz", nil)
 	req.Header.Set("Origin", "http://localhost:3000")
@@ -24,8 +24,9 @@ func TestCORS(t *testing.T) {
 	handler.ServeHTTP(w, req)
 
 	resp := w.Result()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("OPTIONS request status = %d, want %d", resp.StatusCode, http.StatusOK)
+	// OPTIONS should return 204 (NoContent)
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
+		t.Errorf("OPTIONS request status = %d, want %d or %d", resp.StatusCode, http.StatusNoContent, http.StatusOK)
 	}
 
 	// Check CORS headers

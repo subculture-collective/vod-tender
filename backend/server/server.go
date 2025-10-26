@@ -43,6 +43,12 @@ func (o *oauthTokenStore) GetOAuthToken(ctx context.Context, provider string) (a
 
 // NewMux returns the HTTP handler with all routes.
 func NewMux(db *sql.DB) http.Handler {
+	// Load middleware configurations
+	authCfg := loadAuthConfig()
+	rateLimiterCfg := loadRateLimiterConfig()
+	corsCfg := loadCORSConfig()
+	rateLimiter := newIPRateLimiter(rateLimiterCfg)
+	
 	mux := http.NewServeMux()
 
 	// Metrics endpoint
@@ -531,6 +537,30 @@ func NewMux(db *sql.DB) http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "vod_id": vodID})
 	})
+	
+	// Create a selective middleware wrapper that applies auth and rate limiting to admin endpoints
+	selectiveHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Apply auth and rate limiting to admin endpoints
+		if strings.HasPrefix(r.URL.Path, "/admin/") {
+			// Apply rate limiting first, then auth
+			rateLimitMiddleware(adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mux.ServeHTTP(w, r)
+			}), authCfg), rateLimiter).ServeHTTP(w, r)
+			return
+		}
+		
+		// Apply rate limiting to sensitive VOD operations (cancel, reprocess)
+		if strings.HasSuffix(r.URL.Path, "/cancel") || strings.HasSuffix(r.URL.Path, "/reprocess") {
+			rateLimitMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mux.ServeHTTP(w, r)
+			}), rateLimiter).ServeHTTP(w, r)
+			return
+		}
+		
+		// All other endpoints: no special protection
+		mux.ServeHTTP(w, r)
+	})
+	
 	// Wrap with correlation ID injector and tracing middleware
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Reuse corr header if provided else generate
@@ -554,7 +584,7 @@ func NewMux(db *sql.DB) http.Handler {
 
 		// Capture status code via custom ResponseWriter
 		wrappedWriter := &statusRecorder{ResponseWriter: w, statusCode: http.StatusOK}
-		mux.ServeHTTP(wrappedWriter, r.WithContext(ctx))
+		selectiveHandler.ServeHTTP(wrappedWriter, r.WithContext(ctx))
 
 		// Record HTTP status in span
 		telemetry.SetSpanHTTPStatus(span, wrappedWriter.statusCode)
@@ -563,7 +593,7 @@ func NewMux(db *sql.DB) http.Handler {
 			span.SetStatus(code, msg)
 		}
 	})
-	return withCORS(handler)
+	return withCORSConfig(handler, corsCfg)
 }
 
 // statusRecorder wraps ResponseWriter to capture status code
@@ -907,20 +937,6 @@ func derivePercent(state string) *float64 {
 		return &f
 	}
 	return nil
-}
-
-// withCORS wraps a handler to add permissive CORS headers suitable for local dev/SPA frontends.
-func withCORS(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 
 // handleVodReprocess clears processing fields so the worker will re-download/re-upload on next cycle.

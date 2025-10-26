@@ -126,7 +126,7 @@ func migratePostgres(ctx context.Context, db *sql.DB) error {
 			current_cols TEXT;
 		BEGIN
 			-- Get current primary key column composition in key order (not attnum order)
-			SELECT string_agg(a.attname, ',' ORDER BY array_position(i.indkey, a.attnum::smallint)) INTO current_cols
+			SELECT string_agg(a.attname, ',' ORDER BY COALESCE(array_position(i.indkey, a.attnum::smallint), 999)) INTO current_cols
 			FROM   pg_index i
 			JOIN   pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
 			WHERE  i.indrelid = 'oauth_tokens'::regclass
@@ -159,7 +159,7 @@ func migratePostgres(ctx context.Context, db *sql.DB) error {
 			current_cols TEXT;
 		BEGIN
 			-- Get current primary key column composition in key order (not attnum order)
-			SELECT string_agg(a.attname, ',' ORDER BY array_position(i.indkey, a.attnum::smallint)) INTO current_cols
+			SELECT string_agg(a.attname, ',' ORDER BY COALESCE(array_position(i.indkey, a.attnum::smallint), 999)) INTO current_cols
 			FROM   pg_index i
 			JOIN   pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
 			WHERE  i.indrelid = 'kv'::regclass

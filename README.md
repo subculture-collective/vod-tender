@@ -8,27 +8,87 @@ Small Go service that discovers Twitch VODs for a channel, downloads them with y
 
 ## Quick start
 
-- Copy `.env.example` to `backend/.env` and fill in values.
-- Build and run locally:
+### Using Docker Compose (Recommended)
 
 ```bash
-make run
+# Start all services (Postgres, API, Frontend)
+make up
+
+# View logs
+make logs
+
+# Stop services
+make down
 ```
 
-Or with Docker:
+### Local Development
+
+**Prerequisites:**
+- Go 1.24+
+- Node.js 20+
+- golangci-lint (for linting)
+
+**Setup:**
 
 ```bash
-make docker-build
-docker run --env-file backend/.env --rm vod-tender
+# Install frontend dependencies
+cd frontend && npm ci && cd ..
+
+# Copy environment file and fill in credentials
+cp backend/.env.example backend/.env
+```
+
+**Common tasks:**
+
+```bash
+# Build everything (backend + frontend)
+make build
+
+# Run tests (backend + frontend)
+make test
+
+# Run linters (backend + frontend)
+make lint
+
+# Auto-fix linting issues
+make lint-fix
+```
+
+**Component-specific commands:**
+
+```bash
+# Backend only
+make build-backend
+make test-backend
+make lint-backend
+
+# Frontend only
+make build-frontend
+make test-frontend
+make lint-frontend
 ```
 
 ## Development
 
+### Quick Reference
+
+All common development tasks can be run from the repository root using `make`:
+
+| Command | Description |
+|---------|-------------|
+| `make build` | Build backend and frontend |
+| `make test` | Run all tests |
+| `make lint` | Run all linters |
+| `make lint-fix` | Auto-fix linting issues |
+| `make up` | Start Docker Compose stack |
+| `make logs` | View logs from all services |
+| `make help` | Show all available targets |
+
 ### Linting
 
-This project uses [golangci-lint](https://golangci-lint.run/) for static analysis of Go code.
+The project uses [golangci-lint](https://golangci-lint.run/) for Go code and ESLint + Prettier for frontend code.
 
-Install golangci-lint:
+**Installation:**
 
 ```bash
 # macOS
@@ -41,20 +101,20 @@ curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/insta
 # See https://golangci-lint.run/welcome/install/
 ```
 
-Run lint locally:
+Frontend dependencies are installed via `npm ci` in the frontend directory.
+
+**Usage:**
 
 ```bash
-make lint          # Check for issues
+make lint          # Run all linters (backend + frontend)
 make lint-fix      # Auto-fix issues where possible
+
+# Component-specific
+make lint-backend
+make lint-frontend
 ```
 
-Format code before committing:
-
-```bash
-cd backend && gofmt -w .
-```
-
-The linter configuration is in `.golangci.yml` and is tuned for CI with appropriate timeouts. Several linters are currently disabled as part of the baseline to achieve a clean build. These can be gradually enabled as issues are addressed.
+The linter configuration is in `.golangci.yml` for backend and `eslint.config.js` for frontend.
 
 ### Docker Compose (server)
 

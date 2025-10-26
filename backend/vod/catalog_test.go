@@ -37,10 +37,10 @@ func TestParseTwitchDurationEdgeCases(t *testing.T) {
 }
 
 func TestFetchChannelVODsEmpty(t *testing.T) {
-	// Test when TWITCH_CHANNEL is not set
+	// Test when TWITCH_CHANNEL is not set and no channel parameter provided
 	t.Setenv("TWITCH_CHANNEL", "")
 	ctx := context.Background()
-	vods, err := FetchChannelVODs(ctx)
+	vods, err := FetchChannelVODs(ctx, "")
 	if err != nil {
 		t.Errorf("FetchChannelVODs() error = %v, want nil", err)
 	}

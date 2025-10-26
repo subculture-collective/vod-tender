@@ -56,14 +56,15 @@ func TestProcessOnceHappyPath(t *testing.T) {
 	if err := dbpkg.Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
-	_, _ = db.ExecContext(context.Background(), `INSERT INTO vods (twitch_vod_id,title,date,duration_seconds,created_at) VALUES ('123','Test',NOW(),60,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`)
+	channel := ""
+	_, _ = db.ExecContext(context.Background(), `INSERT INTO vods (channel,twitch_vod_id,title,date,duration_seconds,created_at) VALUES ($1,'123','Test',NOW(),60,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, channel)
 	oldD, oldU := downloader, uploader
 	downloader = mockDownloader{path: "/tmp/123.mp4"}
 	uploader = mockUploader{url: "https://youtu.be/abc"}
 	defer func() { downloader, uploader = oldD, oldU }()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if err := processOnce(ctx, db); err != nil {
+	if err := processOnce(ctx, db, channel); err != nil {
 		t.Fatal(err)
 	}
 	var processed bool
@@ -91,14 +92,15 @@ func TestProcessOnceDownloadFail(t *testing.T) {
 	if err := dbpkg.Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
-	_, _ = db.ExecContext(context.Background(), `INSERT INTO vods (twitch_vod_id,title,date,duration_seconds,created_at) VALUES ('d1','D','2024-01-01T00:00:00Z',30,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`)
+	channel := ""
+	_, _ = db.ExecContext(context.Background(), `INSERT INTO vods (channel,twitch_vod_id,title,date,duration_seconds,created_at) VALUES ($1,'d1','D','2024-01-01T00:00:00Z',30,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, channel)
 	oldD, oldU := downloader, uploader
 	downloader = mockDownloader{err: errors.New("boom")}
 	uploader = mockUploader{url: "ignored"}
 	defer func() { downloader, uploader = oldD, oldU }()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if err := processOnce(ctx, db); err != nil {
+	if err := processOnce(ctx, db, channel); err != nil {
 		t.Fatal(err)
 	}
 	var perr string
@@ -134,19 +136,20 @@ func TestCircuitBreakerTransitions(t *testing.T) {
 		}
 	}()
 	ctx := context.Background()
-	updateCircuitOnFailure(ctx, db)
+	channel := ""
+	updateCircuitOnFailure(ctx, db, channel)
 	var v string
-	_ = db.QueryRowContext(context.Background(), `SELECT value FROM kv WHERE key='circuit_failures'`).Scan(&v)
+	_ = db.QueryRowContext(context.Background(), `SELECT value FROM kv WHERE channel=$1 AND key='circuit_failures'`, channel).Scan(&v)
 	if v != "1" {
 		t.Fatalf("expected failures=1 got %s", v)
 	}
-	updateCircuitOnFailure(ctx, db)
-	_ = db.QueryRowContext(context.Background(), `SELECT value FROM kv WHERE key='circuit_state'`).Scan(&v)
+	updateCircuitOnFailure(ctx, db, channel)
+	_ = db.QueryRowContext(context.Background(), `SELECT value FROM kv WHERE channel=$1 AND key='circuit_state'`, channel).Scan(&v)
 	if v != "open" {
 		t.Fatalf("expected state open got %s", v)
 	}
-	resetCircuit(ctx, db)
-	_ = db.QueryRowContext(context.Background(), `SELECT value FROM kv WHERE key='circuit_state'`).Scan(&v)
+	resetCircuit(ctx, db, channel)
+	_ = db.QueryRowContext(context.Background(), `SELECT value FROM kv WHERE channel=$1 AND key='circuit_state'`, channel).Scan(&v)
 	if v != "closed" {
 		t.Fatalf("expected state closed got %s", v)
 	}

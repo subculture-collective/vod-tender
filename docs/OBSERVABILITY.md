@@ -306,6 +306,7 @@ curl http://localhost:8080/readyz
 ```
 
 Readiness checks:
+
 1. Database connectivity
 2. Circuit breaker state (not open)
 3. OAuth credentials present

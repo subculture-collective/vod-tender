@@ -117,10 +117,10 @@ func ImportChat(ctx context.Context, db *sql.DB, vodID string) error {
 
 // rechatMessage is a minimal representation of a rechat message
 type rechatMessage struct {
+	Abs  time.Time
 	ID   string
 	User string
 	Text string
-	Abs  time.Time
 	Rel  float64
 }
 
@@ -165,9 +165,7 @@ func doFetchRechat(ctx context.Context, urlStr string, offset int, cookieHeader 
 	var raw struct {
 		Data []struct {
 			Attributes struct {
-				ID        string    `json:"id"`
 				Timestamp time.Time `json:"timestamp"`
-				Offset    float64   `json:"offset"`
 				Message   struct {
 					Body string `json:"body"`
 					User struct {
@@ -176,6 +174,8 @@ func doFetchRechat(ctx context.Context, urlStr string, offset int, cookieHeader 
 					} `json:"user"`
 					UserColor string `json:"userColor"`
 				} `json:"message"`
+				ID     string  `json:"id"`
+				Offset float64 `json:"offset"`
 			} `json:"attributes"`
 		} `json:"data"`
 	}

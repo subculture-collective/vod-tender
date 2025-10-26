@@ -21,12 +21,14 @@ The CI/CD pipeline is organized into five main workflows:
 **Jobs:**
 
 #### Backend Jobs
+
 - **gitleaks**: Secret scanning with gitleaks
 - **govulncheck**: Go vulnerability scanning
 - **build-test-lint**: Go build, test, vet, and lint with golangci-lint
 
 #### Frontend Jobs
-- **frontend**: 
+
+- **frontend**:
   - Install dependencies
   - TypeScript type checking (`tsc --noEmit`)
   - Build with Vite
@@ -34,12 +36,14 @@ The CI/CD pipeline is organized into five main workflows:
   - Bundle size tracking
 
 #### Database Jobs
+
 - **database-migration-tests**:
   - Spin up Postgres 16 service container
   - Run migration tests with `TEST_PG_DSN` environment variable
   - Verify schema integrity
 
 #### Integration Jobs
+
 - **docker-images**:
   - Build backend and frontend Docker images with Buildx
   - Use GitHub Actions cache for layer caching
@@ -55,6 +59,7 @@ The CI/CD pipeline is organized into five main workflows:
   - Cleanup resources
 
 **Features:**
+
 - Parallel job execution for speed
 - Comprehensive security scanning
 - Docker layer caching
@@ -66,6 +71,7 @@ The CI/CD pipeline is organized into five main workflows:
 **Triggers:** Push of version tags (`v*`)
 
 **Steps:**
+
 1. Extract version from tag (e.g., `v1.2.3` → `1.2.3`)
 2. Build multi-arch container images (linux/amd64, linux/arm64)
 3. Push to GitHub Container Registry (ghcr.io)
@@ -80,6 +86,7 @@ The CI/CD pipeline is organized into five main workflows:
 8. Create GitHub Release with artifacts
 
 **Container Images:**
+
 - `ghcr.io/<owner>/<repo>/backend:$VERSION`
 - `ghcr.io/<owner>/<repo>/backend:latest`
 - `ghcr.io/<owner>/<repo>/backend:$SHA`
@@ -88,12 +95,14 @@ The CI/CD pipeline is organized into five main workflows:
 - `ghcr.io/<owner>/<repo>/frontend:$SHA`
 
 **Artifacts:**
+
 - Backend binaries (4 platforms)
 - SHA256 checksums
 - SBOM files (SPDX JSON)
 
 **Image Signing:**
 Uses Sigstore cosign for keyless signing. Signatures can be verified with:
+
 ```bash
 cosign verify \
   --certificate-identity-regexp="https://github.com/<owner>/<repo>" \
@@ -103,13 +112,15 @@ cosign verify \
 
 ### 3. Deploy Staging Workflow (`deploy-staging.yml`)
 
-**Triggers:** 
+**Triggers:**
+
 - Push to `main` branch
 - Manual trigger (`workflow_dispatch`)
 
 **Concurrency:** Single deployment at a time (no cancellation)
 
 **Steps:**
+
 1. Checkout code
 2. Deploy to staging environment
 3. Wait for services to stabilize
@@ -122,6 +133,7 @@ cosign verify \
 
 **Customization Points:**
 The workflow includes placeholder commands that should be replaced with actual deployment logic:
+
 - SSH to staging server
 - Pull images from ghcr.io
 - Run `docker compose pull && docker compose up -d`
@@ -132,11 +144,13 @@ The workflow includes placeholder commands that should be replaced with actual d
 **Triggers:** Manual only (`workflow_dispatch`)
 
 **Input Parameters:**
+
 - `version`: Version tag to deploy (e.g., `v1.0.0`)
 
 **Concurrency:** Single deployment at a time (no cancellation)
 
 **Strategy:** Blue-Green Deployment
+
 1. Validate version tag format
 2. Verify release exists
 3. Deploy to green environment
@@ -149,6 +163,7 @@ The workflow includes placeholder commands that should be replaced with actual d
 **Environment:** `production`
 
 **Features:**
+
 - Zero-downtime deployments
 - Quick rollback capability
 - Pre-deployment validation
@@ -161,11 +176,13 @@ The workflow includes placeholder commands that should be replaced with actual d
 **Jobs:**
 
 #### benchmarks
+
 - Run Go benchmarks
 - Upload results as artifacts
 - Compare against baseline (on PRs)
 
 #### coverage
+
 - Run tests with coverage profiling
 - Calculate coverage percentage
 - Report in PR summary
@@ -173,11 +190,13 @@ The workflow includes placeholder commands that should be replaced with actual d
 - Warn if below 70% target
 
 #### security-scorecard
+
 - Run OSSF Scorecard analysis
 - Upload results to GitHub Security
 - Publish security score
 
 **Quality Metrics:**
+
 - Test coverage target: 70%
 - Performance regression threshold: 10%
 - Security scorecard: Published for transparency
@@ -189,12 +208,14 @@ The workflow includes placeholder commands that should be replaced with actual d
 **Update Schedule:** Weekly
 
 **Ecosystems Monitored:**
+
 - Go modules (`/backend`)
 - npm packages (`/frontend`)
 - Docker images (`/backend`, `/frontend`)
 - GitHub Actions (`/`)
 
 **Features:**
+
 - Automatic security updates
 - Dependency version bumps
 - Labeled PRs for easy triage
@@ -205,10 +226,12 @@ The workflow includes placeholder commands that should be replaced with actual d
 
 1. **Ensure all tests pass on main branch**
 2. **Create and push a version tag:**
+
    ```bash
    git tag v1.0.0
    git push origin v1.0.0
    ```
+
 3. **Monitor the release workflow** in Actions tab
 4. **Verify the release** appears in the Releases page with:
    - Release notes (changelog)
@@ -222,6 +245,7 @@ The workflow includes placeholder commands that should be replaced with actual d
 Staging deployments happen automatically when code is pushed to `main`.
 
 **Manual staging deployment:**
+
 1. Go to Actions → Deploy Staging
 2. Click "Run workflow"
 3. Select branch (usually `main`)
@@ -234,7 +258,7 @@ Production deployments are **manual only** and require a version tag.
 1. **Ensure the version is released**
    - Release workflow must have completed successfully
    - Verify images exist in ghcr.io
-   
+
 2. **Trigger deployment:**
    - Go to Actions → Deploy Production
    - Click "Run workflow"
@@ -255,12 +279,14 @@ Production deployments are **manual only** and require a version tag.
 Quality gates run automatically on all PRs and commits to main.
 
 **Check results:**
+
 - Go to Actions → Quality Gates
 - View benchmark comparisons
 - Check coverage reports
 - Review OSSF Scorecard
 
 **Coverage enforcement:**
+
 - Target is 70% overall coverage
 - Warnings appear if coverage drops
 - Reports available in artifacts
@@ -275,6 +301,7 @@ Security scanning happens at multiple levels:
 4. **OSSF Scorecard** - Supply chain security
 
 **View results:**
+
 - Go to Security tab → Code scanning alerts
 - Check workflow artifacts for detailed reports
 - SARIF reports auto-uploaded to GitHub Security
@@ -286,6 +313,7 @@ Security scanning happens at multiple levels:
 The deployment workflows (`deploy-staging.yml` and `deploy-production.yml`) contain placeholder commands. Replace them with your actual deployment logic:
 
 **For Docker Compose deployments:**
+
 ```yaml
 - name: Deploy to staging
   run: |
@@ -297,6 +325,7 @@ The deployment workflows (`deploy-staging.yml` and `deploy-production.yml`) cont
 ```
 
 **For Kubernetes deployments:**
+
 ```yaml
 - name: Deploy to staging
   run: |
@@ -312,11 +341,13 @@ The deployment workflows (`deploy-staging.yml` and `deploy-production.yml`) cont
 Configure secrets in GitHub repository settings:
 
 **For staging/production:**
+
 - `STAGING_SSH_KEY` - SSH key for staging server
 - `PROD_SSH_KEY` - SSH key for production server
 - `KUBECONFIG` - Kubernetes config (if using k8s)
 
 **For deployments:**
+
 - Configure environment protection rules
 - Add required reviewers for production
 - Set deployment branch restrictions
@@ -324,6 +355,7 @@ Configure secrets in GitHub repository settings:
 ### Customizing Quality Gates
 
 **Adjust coverage threshold:**
+
 ```yaml
 # In quality-gates.yml
 if (( $(echo "${{ steps.coverage.outputs.percentage }} < 80" | bc -l) )); then
@@ -331,6 +363,7 @@ if (( $(echo "${{ steps.coverage.outputs.percentage }} < 80" | bc -l) )); then
 ```
 
 **Add custom benchmarks:**
+
 ```bash
 # In your Go code
 func BenchmarkMyFeature(b *testing.B) {
@@ -347,6 +380,7 @@ func BenchmarkMyFeature(b *testing.B) {
 **Issue:** Services not becoming healthy
 
 **Solution:**
+
 ```bash
 # Check logs locally
 docker compose logs api
@@ -365,6 +399,7 @@ docker compose ps
 **Issue:** Out of disk space
 
 **Solution:** GitHub Actions runners have limited space. Consider:
+
 - Cleaning up unused images in workflow
 - Using `docker system prune` before builds
 - Reducing layer count in Dockerfiles
@@ -374,6 +409,7 @@ docker compose ps
 **Issue:** Tag push doesn't trigger workflow
 
 **Solution:**
+
 - Verify tag format matches `v*` pattern
 - Check workflow permissions
 - Ensure GITHUB_TOKEN has packages write permission
@@ -383,6 +419,7 @@ docker compose ps
 **Issue:** Unable to connect to deployment target
 
 **Solution:**
+
 - Verify SSH keys are configured
 - Check environment secrets
 - Confirm network connectivity
@@ -390,6 +427,7 @@ docker compose ps
 ## Best Practices
 
 1. **Always test locally first**
+
    ```bash
    # Run tests
    cd backend && go test ./...

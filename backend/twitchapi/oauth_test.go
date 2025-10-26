@@ -13,8 +13,8 @@ func TestBuildAuthorizeURL(t *testing.T) {
 		redirectURI string
 		scopes      string
 		state       string
-		wantErr     bool
 		wantParts   []string
+		wantErr     bool
 	}{
 		{
 			name:        "valid request",
@@ -55,7 +55,7 @@ func TestBuildAuthorizeURL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			url, err := BuildAuthorizeURL(tt.clientID, tt.redirectURI, tt.scopes, tt.state)
-			
+
 			if tt.wantErr {
 				if err == nil {
 					t.Error("BuildAuthorizeURL() expected error, got nil")
@@ -118,7 +118,7 @@ func TestComputeExpiry(t *testing.T) {
 			after := time.Now()
 
 			expectedExpiry := before.Add(tt.wantAfter)
-			
+
 			// Allow 2 second tolerance
 			if expiry.Before(expectedExpiry.Add(-2*time.Second)) || expiry.After(after.Add(tt.wantAfter).Add(2*time.Second)) {
 				t.Errorf("ComputeExpiry(%d) = %v, want approximately %v", tt.expiresIn, expiry, expectedExpiry)

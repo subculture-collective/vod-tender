@@ -7,29 +7,34 @@ This PR enhances the CI/CD pipeline with automated testing, releases, and deploy
 ### 🎯 Key Enhancements
 
 #### 1. Semantic Versioning & Automated Releases
+
 - **Conventional Commits**: Enforced commit message format
 - **Automatic Versioning**: feat → minor, fix → patch, BREAKING CHANGE → major
 - **Auto-Generated Changelog**: From commit history
 - **GitHub Releases**: Automatically created on version bump
 
 #### 2. Multi-Architecture Support
+
 - **Platforms**: linux/amd64 and linux/arm64
 - **CI Validation**: Separate job validates multi-arch builds
 - **Release Publishing**: Multi-arch images pushed to ghcr.io
 
 #### 3. Dependency Automation
+
 - **Dependabot**: Weekly updates for Go, npm, Docker, GitHub Actions
 - **Auto-Merge**: Patch updates auto-merge after tests pass
 - **Auto-Approve**: Minor updates auto-approved
 - **Manual Review**: Major updates flagged for review
 
 #### 4. Quality Gates
+
 - **Coverage Enforcement**: 50% minimum (target 70%)
 - **Benchmark Comparison**: PR benchmarks vs main baseline
 - **Performance Regression**: Fails on >10% degradation
 - **OSSF Scorecard**: Security best practices evaluation
 
 #### 5. Comprehensive Testing
+
 - **Unit Tests**: Go tests with race detection
 - **Integration Tests**: Full docker-compose stack
 - **Database Migration Tests**: Postgres schema validation
@@ -131,6 +136,7 @@ vod-tender/
 ## Commit Message Format
 
 ### Valid Examples
+
 ```bash
 ✅ feat(api): add new VOD filtering endpoint
 ✅ fix(chat): resolve race condition in recorder
@@ -144,6 +150,7 @@ vod-tender/
 ```
 
 ### Version Bumps
+
 ```
 feat(api): add filtering     → 1.0.0 → 1.1.0 (minor)
 fix(chat): fix timing issue  → 1.0.0 → 1.0.1 (patch)
@@ -155,6 +162,7 @@ chore: update deps           → No version bump
 ## Testing the Changes
 
 ### Locally
+
 ```bash
 # Validate commit message format
 npx commitlint --from HEAD~1 --to HEAD
@@ -175,6 +183,7 @@ make test-integration
 ```
 
 ### In CI
+
 - All workflows automatically run on PR
 - Check "Actions" tab for results
 - Review any failures and fix before merge
@@ -242,11 +251,13 @@ cosign verify \
 ## Migration Notes
 
 ### For Existing Contributors
+
 - **Must use conventional commit format** going forward
 - Commits not following format will fail CI
 - See `docs/CONTRIBUTING.md` for examples
 
 ### For Maintainers
+
 - **No manual version bumping needed** - fully automated
 - **Monitor first few automated releases** for issues
 - **Deployment workflows** need infrastructure setup to be functional
@@ -254,6 +265,7 @@ cosign verify \
 ## Success Criteria
 
 ✅ All acceptance criteria from the issue met:
+
 - ✅ Enhanced CI pipeline with multi-arch support
 - ✅ Dependency management with auto-merge
 - ✅ Release automation with semantic versioning

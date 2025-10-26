@@ -144,3 +144,6 @@ secrets/
 # Go test coverage
 *.out
 coverage.out
+
+# Backend binary
+backend/vod-tender

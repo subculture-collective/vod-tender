@@ -302,14 +302,13 @@ make logs-backend
 ```
 
 Each channel independently:
-- Polls for new VODs every 6 hours
-- Processes unprocessed VODs every 1 minute
+- Polls for new VODs every 6 hours (catalog backfill)
+- Processes unprocessed VODs every 1 minute (processing job)
 - Records live chat (if streaming)
 - Maintains its own circuit breaker state
 
 ## Resources
 
-- [Original Issue](https://github.com/subculture-collective/vod-tender/issues/XX)
 - [Database Schema](../backend/db/db.go)
 - [Configuration](../backend/config/config.go)
 - [Main Orchestration](../backend/main.go)

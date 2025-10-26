@@ -44,6 +44,10 @@ func (youtubeUploader) Upload(ctx context.Context, path, title string, date time
 	return uploadToYouTube(ctx, path, title, date)
 }
 
+// vodCustomDescKey is an unexported type used as a context key for custom VOD descriptions.
+// Using a named type prevents collisions with other context keys.
+type vodCustomDescKey struct{}
+
 // configurable for tests
 var (
 	downloader Downloader = ytDLPDownloader{}
@@ -52,16 +56,17 @@ var (
 
 // StartVODProcessingJob runs a loop that picks the next unprocessed VOD and processes it.
 // It is safe to run a single instance per process; for multiple workers add distributed coordination.
-func StartVODProcessingJob(ctx context.Context, dbc *sql.DB) {
+// The channel parameter filters VODs to process for a specific Twitch channel.
+func StartVODProcessingJob(ctx context.Context, dbc *sql.DB, channel string) {
 	interval := 1 * time.Minute
 	if s := os.Getenv("VOD_PROCESS_INTERVAL"); s != "" {
 		if d, err := time.ParseDuration(s); err == nil && d > 0 {
 			interval = d
 		}
 	}
-	slog.Info("vod processing job starting", slog.Duration("interval", interval))
+	slog.Info("vod processing job starting", slog.Duration("interval", interval), slog.String("channel", channel))
 	// Kick an immediate run so we don't wait a full interval after boot.
-	if err := processOnce(ctx, dbc); err != nil {
+	if err := processOnce(ctx, dbc, channel); err != nil {
 		slog.Warn("process once", slog.Any("err", err))
 	}
 	ticker := time.NewTicker(interval)
@@ -69,10 +74,10 @@ func StartVODProcessingJob(ctx context.Context, dbc *sql.DB) {
 	for {
 		select {
 		case <-ctx.Done():
-			slog.Info("vod processing job stopped")
+			slog.Info("vod processing job stopped", slog.String("channel", channel))
 			return
 		case <-ticker.C:
-			if err := processOnce(ctx, dbc); err != nil {
+			if err := processOnce(ctx, dbc, channel); err != nil {
 				slog.Warn("process once", slog.Any("err", err))
 			}
 		}
@@ -81,26 +86,26 @@ func StartVODProcessingJob(ctx context.Context, dbc *sql.DB) {
 
 // processOnce selects a single pending VOD and processes it.
 // It implements a simple circuit breaker to avoid hot-looping on systemic failures.
-func processOnce(ctx context.Context, dbc *sql.DB) error {
+func processOnce(ctx context.Context, dbc *sql.DB, channel string) error {
 	ctx, span := telemetry.StartSpan(ctx, "vod-processing", "processOnce")
 	defer span.End()
 	
-	_, _ = dbc.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('job_vod_process_last', to_char(NOW() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'), NOW())
-		ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`)
+	_, _ = dbc.ExecContext(ctx, `INSERT INTO kv (channel,key,value,updated_at) VALUES ($1,'job_vod_process_last', to_char(NOW() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'), NOW())
+		ON CONFLICT(channel,key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, channel)
 	var state, until string
-	_ = dbc.QueryRowContext(ctx, `SELECT value FROM kv WHERE key='circuit_state'`).Scan(&state)
+	_ = dbc.QueryRowContext(ctx, `SELECT value FROM kv WHERE channel=$1 AND key='circuit_state'`, channel).Scan(&state)
 	if state == "open" {
-		_ = dbc.QueryRowContext(ctx, `SELECT value FROM kv WHERE key='circuit_open_until'`).Scan(&until)
+		_ = dbc.QueryRowContext(ctx, `SELECT value FROM kv WHERE channel=$1 AND key='circuit_open_until'`, channel).Scan(&until)
 		if until != "" {
 			if t, err := time.Parse(time.RFC3339, until); err == nil {
 				if time.Now().Before(t) {
-					slog.Debug("circuit open; skipping processing cycle", slog.String("until", until))
+					slog.Debug("circuit open; skipping processing cycle", slog.String("until", until), slog.String("channel", channel))
 					span.SetAttributes(attribute.String("circuit.state", "open"))
 					return nil
 				}
-				_, _ = dbc.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_state','half-open',CURRENT_TIMESTAMP)
-					ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP`)
-				slog.Info("circuit transitioning to half-open")
+				_, _ = dbc.ExecContext(ctx, `INSERT INTO kv (channel,key,value,updated_at) VALUES ($1,'circuit_state','half-open',CURRENT_TIMESTAMP)
+					ON CONFLICT(channel,key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP`, channel)
+				slog.Info("circuit transitioning to half-open", slog.String("channel", channel))
 				span.SetAttributes(attribute.String("circuit.state", "half-open"))
 			}
 		}
@@ -143,7 +148,7 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 			cutoff := time.Now().Add(-time.Duration(keepDays) * 24 * time.Hour)
 			// Build a set of active paths from DB
 			active := map[string]struct{}{}
-			rows, err := dbc.QueryContext(ctx, `SELECT downloaded_path FROM vods WHERE downloaded_path IS NOT NULL`)
+			rows, err := dbc.QueryContext(ctx, `SELECT downloaded_path FROM vods WHERE channel=$1 AND downloaded_path IS NOT NULL`, channel)
 			if err == nil {
 				defer func() {
 					if err := rows.Close(); err != nil {
@@ -184,14 +189,14 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 			}
 		}
 	}
-	if err := DiscoverAndUpsert(ctx, dbc); err != nil {
-		slog.Warn("discover vods", slog.Any("err", err), slog.String("component", "vod_process"))
+	if err := DiscoverAndUpsert(ctx, dbc, channel); err != nil {
+		slog.Warn("discover vods", slog.Any("err", err), slog.String("component", "vod_process"), slog.String("channel", channel))
 		return err
 	}
 	// Queue depth (unprocessed VODs)
 	var queueDepth int
-	_ = dbc.QueryRowContext(ctx, `SELECT COUNT(1) FROM vods WHERE COALESCE(processed,false)=false`).Scan(&queueDepth)
-	slog.Debug("processing cycle queue depth", slog.Int("queue_depth", queueDepth), slog.String("component", "vod_process"))
+	_ = dbc.QueryRowContext(ctx, `SELECT COUNT(1) FROM vods WHERE channel=$1 AND COALESCE(processed,false)=false`, channel).Scan(&queueDepth)
+	slog.Debug("processing cycle queue depth", slog.Int("queue_depth", queueDepth), slog.String("component", "vod_process"), slog.String("channel", channel))
 	telemetry.SetQueueDepth(queueDepth)
 	// Backfill upload throttling: limit back-catalog uploads per 24h window.
 	// Define back-catalog as VODs older than RETAIN_KEEP_NEWER_THAN_DAYS (default 7 days).
@@ -210,7 +215,7 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 	}
 	// Count successful uploads of back-catalog in past 24h
 	var backfillUploaded24 int
-	_ = dbc.QueryRowContext(ctx, `SELECT COUNT(1) FROM vods WHERE youtube_url IS NOT NULL AND date < $1 AND updated_at > (NOW() - INTERVAL '24 hours')`, backfillCutoff).Scan(&backfillUploaded24)
+	_ = dbc.QueryRowContext(ctx, `SELECT COUNT(1) FROM vods WHERE channel=$1 AND youtube_url IS NOT NULL AND date < $2 AND updated_at > (NOW() - INTERVAL '24 hours')`, channel, backfillCutoff).Scan(&backfillUploaded24)
 	backfillThrottled := backfillUploaded24 >= dailyLimit
 	maxAttempts := 5
 	if s := os.Getenv("DOWNLOAD_MAX_ATTEMPTS"); s != "" {
@@ -226,10 +231,10 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 	}
 	// Select a small batch of candidates and pick the first eligible.
 	rows, err := dbc.QueryContext(ctx, `SELECT twitch_vod_id, title, date FROM vods
-		WHERE COALESCE(processed,false)=false AND (
-			processing_error IS NULL OR processing_error='' OR (download_retries < $1 AND EXTRACT(EPOCH FROM (NOW() - COALESCE(updated_at, created_at))) >= $2)
+		WHERE channel=$1 AND COALESCE(processed,false)=false AND (
+			processing_error IS NULL OR processing_error='' OR (download_retries < $2 AND EXTRACT(EPOCH FROM (NOW() - COALESCE(updated_at, created_at))) >= $3)
 		)
-		ORDER BY priority DESC, date ASC LIMIT 20`, maxAttempts, int(cooldown.Seconds()))
+		ORDER BY priority DESC, date ASC LIMIT 20`, channel, maxAttempts, int(cooldown.Seconds()))
 	if err != nil {
 		return err
 	}
@@ -309,7 +314,7 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 		logger.Error("download failed", slog.Any("err", err), slog.Duration("download_duration", dlDur), slog.Int("queue_depth", queueDepth))
 		telemetry.DownloadsFailed.Inc()
 		_, _ = dbc.ExecContext(ctx, `UPDATE vods SET processing_error=$1, updated_at=NOW() WHERE twitch_vod_id=$2`, err.Error(), id)
-		updateCircuitOnFailure(ctx, dbc)
+		updateCircuitOnFailure(ctx, dbc, channel)
 		telemetry.UpdateCircuitGauge(true)
 		return nil
 	}
@@ -321,7 +326,7 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 	telemetry.DownloadsSucceeded.Inc()
 	telemetry.DownloadDuration.Observe(dlDur.Seconds())
 	logger.Info("download complete", slog.String("path", filePath), slog.Duration("download_duration", dlDur))
-	resetCircuit(ctx, dbc)
+	resetCircuit(ctx, dbc, channel)
 	_, _ = dbc.ExecContext(ctx, `UPDATE vods SET downloaded_path=$1, updated_at=NOW() WHERE twitch_vod_id=$2`, filePath, id)
 	// Idempotency: if a YouTube URL already exists, skip upload to prevent duplicates.
 	var preYT string
@@ -371,7 +376,7 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 			upStart := time.Now()
 			// Temporarily override description if custom provided via context key
 			if customDesc != "" {
-				uploadCtx = context.WithValue(uploadCtx, struct{ string }{"vod_custom_desc"}, customDesc)
+				uploadCtx = context.WithValue(uploadCtx, vodCustomDescKey{}, customDesc)
 			}
 			url, err := uploader.Upload(uploadCtx, filePath, title, date)
 			if err == nil {
@@ -455,11 +460,11 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 		telemetry.ProcessingStepDuration.WithLabelValues("total").Observe(totalDur.Seconds())
 	}
 	
-	updateMovingAvg(ctx, dbc, "avg_download_ms", float64(dlDur.Milliseconds()))
+	updateMovingAvg(ctx, dbc, channel, "avg_download_ms", float64(dlDur.Milliseconds()))
 	if upDur > 0 {
-		updateMovingAvg(ctx, dbc, "avg_upload_ms", float64(upDur.Milliseconds()))
+		updateMovingAvg(ctx, dbc, channel, "avg_upload_ms", float64(upDur.Milliseconds()))
 	}
-	updateMovingAvg(ctx, dbc, "avg_total_ms", float64(totalDur.Milliseconds()))
+	updateMovingAvg(ctx, dbc, channel, "avg_total_ms", float64(totalDur.Milliseconds()))
 	
 	// Set final span attributes
 	span.SetAttributes(
@@ -478,13 +483,13 @@ func processOnce(ctx context.Context, dbc *sql.DB) error {
 
 // updateMovingAvg maintains a simple exponential moving average (EMA) stored in kv.
 // alpha = 0.2 (new contributes 20%). Values stored as integer milliseconds.
-func updateMovingAvg(ctx context.Context, db *sql.DB, key string, newVal float64) {
+func updateMovingAvg(ctx context.Context, db *sql.DB, channel, key string, newVal float64) {
 	const alpha = 0.2
 	var existing string
-	_ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key=$1`, key).Scan(&existing)
+	_ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE channel=$1 AND key=$2`, channel, key).Scan(&existing)
 	if existing == "" {
-		_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ($1,$2,NOW())
-			ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, key, fmt.Sprintf("%.0f", newVal))
+		_, _ = db.ExecContext(ctx, `INSERT INTO kv (channel,key,value,updated_at) VALUES ($1,$2,$3,NOW())
+			ON CONFLICT(channel,key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, channel, key, fmt.Sprintf("%.0f", newVal))
 		return
 	}
 	var old float64
@@ -492,8 +497,8 @@ func updateMovingAvg(ctx context.Context, db *sql.DB, key string, newVal float64
 		old = v
 	}
 	ema := alpha*newVal + (1-alpha)*old
-	_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ($1,$2,NOW())
-		ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, key, fmt.Sprintf("%.0f", ema))
+	_, _ = db.ExecContext(ctx, `INSERT INTO kv (channel,key,value,updated_at) VALUES ($1,$2,$3,NOW())
+		ON CONFLICT(channel,key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, channel, key, fmt.Sprintf("%.0f", ema))
 }
 
 // uploadToYouTube uploads the given video file using stored OAuth token.
@@ -544,7 +549,7 @@ func uploadToYouTube(ctx context.Context, path, title string, date time.Time) (s
 	}
 	// Use custom description if provided in context (set by processOnce) else fall back to default
 	description := fmt.Sprintf("Uploaded from Twitch VOD on %s", date.Format(time.RFC3339))
-	if v := ctx.Value(struct{ string }{"vod_custom_desc"}); v != nil {
+	if v := ctx.Value(vodCustomDescKey{}); v != nil {
 		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
 			description = s
 		}

@@ -6,6 +6,13 @@ import (
 	"time"
 )
 
+func TestDefaultChannelConstant(t *testing.T) {
+	// Verify DefaultChannel is an empty string as expected for legacy single-channel mode
+	if DefaultChannel != "" {
+		t.Errorf("DefaultChannel = %q, want empty string for legacy compatibility", DefaultChannel)
+	}
+}
+
 func TestLoadDefaults(t *testing.T) {
 	t.Setenv("TWITCH_VOD_ID", "")
 	t.Setenv("TWITCH_VOD_START", "")
@@ -35,5 +42,16 @@ func TestValidateChatReady(t *testing.T) {
 	cfg, _ = Load()
 	if err := cfg.ValidateChatReady(); err == nil {
 		t.Errorf("expected error when missing twitch envs")
+	}
+}
+
+func TestValidateChatReadyWithDefaultChannel(t *testing.T) {
+	// Test that DefaultChannel (empty string) fails validation
+	t.Setenv("TWITCH_CHANNEL", DefaultChannel)
+	t.Setenv("TWITCH_BOT_USERNAME", "bot")
+	t.Setenv("TWITCH_OAUTH_TOKEN", "oauth:token")
+	cfg, _ := Load()
+	if err := cfg.ValidateChatReady(); err == nil {
+		t.Errorf("expected error when TWITCH_CHANNEL is DefaultChannel (empty), but validation passed")
 	}
 }

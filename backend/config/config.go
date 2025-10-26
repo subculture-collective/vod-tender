@@ -10,6 +10,11 @@ import (
 	"time"
 )
 
+// DefaultChannel represents the legacy single-channel mode where no specific channel
+// name is configured. This empty string value is used as a sentinel throughout the
+// codebase to indicate backward compatibility with single-channel deployments.
+const DefaultChannel = ""
+
 type Config struct {
 	// Twitch
 	TwitchChannel      string
@@ -116,7 +121,7 @@ func Load() (*Config, error) {
 
 // ValidateChatReady checks required fields when chat is enabled (manual recorder path).
 func (c *Config) ValidateChatReady() error {
-	if c.TwitchChannel == "" || c.TwitchBotUsername == "" || c.TwitchOAuthToken == "" {
+	if c.TwitchChannel == DefaultChannel || c.TwitchBotUsername == "" || c.TwitchOAuthToken == "" {
 		return fmt.Errorf("missing twitch env: require TWITCH_CHANNEL, TWITCH_BOT_USERNAME, TWITCH_OAUTH_TOKEN")
 	}
 	return nil

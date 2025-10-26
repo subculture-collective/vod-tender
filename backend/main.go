@@ -108,11 +108,20 @@ func main() {
 		}
 	}()
 	
-	// Create a context for migration
-	migrationCtx := context.Background()
-	if err := db.Migrate(migrationCtx, database); err != nil {
-		slog.Error("failed to migrate db", slog.Any("err", err))
-		os.Exit(1)
+	// Run versioned database migrations using golang-migrate
+	// Falls back to old idempotent Migrate() if versioned migrations fail
+	slog.Info("running database migrations", slog.String("component", "db_migrate"))
+	if err := db.RunMigrations(database); err != nil {
+		slog.Error("versioned migrations failed, attempting fallback to legacy migration", slog.Any("err", err))
+		// Fallback to old migration system for backward compatibility
+		migrationCtx := context.Background()
+		if err := db.Migrate(migrationCtx, database); err != nil {
+			slog.Error("failed to migrate db", slog.Any("err", err))
+			os.Exit(1)
+		}
+		slog.Info("legacy migration completed successfully")
+	} else {
+		slog.Info("versioned migrations completed successfully")
 	}
 
 	// Root context with graceful shutdown

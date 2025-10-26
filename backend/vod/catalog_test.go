@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/onnwee/vod-tender/backend/config"
 )
 
 func TestParseTwitchDurationEdgeCases(t *testing.T) {
@@ -37,8 +39,8 @@ func TestParseTwitchDurationEdgeCases(t *testing.T) {
 }
 
 func TestFetchChannelVODsEmpty(t *testing.T) {
-	// Test when TWITCH_CHANNEL is not set
-	t.Setenv("TWITCH_CHANNEL", "")
+	// Test when TWITCH_CHANNEL is not set (using DefaultChannel sentinel)
+	t.Setenv("TWITCH_CHANNEL", config.DefaultChannel)
 	ctx := context.Background()
 	vods, err := FetchChannelVODs(ctx)
 	if err != nil {

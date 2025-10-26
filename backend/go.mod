@@ -21,6 +21,7 @@ require (
 // sqlite3 dependency removed after migration to Postgres
 
 require (
+	github.com/golang-migrate/migrate/v4 v4.19.0
 	go.opentelemetry.io/otel v1.38.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.38.0
 	go.opentelemetry.io/otel/sdk v1.38.0
@@ -37,7 +38,6 @@ require (
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/golang-migrate/migrate/v4 v4.19.0 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.6 // indirect
 	github.com/googleapis/gax-go/v2 v2.15.0 // indirect

@@ -25,9 +25,9 @@ import (
 
 // VOD is the core model (DB schema defined in db.migrate). It mirrors a subset of Twitch video metadata.
 type VOD struct {
+	Date     time.Time
 	ID       string
 	Title    string
-	Date     time.Time
 	Duration int
 }
 
@@ -381,7 +381,7 @@ func updateCircuitOnFailure(ctx context.Context, db *sql.DB, channel string) {
 			}
 		}
 		until := time.Now().Add(cool).UTC().Format(time.RFC3339)
-		
+
 		// Check previous state for metrics
 		var prevState string
 		_ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE channel=$1 AND key='circuit_state'`, channel).Scan(&prevState)
@@ -389,11 +389,11 @@ func updateCircuitOnFailure(ctx context.Context, db *sql.DB, channel string) {
 			prevState = "closed"
 		}
 		
-		_, _ = db.ExecContext(ctx, `INSERT INTO kv (channel,key,value,updated_at) VALUES ($1,'circuit_state','open',NOW())
-			ON CONFLICT(channel,key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, channel)
-		_, _ = db.ExecContext(ctx, `INSERT INTO kv (channel,key,value,updated_at) VALUES ($1,'circuit_open_until',$2,NOW())
-			ON CONFLICT(channel,key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, channel, until)
-		slog.Warn("circuit opened", slog.Int("failures", fails), slog.String("until", until), slog.String("channel", channel))
+		_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_state','open',NOW())
+			ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`)
+		_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_open_until',$1,NOW())
+			ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, until)
+		slog.Warn("circuit opened", slog.Int("failures", fails), slog.String("until", until))
 		telemetry.UpdateCircuitGauge(true)
 		telemetry.RecordCircuitStateChange(prevState, "open")
 	}
@@ -406,16 +406,16 @@ func resetCircuit(ctx context.Context, db *sql.DB, channel string) {
 	if state == "closed" && os.Getenv("CIRCUIT_FAILURE_THRESHOLD") == "" {
 		return
 	}
-	
+
 	// Record state change if transitioning
 	if state != "" && state != "closed" {
 		telemetry.RecordCircuitStateChange(state, "closed")
 	}
 	
-	_, _ = db.ExecContext(ctx, `INSERT INTO kv (channel,key,value,updated_at) VALUES ($1,'circuit_failures','0',NOW())
-		ON CONFLICT(channel,key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, channel)
-	_, _ = db.ExecContext(ctx, `INSERT INTO kv (channel,key,value,updated_at) VALUES ($1,'circuit_state','closed',NOW())
-		ON CONFLICT(channel,key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, channel)
-	_, _ = db.ExecContext(ctx, `DELETE FROM kv WHERE channel=$1 AND key IN ('circuit_open_until')`, channel)
+	_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_failures','0',NOW())
+		ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`)
+	_, _ = db.ExecContext(ctx, `INSERT INTO kv (key,value,updated_at) VALUES ('circuit_state','closed',NOW())
+		ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`)
+	_, _ = db.ExecContext(ctx, `DELETE FROM kv WHERE key IN ('circuit_open_until')`)
 	telemetry.UpdateCircuitGauge(false)
 }

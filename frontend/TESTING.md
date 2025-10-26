@@ -149,6 +149,7 @@ Test coverage thresholds are enforced in CI:
 - **Statements**: 80%
 
 Current coverage:
+
 - **Overall**: 93.79% statements, 90.62% branches, 68.75% functions
 
 ## MSW API Mocking
@@ -196,6 +197,7 @@ Configure in `package.json` under `lint-staged`.
 Tests run automatically on pull requests:
 
 ### Frontend Job
+
 - TypeScript type checking
 - ESLint linting
 - Prettier format check
@@ -204,6 +206,7 @@ Tests run automatically on pull requests:
 - Coverage upload to Codecov
 
 ### Frontend E2E Job
+
 - Playwright E2E tests (Chromium only)
 - Accessibility tests with axe-core
 - Test reports uploaded as artifacts
@@ -301,6 +304,7 @@ npx playwright test e2e/vod-list.spec.ts
 ### "MSW handler not being called"
 
 Make sure the URL in the handler matches exactly:
+
 ```typescript
 // Correct - matches fetch('/vods')
 http.get('/vods', () => ...)
@@ -312,6 +316,7 @@ http.get('http://localhost:3000/vods', () => ...)
 ### "act() warning in tests"
 
 Wrap state updates in `waitFor()`:
+
 ```typescript
 await waitFor(() => {
   expect(screen.getByText('Updated')).toBeInTheDocument()
@@ -321,6 +326,7 @@ await waitFor(() => {
 ### "Playwright test timing out"
 
 Increase timeout or check for hung processes:
+
 ```typescript
 test('slow test', async ({ page }) => {
   test.setTimeout(60000) // 60 seconds

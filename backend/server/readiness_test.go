@@ -84,6 +84,11 @@ func TestReadyzNotReadyCircuitOpen(t *testing.T) {
 		t.Fatalf("expected 503, got %d, body=%s", rr.Code, rr.Body.String())
 	}
 
+	// Ensure Content-Type is set before status write path
+	if ct := rr.Header().Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("expected Content-Type=application/json, got %q", ct)
+	}
+
 	var resp map[string]string
 	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
@@ -116,6 +121,11 @@ func TestReadyzNotReadyMissingCredentials(t *testing.T) {
 
 	if rr.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d, body=%s", rr.Code, rr.Body.String())
+	}
+
+	// Ensure Content-Type is set before status write path
+	if ct := rr.Header().Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("expected Content-Type=application/json, got %q", ct)
 	}
 
 	var resp map[string]string

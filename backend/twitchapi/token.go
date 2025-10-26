@@ -17,13 +17,12 @@ import (
 // TokenSource fetches and caches a Twitch app access (client credentials) token.
 // NOTE: This token CANNOT be used for IRC chat; chat requires a user (bot) OAuth token with chat:read/chat:edit scopes.
 type TokenSource struct {
+	expiresAt    time.Time
+	HTTPClient   *http.Client
 	ClientID     string
 	ClientSecret string
-	HTTPClient   *http.Client
-
-	mu        sync.RWMutex
-	token     string
-	expiresAt time.Time
+	token        string
+	mu           sync.RWMutex
 }
 
 // Get returns a valid (fresh or cached) app access token.
@@ -75,8 +74,8 @@ func (ts *TokenSource) refresh(ctx context.Context) (string, error) {
 	}
 	var at struct {
 		AccessToken string `json:"access_token"`
-		ExpiresIn   int    `json:"expires_in"`
 		TokenType   string `json:"token_type"`
+		ExpiresIn   int    `json:"expires_in"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&at); err != nil {
 		return "", err

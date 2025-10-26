@@ -97,7 +97,7 @@ func NewMux(db *sql.DB) http.Handler {
 			return
 		}
 		// persist tokens using dbpkg.UpsertOAuthToken (handles encryption)
-		dbErr := dbpkg.UpsertOAuthToken(ctx, db, "twitch", res.AccessToken, res.RefreshToken, 
+		dbErr := dbpkg.UpsertOAuthToken(ctx, db, "twitch", res.AccessToken, res.RefreshToken,
 			twitchapi.ComputeExpiry(res.ExpiresIn), "", strings.Join(res.Scope, " "))
 		if dbErr != nil {
 			http.Error(w, dbErr.Error(), 500)
@@ -205,6 +205,7 @@ func NewMux(db *sql.DB) http.Handler {
 
 		for _, check := range checks {
 			if err := check.fn(); err != nil {
+				// Set headers before writing status code
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusServiceUnavailable)
 				_ = json.NewEncoder(w).Encode(map[string]string{
@@ -352,11 +353,11 @@ func NewMux(db *sql.DB) http.Handler {
 			}
 		}()
 		type vod struct {
+			Date      time.Time `json:"date"`
 			ID        string    `json:"id"`
 			Title     string    `json:"title"`
-			Date      time.Time `json:"date"`
-			Processed bool      `json:"processed"`
 			YouTube   string    `json:"youtube_url"`
+			Processed bool      `json:"processed"`
 		}
 		list := make([]vod, 0)
 		for rows.Next() {
@@ -539,7 +540,7 @@ func NewMux(db *sql.DB) http.Handler {
 		}
 		ctx := telemetry.WithCorrelation(r.Context(), corr)
 		w.Header().Set("X-Correlation-ID", corr)
-		
+
 		// Start tracing span if enabled
 		ctx, span := telemetry.StartSpan(ctx, "http-server", r.Method+" "+r.URL.Path,
 			telemetry.HTTPMethodAttr(r.Method),
@@ -547,14 +548,14 @@ func NewMux(db *sql.DB) http.Handler {
 			telemetry.HTTPURLAttr(r.URL.String()),
 		)
 		defer span.End()
-		
+
 		// Provide logger with corr for downstream if needed
 		telemetry.LoggerWithCorr(ctx).Debug("request start", slog.String("method", r.Method), slog.String("path", r.URL.Path), slog.String("component", "http"))
-		
+
 		// Capture status code via custom ResponseWriter
 		wrappedWriter := &statusRecorder{ResponseWriter: w, statusCode: http.StatusOK}
 		mux.ServeHTTP(wrappedWriter, r.WithContext(ctx))
-		
+
 		// Record HTTP status in span
 		telemetry.SetSpanHTTPStatus(span, wrappedWriter.statusCode)
 		if wrappedWriter.statusCode >= 400 {
@@ -626,18 +627,18 @@ func handleVodDetail(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID s
     FROM vods WHERE twitch_vod_id=$1
     `, vodID)
 	type vod struct {
+		Date            time.Time  `json:"date"`
+		ProgressUpdated *time.Time `json:"progress_updated_at,omitempty"`
 		ID              string     `json:"id"`
 		Title           string     `json:"title"`
-		Date            time.Time  `json:"date"`
-		Duration        int        `json:"duration_seconds"`
-		Processed       bool       `json:"processed"`
 		YouTube         string     `json:"youtube_url"`
 		DownloadedPath  string     `json:"downloaded_path"`
 		DownloadState   string     `json:"download_state"`
+		Description     string     `json:"description"`
+		Duration        int        `json:"duration_seconds"`
 		DownloadRetries int        `json:"download_retries"`
 		DownloadTotal   int64      `json:"download_total"`
-		ProgressUpdated *time.Time `json:"progress_updated_at,omitempty"`
-		Description     string     `json:"description"`
+		Processed       bool       `json:"processed"`
 	}
 	var v vod
 	if err := row.Scan(&v.ID, &v.Title, &v.Date, &v.Duration, &v.Processed, &v.YouTube,
@@ -749,13 +750,13 @@ func handleChatJSON(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID st
 		}
 	}()
 	type msg struct {
+		Abs    time.Time `json:"abs_timestamp"`
 		User   string    `json:"username"`
 		Text   string    `json:"message"`
-		Abs    time.Time `json:"abs_timestamp"`
-		Rel    float64   `json:"rel_timestamp"`
 		Badges string    `json:"badges"`
 		Emotes string    `json:"emotes"`
 		Color  string    `json:"color"`
+		Rel    float64   `json:"rel_timestamp"`
 	}
 	out := make([]msg, 0)
 	for rows.Next() {
@@ -803,13 +804,13 @@ func handleChatSSE(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID str
 	w.Header().Set("Connection", "keep-alive")
 
 	type row struct {
+		Abs    time.Time
 		User   string
 		Text   string
-		Abs    time.Time
-		Rel    float64
 		Badges string
 		Emotes string
 		Color  string
+		Rel    float64
 	}
 	prev := from
 	enc := json.NewEncoder(w)

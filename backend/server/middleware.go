@@ -127,25 +127,30 @@ type visitor struct {
 }
 
 // newIPRateLimiter creates a new rate limiter
-func newIPRateLimiter(cfg *rateLimiterConfig) *ipRateLimiter {
+func newIPRateLimiter(ctx context.Context, cfg *rateLimiterConfig) *ipRateLimiter {
 	limiter := &ipRateLimiter{
 		visitors: make(map[string]*visitor),
 		cfg:      cfg,
 	}
 	
 	// Start cleanup goroutine to remove stale entries
-	go limiter.cleanupLoop()
+	go limiter.cleanupLoop(ctx)
 	
 	return limiter
 }
 
 // cleanupLoop periodically removes stale visitor entries
-func (rl *ipRateLimiter) cleanupLoop() {
+func (rl *ipRateLimiter) cleanupLoop(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 	
-	for range ticker.C {
-		rl.cleanup()
+	for {
+		select {
+		case <-ticker.C:
+			rl.cleanup()
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 

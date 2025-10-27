@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -124,7 +125,7 @@ func TestRateLimiter(t *testing.T) {
 		requestsPerIP: 3,
 		window:        100 * time.Millisecond,
 	}
-	limiter := newIPRateLimiter(cfg)
+	limiter := newIPRateLimiter(context.Background(), cfg)
 
 	// First 3 requests should succeed
 	for i := 0; i < 3; i++ {
@@ -153,7 +154,7 @@ func TestRateLimiterDifferentIPs(t *testing.T) {
 		requestsPerIP: 2,
 		window:        1 * time.Second,
 	}
-	limiter := newIPRateLimiter(cfg)
+	limiter := newIPRateLimiter(context.Background(), cfg)
 
 	// IP 1 makes 2 requests (should succeed)
 	if !limiter.allow("192.168.1.1") {
@@ -186,7 +187,7 @@ func TestRateLimiterDisabled(t *testing.T) {
 		requestsPerIP: 1,
 		window:        1 * time.Second,
 	}
-	limiter := newIPRateLimiter(cfg)
+	limiter := newIPRateLimiter(context.Background(), cfg)
 
 	// Should allow unlimited requests when disabled
 	for i := 0; i < 100; i++ {
@@ -202,7 +203,7 @@ func TestRateLimitMiddleware(t *testing.T) {
 		requestsPerIP: 2,
 		window:        1 * time.Second,
 	}
-	limiter := newIPRateLimiter(cfg)
+	limiter := newIPRateLimiter(context.Background(), cfg)
 
 	handler := rateLimitMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -243,7 +244,7 @@ func TestRateLimitMiddlewareWithXForwardedFor(t *testing.T) {
 		requestsPerIP: 2,
 		window:        1 * time.Second,
 	}
-	limiter := newIPRateLimiter(cfg)
+	limiter := newIPRateLimiter(context.Background(), cfg)
 
 	handler := rateLimitMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -596,6 +597,117 @@ func TestParseInt(t *testing.T) {
 			got := parseInt(tt.input, tt.defaultVal)
 			if got != tt.want {
 				t.Errorf("parseInt(%q, %d) = %d, want %d", tt.input, tt.defaultVal, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestVodSensitiveEndpointPattern(t *testing.T) {
+	tests := []struct {
+		name       string
+		path       string
+		shouldMatch bool
+	}{
+		// Valid VOD endpoints that should match
+		{
+			name:       "valid cancel endpoint",
+			path:       "/vods/123/cancel",
+			shouldMatch: true,
+		},
+		{
+			name:       "valid reprocess endpoint",
+			path:       "/vods/abc123/reprocess",
+			shouldMatch: true,
+		},
+		{
+			name:       "valid cancel with alphanumeric ID",
+			path:       "/vods/v1234567890/cancel",
+			shouldMatch: true,
+		},
+		{
+			name:       "valid reprocess with hyphenated ID",
+			path:       "/vods/vod-123-456/reprocess",
+			shouldMatch: true,
+		},
+		
+		// Invalid paths that should NOT match
+		{
+			name:       "generic cancel path",
+			path:       "/anything/cancel",
+			shouldMatch: false,
+		},
+		{
+			name:       "generic reprocess path",
+			path:       "/custom/reprocess",
+			shouldMatch: false,
+		},
+		{
+			name:       "cancel without vods prefix",
+			path:       "/api/123/cancel",
+			shouldMatch: false,
+		},
+		{
+			name:       "reprocess without vods prefix",
+			path:       "/admin/123/reprocess",
+			shouldMatch: false,
+		},
+		{
+			name:       "cancel with trailing slash",
+			path:       "/vods/123/cancel/",
+			shouldMatch: false,
+		},
+		{
+			name:       "reprocess with additional path segments",
+			path:       "/vods/123/reprocess/extra",
+			shouldMatch: false,
+		},
+		{
+			name:       "cancel with no ID",
+			path:       "/vods/cancel",
+			shouldMatch: false,
+		},
+		{
+			name:       "reprocess with no ID",
+			path:       "/vods/reprocess",
+			shouldMatch: false,
+		},
+		{
+			name:       "cancel with empty ID (double slash)",
+			path:       "/vods//cancel",
+			shouldMatch: false,
+		},
+		{
+			name:       "different vod endpoint",
+			path:       "/vods/123/progress",
+			shouldMatch: false,
+		},
+		{
+			name:       "vods list endpoint",
+			path:       "/vods",
+			shouldMatch: false,
+		},
+		{
+			name:       "vods detail endpoint",
+			path:       "/vods/123",
+			shouldMatch: false,
+		},
+		{
+			name:       "root cancel",
+			path:       "/cancel",
+			shouldMatch: false,
+		},
+		{
+			name:       "root reprocess",
+			path:       "/reprocess",
+			shouldMatch: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			matched := vodSensitiveEndpointPattern.MatchString(tt.path)
+			if matched != tt.shouldMatch {
+				t.Errorf("vodSensitiveEndpointPattern.MatchString(%q) = %v, want %v", tt.path, matched, tt.shouldMatch)
 			}
 		})
 	}

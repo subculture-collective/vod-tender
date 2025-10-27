@@ -166,6 +166,9 @@ See [SECURITY_HARDENING.md](./docs/SECURITY_HARDENING.md) for comprehensive guid
 - **Token rotation**: Rotate OAuth tokens periodically
 - **Least privilege**: Run with minimal required permissions
 - **Backup encryption**: Encrypt database backups at rest
+- **Admin authentication**: Configure `ADMIN_USERNAME`/`ADMIN_PASSWORD` or `ADMIN_TOKEN` for production
+- **Rate limiting**: Keep rate limiting enabled (default) to prevent abuse
+- **CORS restrictions**: Set `ENV=production` and configure `CORS_ALLOWED_ORIGINS` in production
 
 ### For Developers
 
@@ -177,6 +180,285 @@ See [SECURITY_HARDENING.md](./docs/SECURITY_HARDENING.md) for comprehensive guid
 - **Parameterized queries**: Never use string concatenation for SQL
 - **Secret scanning**: Pre-commit hooks prevent credential commits
 - **Container scanning**: Docker images scanned for vulnerabilities (Trivy)
+
+## Admin Authentication & Authorization
+
+**Status**: ✅ **Implemented** (as of current version)
+
+Admin endpoints (e.g., `/admin/*`, VOD cancellation, reprocessing) are protected with configurable authentication to prevent unauthorized access in production deployments.
+
+### Authentication Methods
+
+Two authentication methods are supported, configurable via environment variables:
+
+1. **Basic Authentication**: Traditional HTTP Basic Auth with username and password
+2. **Token-Based Authentication**: Bearer-style token passed via `X-Admin-Token` header
+
+Both methods can be enabled simultaneously. Token auth takes precedence when both credentials are provided.
+
+### Configuration
+
+**Development (default)**: Authentication is **disabled** when no credentials are configured. Admin endpoints are accessible without authentication for local development convenience.
+
+```bash
+# Development: No auth configured (UNPROTECTED)
+# Admin endpoints are accessible without credentials
+```
+
+⚠️ **Warning**: Logs will show: `Admin authentication not configured - admin endpoints are UNPROTECTED`
+
+**Production (recommended)**: Configure authentication using one or both methods:
+
+**Option 1: Basic Authentication**
+
+```bash
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=$(openssl rand -base64 24)  # Generate secure password
+```
+
+**Option 2: Token Authentication**
+
+```bash
+ADMIN_TOKEN=$(openssl rand -hex 32)  # Generate secure token (64 hex chars)
+```
+
+**Option 3: Both Methods** (maximum flexibility)
+
+```bash
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=<secure-password>
+ADMIN_TOKEN=<secure-token>
+```
+
+### Usage Examples
+
+**Basic Auth**:
+
+```bash
+# Command line
+curl -u admin:secret123 https://vod-api.example.com/admin/vod/scan
+
+# With Authorization header
+curl -H "Authorization: Basic YWRtaW46c2VjcmV0MTIz" https://vod-api.example.com/admin/vod/scan
+```
+
+**Token Auth**:
+
+```bash
+curl -H "X-Admin-Token: abc123xyz..." https://vod-api.example.com/admin/vod/scan
+```
+
+### Protected Endpoints
+
+When authentication is configured, the following endpoints require credentials:
+
+- `/admin/*` - All administrative operations
+  - `/admin/vod/scan` - Manual VOD discovery
+  - `/admin/vod/catalog` - Catalog backfill trigger
+  - `/admin/vod/chat/import` - Chat import trigger
+  - `/admin/monitor` - Monitoring summary
+- `/vods/{id}/cancel` - Cancel in-flight VOD download
+- `/vods/{id}/reprocess` - Reprocess failed VOD
+
+**Unprotected endpoints** (no auth required):
+
+- `/healthz`, `/readyz`, `/metrics` - Health checks and observability
+- `/status` - Public status summary
+- `/vods`, `/vods/{id}` - Read-only VOD listing and details
+- `/vods/{id}/chat` - Public chat replay
+- `/auth/*` - OAuth flows (have their own state-based protection)
+- `/config` - Safe configuration reading (secrets excluded)
+
+### Authentication Failure Handling
+
+When authentication fails:
+
+- **HTTP Status**: `401 Unauthorized`
+- **Header**: `WWW-Authenticate: Basic realm="vod-tender admin"` (for Basic Auth)
+- **Response Body**: `Unauthorized`
+- **Logging**: Warning logged with path and remote IP address
+
+Example:
+
+```
+WARN admin auth failed path=/admin/vod/scan remote_addr=203.0.113.1
+```
+
+### Security Considerations
+
+- **Constant-time comparison**: Password and token comparisons use `crypto/subtle.ConstantTimeCompare` to prevent timing attacks
+- **Secret storage**: Store `ADMIN_PASSWORD` and `ADMIN_TOKEN` in secure secret managers (AWS Secrets Manager, Kubernetes Secrets, HashiCorp Vault)
+- **TLS required**: Always use HTTPS in production to prevent credential interception
+- **Token length**: Use minimum 32-byte (64 hex character) tokens for adequate entropy
+- **Password strength**: Use minimum 16-character passwords with high entropy (e.g., generated via `openssl rand -base64 24`)
+- **Credential rotation**: Rotate admin credentials periodically (recommended: quarterly)
+
+## Rate Limiting
+
+**Status**: ✅ **Implemented** (as of current version)
+
+Rate limiting protects admin and sensitive endpoints from abuse, DoS attacks, and brute-force attempts.
+
+### Configuration
+
+Rate limiting is **enabled by default** with sensible limits:
+
+```bash
+RATE_LIMIT_ENABLED=1                # Default: enabled
+RATE_LIMIT_REQUESTS_PER_IP=10       # Default: 10 requests
+RATE_LIMIT_WINDOW_SECONDS=60        # Default: 60 seconds (1 minute)
+```
+
+**Disable rate limiting** (not recommended for production):
+
+```bash
+RATE_LIMIT_ENABLED=0
+```
+
+### Rate-Limited Endpoints
+
+The following endpoints are rate-limited per IP address:
+
+- All `/admin/*` endpoints
+- `/vods/{id}/cancel`
+- `/vods/{id}/reprocess`
+
+### Rate Limit Algorithm
+
+- **Type**: Sliding window per IP address
+- **Tracking**: Request timestamps stored in-memory per IP
+- **Cleanup**: Stale entries automatically removed every 60 seconds
+- **IP Detection**: Supports `X-Forwarded-For` header for proxy/load balancer deployments
+
+### Rate Limit Exceeded Response
+
+When rate limit is exceeded:
+
+- **HTTP Status**: `429 Too Many Requests`
+- **Header**: `Retry-After: 60` (seconds until retry allowed)
+- **Response Body**: `Too Many Requests - rate limit exceeded`
+- **Logging**: Warning logged with IP and path
+
+Example:
+
+```
+WARN rate limit exceeded ip=203.0.113.1 path=/admin/vod/scan
+```
+
+### Rate Limiting Behind Proxies
+
+If deployed behind a reverse proxy or load balancer (e.g., Nginx, Caddy, AWS ALB), ensure the proxy sets the `X-Forwarded-For` header to preserve the original client IP:
+
+**Nginx**:
+```nginx
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+```
+
+**Caddy**:
+```caddy
+reverse_proxy localhost:8080 {
+    header_up X-Forwarded-For {remote}
+}
+```
+
+Without proper forwarding, rate limiting will be applied per proxy IP, not per client.
+
+### Production Recommendations
+
+- **Keep enabled**: Rate limiting should be enabled in production
+- **Tune limits**: Adjust `RATE_LIMIT_REQUESTS_PER_IP` based on legitimate usage patterns
+- **Monitor logs**: Watch for rate limit warnings to detect abuse or adjust limits
+- **Combine with auth**: Rate limiting complements (not replaces) authentication
+
+## CORS (Cross-Origin Resource Sharing)
+
+**Status**: ✅ **Implemented** (as of current version)
+
+CORS policy controls which web origins can access the API from browsers. The default policy is permissive for development, restricted for production.
+
+### Configuration
+
+**Development Mode (default)**:
+
+```bash
+ENV=dev  # or ENV=development, or ENV unset
+# CORS: Permissive (Access-Control-Allow-Origin: *)
+```
+
+**Production Mode**:
+
+```bash
+ENV=production  # or ENV=prod
+CORS_ALLOWED_ORIGINS=https://vod.example.com,https://vod-admin.example.com,*.apps.example.com
+```
+
+**Explicit Override** (force permissive in production):
+
+```bash
+ENV=production
+CORS_PERMISSIVE=1  # Force permissive mode (not recommended)
+```
+
+### CORS Behavior
+
+**Permissive Mode** (development):
+- `Access-Control-Allow-Origin: *`
+- Accepts requests from any origin
+- Suitable for local development, testing, and public APIs
+
+**Restricted Mode** (production):
+- `Access-Control-Allow-Origin: <matched-origin>`
+- Only accepts requests from origins listed in `CORS_ALLOWED_ORIGINS`
+- Sets `Access-Control-Allow-Credentials: true`
+- Required for production deployments with frontend applications
+
+### Wildcard Subdomain Support
+
+CORS supports wildcard subdomain patterns:
+
+```bash
+CORS_ALLOWED_ORIGINS=*.example.com
+```
+
+Matches:
+- `https://app.example.com`
+- `https://api.example.com`
+- `https://vod.admin.example.com`
+- `https://example.com` (parent domain)
+
+### Allowed Methods and Headers
+
+**Methods**: `GET, POST, PUT, PATCH, DELETE, OPTIONS`
+
+**Headers**:
+- `Content-Type`
+- `Authorization`
+- `X-Admin-Token`
+- `X-Correlation-ID`
+
+### Preflight Requests
+
+OPTIONS requests are automatically handled with:
+- HTTP Status: `204 No Content`
+- Appropriate CORS headers
+
+### Production Best Practices
+
+1. **Always set ENV=production** in production deployments
+2. **Configure specific origins** via `CORS_ALLOWED_ORIGINS` (avoid wildcards if possible)
+3. **Use HTTPS** for all production origins
+4. **Review origins periodically** to remove stale entries
+5. **Monitor CORS errors** in browser console for misconfiguration
+
+### CORS Error Troubleshooting
+
+If browser shows CORS errors:
+
+1. **Check origin**: Ensure `CORS_ALLOWED_ORIGINS` includes your frontend origin exactly
+2. **Check protocol**: HTTP vs HTTPS must match
+3. **Check subdomain**: `example.com` ≠ `www.example.com` (unless wildcard used)
+4. **Check ENV**: Verify `ENV` is set correctly in environment
+5. **Restart service**: Changes require service restart to take effect
 
 ## Security Scanning Schedule
 

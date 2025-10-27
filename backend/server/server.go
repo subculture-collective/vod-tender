@@ -542,10 +542,10 @@ func NewMux(db *sql.DB) http.Handler {
 	selectiveHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Apply auth and rate limiting to admin endpoints
 		if strings.HasPrefix(r.URL.Path, "/admin/") {
-			// Apply rate limiting first, then auth
-			rateLimitMiddleware(adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Apply auth first, then rate limiting
+			adminAuth(rateLimitMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				mux.ServeHTTP(w, r)
-			}), authCfg), rateLimiter).ServeHTTP(w, r)
+			}), rateLimiter), authCfg).ServeHTTP(w, r)
 			return
 		}
 		

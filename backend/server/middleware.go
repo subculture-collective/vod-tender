@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -26,14 +27,14 @@ func loadAuthConfig() *authConfig {
 	username := os.Getenv("ADMIN_USERNAME")
 	password := os.Getenv("ADMIN_PASSWORD")
 	token := os.Getenv("ADMIN_TOKEN")
-	
+
 	// Auth is enabled if either basic auth (username+password) or token auth is configured
 	enabled := (username != "" && password != "") || token != ""
-	
+
 	if !enabled {
 		slog.Warn("Admin authentication not configured - admin endpoints are UNPROTECTED. Set ADMIN_USERNAME+ADMIN_PASSWORD or ADMIN_TOKEN for production")
 	}
-	
+
 	return &authConfig{
 		adminUsername: username,
 		adminPassword: password,
@@ -50,7 +51,7 @@ func adminAuth(next http.Handler, cfg *authConfig) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		
+
 		// Try token-based auth first (X-Admin-Token header)
 		if cfg.adminToken != "" {
 			token := r.Header.Get("X-Admin-Token")
@@ -59,7 +60,7 @@ func adminAuth(next http.Handler, cfg *authConfig) http.Handler {
 				return
 			}
 		}
-		
+
 		// Try Basic Auth
 		if cfg.adminUsername != "" && cfg.adminPassword != "" {
 			username, password, ok := r.BasicAuth()
@@ -72,7 +73,7 @@ func adminAuth(next http.Handler, cfg *authConfig) http.Handler {
 				}
 			}
 		}
-		
+
 		// Auth failed - return 401 with WWW-Authenticate header
 		w.Header().Set("WWW-Authenticate", `Basic realm="vod-tender admin"`)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -90,9 +91,9 @@ type rateLimiterConfig struct {
 // loadRateLimiterConfig reads rate limiter configuration from environment
 func loadRateLimiterConfig() *rateLimiterConfig {
 	enabled := os.Getenv("RATE_LIMIT_ENABLED") != "0" // Enabled by default
-	requestsPerIP := 10                                 // Default: 10 requests per window
-	window := 1 * time.Minute                          // Default: 1 minute window
-	
+	requestsPerIP := 10                               // Default: 10 requests per window
+	window := 1 * time.Minute                         // Default: 1 minute window
+
 	// Allow environment override
 	if v := os.Getenv("RATE_LIMIT_REQUESTS_PER_IP"); v != "" {
 		// Parse integer
@@ -100,13 +101,13 @@ func loadRateLimiterConfig() *rateLimiterConfig {
 			requestsPerIP = n
 		}
 	}
-	
+
 	if v := os.Getenv("RATE_LIMIT_WINDOW_SECONDS"); v != "" {
 		if n := parseInt(v, 60); n > 0 {
 			window = time.Duration(n) * time.Second
 		}
 	}
-	
+
 	return &rateLimiterConfig{
 		enabled:       enabled,
 		requestsPerIP: requestsPerIP,
@@ -132,10 +133,10 @@ func newIPRateLimiter(ctx context.Context, cfg *rateLimiterConfig) *ipRateLimite
 		visitors: make(map[string]*visitor),
 		cfg:      cfg,
 	}
-	
+
 	// Start cleanup goroutine to remove stale entries
 	go limiter.cleanupLoop(ctx)
-	
+
 	return limiter
 }
 
@@ -143,7 +144,7 @@ func newIPRateLimiter(ctx context.Context, cfg *rateLimiterConfig) *ipRateLimite
 func (rl *ipRateLimiter) cleanupLoop(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ticker.C:
@@ -158,7 +159,7 @@ func (rl *ipRateLimiter) cleanupLoop(ctx context.Context) {
 func (rl *ipRateLimiter) cleanup() {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
-	
+
 	now := time.Now()
 	for ip, v := range rl.visitors {
 		// Remove if no requests in the last 2 windows
@@ -173,10 +174,10 @@ func (rl *ipRateLimiter) allow(ip string) bool {
 	if !rl.cfg.enabled {
 		return true
 	}
-	
+
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
-	
+
 	now := time.Now()
 	v, exists := rl.visitors[ip]
 	if !exists {
@@ -187,7 +188,7 @@ func (rl *ipRateLimiter) allow(ip string) bool {
 		rl.visitors[ip] = v
 		return true
 	}
-	
+
 	// Remove old requests outside the window
 	cutoff := now.Add(-rl.cfg.window)
 	filtered := make([]time.Time, 0, len(v.requests))
@@ -198,12 +199,12 @@ func (rl *ipRateLimiter) allow(ip string) bool {
 	}
 	v.requests = filtered
 	v.lastClean = now
-	
+
 	// Check if under limit
 	if len(v.requests) >= rl.cfg.requestsPerIP {
 		return false
 	}
-	
+
 	// Allow request and record it
 	v.requests = append(v.requests, now)
 	return true
@@ -222,18 +223,18 @@ func rateLimitMiddleware(next http.Handler, limiter *ipRateLimiter) http.Handler
 				ip = strings.TrimSpace(forwarded)
 			}
 		}
-		// Strip port if present
-		if idx := strings.LastIndex(ip, ":"); idx >= 0 {
-			ip = ip[:idx]
+		// Strip port if present using net.SplitHostPort for IPv6 compatibility
+		if host, _, err := net.SplitHostPort(ip); err == nil {
+			ip = host
 		}
-		
+
 		if !limiter.allow(ip) {
 			w.Header().Set("Retry-After", "60")
 			http.Error(w, "Too Many Requests - rate limit exceeded", http.StatusTooManyRequests)
 			slog.Warn("rate limit exceeded", slog.String("ip", ip), slog.String("path", r.URL.Path))
 			return
 		}
-		
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -258,12 +259,12 @@ func loadCORSConfig() *corsConfig {
 	// Default to permissive in dev, restricted in production
 	mode := strings.ToLower(os.Getenv("ENV"))
 	permissive := mode == "" || mode == "dev" || mode == "development"
-	
+
 	// Allow explicit override
 	if v := os.Getenv("CORS_PERMISSIVE"); v != "" {
 		permissive = v == "1" || v == "true"
 	}
-	
+
 	allowedOrigins := []string{}
 	if origins := os.Getenv("CORS_ALLOWED_ORIGINS"); origins != "" {
 		for _, origin := range strings.Split(origins, ",") {
@@ -273,11 +274,11 @@ func loadCORSConfig() *corsConfig {
 			}
 		}
 	}
-	
+
 	if !permissive && len(allowedOrigins) == 0 {
 		slog.Warn("CORS restricted mode enabled but no CORS_ALLOWED_ORIGINS configured - all CORS requests will be blocked")
 	}
-	
+
 	return &corsConfig{
 		allowedOrigins: allowedOrigins,
 		permissive:     permissive,
@@ -288,7 +289,7 @@ func loadCORSConfig() *corsConfig {
 func withCORSConfig(next http.Handler, cfg *corsConfig) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		
+
 		if cfg.permissive {
 			// Dev mode: permissive CORS (allow all)
 			w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -303,13 +304,13 @@ func withCORSConfig(next http.Handler, cfg *corsConfig) http.Handler {
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 			}
 		}
-		
+
 		// Handle preflight requests
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		
+
 		next.ServeHTTP(w, r)
 	})
 }

@@ -47,8 +47,8 @@ func NewMux(db *sql.DB) http.Handler {
 	authCfg := loadAuthConfig()
 	rateLimiterCfg := loadRateLimiterConfig()
 	corsCfg := loadCORSConfig()
-	rateLimiter := newIPRateLimiter(rateLimiterCfg)
-	
+	rateLimiter := newIPRateLimiter(context.Background(), rateLimiterCfg)
+
 	mux := http.NewServeMux()
 
 	// Metrics endpoint
@@ -537,7 +537,7 @@ func NewMux(db *sql.DB) http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "vod_id": vodID})
 	})
-	
+
 	// Create a selective middleware wrapper that applies auth and rate limiting to admin endpoints
 	selectiveHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Apply auth and rate limiting to admin endpoints
@@ -548,7 +548,7 @@ func NewMux(db *sql.DB) http.Handler {
 			}), rateLimiter), authCfg).ServeHTTP(w, r)
 			return
 		}
-		
+
 		// Apply rate limiting to sensitive VOD operations (cancel, reprocess)
 		if strings.HasSuffix(r.URL.Path, "/cancel") || strings.HasSuffix(r.URL.Path, "/reprocess") {
 			rateLimitMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -556,11 +556,11 @@ func NewMux(db *sql.DB) http.Handler {
 			}), rateLimiter).ServeHTTP(w, r)
 			return
 		}
-		
+
 		// All other endpoints: no special protection
 		mux.ServeHTTP(w, r)
 	})
-	
+
 	// Wrap with correlation ID injector and tracing middleware
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Reuse corr header if provided else generate

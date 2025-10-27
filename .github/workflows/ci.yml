@@ -388,7 +388,7 @@ jobs:
               uses: docker/setup-buildx-action@v3
 
             - name: Build backend multi-arch (verification only)
-              uses: docker/build-push-action@v5
+              uses: docker/build-push-action@v6
               with:
                   context: ./backend
                   platforms: linux/amd64,linux/arm64
@@ -398,7 +398,7 @@ jobs:
                   cache-to: type=gha,mode=max
 
             - name: Build frontend multi-arch (verification only)
-              uses: docker/build-push-action@v5
+              uses: docker/build-push-action@v6
               with:
                   context: ./frontend
                   platforms: linux/amd64,linux/arm64

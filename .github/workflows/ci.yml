@@ -160,7 +160,7 @@ jobs:
               run: make test-frontend
 
             - name: Upload coverage to Codecov
-              uses: codecov/codecov-action@v4
+              uses: codecov/codecov-action@v5
               with:
                   files: ./frontend/coverage/lcov.info
                   flags: frontend

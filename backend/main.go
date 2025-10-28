@@ -152,6 +152,7 @@ func main() {
 		}
 		go vod.StartVODProcessingJob(ctx, database, channel)
 		go vod.StartVODCatalogBackfillJob(ctx, database, channel)
+		go vod.StartRetentionJob(ctx, database, channel)
 	}
 
 	// Centralized OAuth token refreshers

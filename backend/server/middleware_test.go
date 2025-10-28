@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -124,7 +125,7 @@ func TestRateLimiter(t *testing.T) {
 		requestsPerIP: 3,
 		window:        100 * time.Millisecond,
 	}
-	limiter := newIPRateLimiter(cfg)
+	limiter := newIPRateLimiter(context.TODO(), cfg)
 
 	// First 3 requests should succeed
 	for i := 0; i < 3; i++ {
@@ -153,7 +154,7 @@ func TestRateLimiterDifferentIPs(t *testing.T) {
 		requestsPerIP: 2,
 		window:        1 * time.Second,
 	}
-	limiter := newIPRateLimiter(cfg)
+	limiter := newIPRateLimiter(context.Background(), cfg)
 
 	// IP 1 makes 2 requests (should succeed)
 	if !limiter.allow("192.168.1.1") {
@@ -186,7 +187,7 @@ func TestRateLimiterDisabled(t *testing.T) {
 		requestsPerIP: 1,
 		window:        1 * time.Second,
 	}
-	limiter := newIPRateLimiter(cfg)
+	limiter := newIPRateLimiter(context.Background(), cfg)
 
 	// Should allow unlimited requests when disabled
 	for i := 0; i < 100; i++ {
@@ -202,7 +203,7 @@ func TestRateLimitMiddleware(t *testing.T) {
 		requestsPerIP: 2,
 		window:        1 * time.Second,
 	}
-	limiter := newIPRateLimiter(cfg)
+	limiter := newIPRateLimiter(context.Background(), cfg)
 
 	handler := rateLimitMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -243,7 +244,7 @@ func TestRateLimitMiddlewareWithXForwardedFor(t *testing.T) {
 		requestsPerIP: 2,
 		window:        1 * time.Second,
 	}
-	limiter := newIPRateLimiter(cfg)
+	limiter := newIPRateLimiter(context.Background(), cfg)
 
 	handler := rateLimitMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

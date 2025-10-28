@@ -125,7 +125,7 @@ func TestRateLimiter(t *testing.T) {
 		requestsPerIP: 3,
 		window:        100 * time.Millisecond,
 	}
-	limiter := newIPRateLimiter(context.Background(), cfg)
+	limiter := newIPRateLimiter(context.TODO(), cfg)
 
 	// First 3 requests should succeed
 	for i := 0; i < 3; i++ {

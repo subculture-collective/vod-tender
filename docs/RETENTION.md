@@ -68,7 +68,7 @@ The retention job automatically protects:
 |----------|---------|-------------|
 | `RETENTION_KEEP_DAYS` | (unset) | Keep VODs newer than N days |
 | `RETENTION_KEEP_COUNT` | (unset) | Keep only N most recent VODs |
-| `RETENTION_DRY_RUN` | `0` | When `1`, log actions without deleting |
+| `RETENTION_DRY_RUN` | (unset) | When `1`, log actions without deleting |
 | `RETENTION_INTERVAL` | `6h` | How often cleanup runs |
 
 **Note:** At least one of `RETENTION_KEEP_DAYS` or `RETENTION_KEEP_COUNT` must be set for the retention job to start.

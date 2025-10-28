@@ -3,6 +3,7 @@ package vod
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -249,7 +250,7 @@ func TestRunRetentionCleanupByCount(t *testing.T) {
 	// Insert 5 VODs, keep only last 3
 	now := time.Now()
 	for i := 0; i < 5; i++ {
-		id := "vod" + string(rune('0'+i))
+		id := fmt.Sprintf("vod%d", i)
 		path := filepath.Join(tmpDir, id+".mp4")
 		date := now.Add(-time.Duration(4-i) * 24 * time.Hour)
 

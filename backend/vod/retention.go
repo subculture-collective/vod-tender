@@ -233,7 +233,10 @@ func runRetentionCleanup(ctx context.Context, dbc *sql.DB, channel string, polic
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			// File already gone, just clear the DB field
 			if !policy.DryRun {
-				_, _ = dbc.ExecContext(ctx, `UPDATE vods SET downloaded_path=NULL WHERE twitch_vod_id=$1`, id)
+				_, err := dbc.ExecContext(ctx, `UPDATE vods SET downloaded_path=NULL WHERE twitch_vod_id=$1`, id)
+				if err != nil {
+					logger.Warn("failed to clear db reference for missing file", slog.String("vod_id", id), slog.Any("err", err))
+				}
 			}
 			logger.Debug("file already missing, clearing db reference", slog.String("path", path), slog.String("vod_id", id))
 			continue

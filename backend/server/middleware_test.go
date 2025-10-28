@@ -705,9 +705,9 @@ func TestVodSensitiveEndpointPattern(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			matched := vodSensitiveEndpointPattern.MatchString(tt.path)
+			matched := getVodSensitiveEndpointPattern().MatchString(tt.path)
 			if matched != tt.shouldMatch {
-				t.Errorf("vodSensitiveEndpointPattern.MatchString(%q) = %v, want %v", tt.path, matched, tt.shouldMatch)
+				t.Errorf("getVodSensitiveEndpointPattern().MatchString(%q) = %v, want %v", tt.path, matched, tt.shouldMatch)
 			}
 		})
 	}

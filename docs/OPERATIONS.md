@@ -163,7 +163,105 @@ trivy image vod-tender-backend:latest --format json --output backend-scan.json
 - Postgres routine maintenance: autovacuum should suffice; consider manual `VACUUM ANALYZE` only if bloat observed.
 - Regular backups (`pg_dump` or WAL archiving) and periodic restore tests.
 - Rotate logs via process manager (if not using Docker log drivers with retention).
-- Periodically prune old completed downloads if space constrained (after confirming upload). Add retention policy script / cron.
+
+#### Storage Retention and Cleanup
+
+The retention job manages disk usage by automatically cleaning up old downloaded VOD files while preserving database records and metadata.
+
+**Configuration**
+
+Set retention policies via environment variables (see `CONFIG.md` for details):
+
+```bash
+# Keep only VODs from last 30 days
+RETENTION_KEEP_DAYS=30
+
+# Keep only the 100 most recent VODs
+RETENTION_KEEP_COUNT=100
+
+# Use both (VODs retained if they match either policy)
+RETENTION_KEEP_DAYS=30
+RETENTION_KEEP_COUNT=100
+
+# Run cleanup every 12 hours (default: 6h)
+RETENTION_INTERVAL=12h
+
+# Enable dry-run mode for testing
+RETENTION_DRY_RUN=1
+```
+
+**Testing with Dry-Run Mode**
+
+Before enabling retention cleanup in production, **always test with dry-run mode first**:
+
+1. Set `RETENTION_DRY_RUN=1` in your environment
+2. Set your desired retention policies (e.g., `RETENTION_KEEP_DAYS=30`)
+3. Restart the backend service
+4. Monitor logs for "dry-run: would delete file" messages
+5. Review the list of files that would be deleted
+6. Once satisfied, set `RETENTION_DRY_RUN=0` (or remove it) and restart
+
+**What Gets Deleted**
+
+- **Files deleted**: Local video files (`*.mp4`, `*.mkv`, `*.webm`) in the `DATA_DIR` that exceed retention policy
+- **Database preserved**: VOD metadata, dates, titles, YouTube URLs, and chat logs remain in the database
+- **Protected from deletion**:
+  - VODs currently being downloaded or processed
+  - VODs updated within the last hour (may be uploading)
+  - VODs with active `download_state` (downloading, processing)
+  - VODs matching retention policies (by date or count)
+
+**Monitoring**
+
+Watch for these log messages from the retention job:
+
+```
+level=INFO msg="retention job starting" channel=mystream keep_days=30 keep_count=100 dry_run=false interval=6h
+level=INFO msg="retention cleanup completed" mode=cleanup cleaned=15 skipped=85 errors=0 bytes_freed=25769803776
+level=INFO msg="deleted old vod file" path=data/vod123.mp4 vod_id=123 title="Old Stream" size_bytes=1073741824
+```
+
+Key metrics to monitor:
+- `cleaned`: Number of files deleted
+- `skipped`: Number of files retained (should match your policy expectations)
+- `errors`: Should typically be 0; investigate if non-zero
+- `bytes_freed`: Total disk space reclaimed
+
+**Common Retention Strategies**
+
+| Use Case                      | Configuration                          | Notes                                                    |
+|-------------------------------|----------------------------------------|----------------------------------------------------------|
+| Short-term local cache        | `RETENTION_KEEP_DAYS=7`                | Keep last week only; rely on YouTube for long-term      |
+| Fixed-size archive            | `RETENTION_KEEP_COUNT=50`              | Always keep exactly 50 most recent VODs                  |
+| Hybrid approach               | `RETENTION_KEEP_DAYS=14` + `KEEP_COUNT=100` | Keep 2 weeks OR top 100, whichever is more permissive   |
+| High-volume streamer          | `RETENTION_KEEP_DAYS=3`                | Short retention for daily/multi-daily streams            |
+| Archive everything locally    | (leave both unset)                     | No automatic cleanup; manage manually                     |
+
+**Manual Cleanup**
+
+To manually clean up specific VODs without waiting for the retention job:
+
+```bash
+# Clear downloaded_path for a specific VOD (keeps metadata)
+psql -U vod -d vod -c "UPDATE vods SET downloaded_path=NULL WHERE twitch_vod_id='123456789';"
+
+# Then manually remove the file
+rm /path/to/data/vod_123456789.mp4
+```
+
+**Per-Channel Retention (Multi-Channel Mode)**
+
+When running multiple channels, each channel's retention policy runs independently. The policies apply globally via environment variables, so all channels use the same settings. For per-channel retention policies, consider running separate instances with different configurations.
+
+**Troubleshooting**
+
+| Issue                          | Cause                                   | Solution                                                     |
+|--------------------------------|-----------------------------------------|--------------------------------------------------------------|
+| Retention job not running      | No policy configured                    | Set at least `RETENTION_KEEP_DAYS` or `RETENTION_KEEP_COUNT` |
+| Files not being deleted        | Dry-run mode enabled                    | Set `RETENTION_DRY_RUN=0` or remove the variable             |
+| Too many files deleted         | Policy too aggressive                   | Increase `KEEP_DAYS` or `KEEP_COUNT` values                  |
+| Active downloads deleted       | Bug (should not happen)                 | Check logs and report issue; safety checks should prevent     |
+| Disk still full                | Policy too permissive                   | Reduce retention values or clean up manually                 |
 
 ## CI/CD & Security
 

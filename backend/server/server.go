@@ -47,7 +47,7 @@ func NewMux(db *sql.DB) http.Handler {
 	authCfg := loadAuthConfig()
 	rateLimiterCfg := loadRateLimiterConfig()
 	corsCfg := loadCORSConfig()
-	rateLimiter := newIPRateLimiter(rateLimiterCfg)
+	rateLimiter := newIPRateLimiter(context.Background(), rateLimiterCfg)
 	
 	mux := http.NewServeMux()
 
@@ -242,6 +242,10 @@ func NewMux(db *sql.DB) http.Handler {
 			"UPLOAD_MAX_ATTEMPTS":         true,
 			"UPLOAD_BACKOFF_BASE":         true,
 			"RETAIN_KEEP_NEWER_THAN_DAYS": true,
+			"RETENTION_KEEP_DAYS":         true,
+			"RETENTION_KEEP_COUNT":        true,
+			"RETENTION_DRY_RUN":           true,
+			"RETENTION_INTERVAL":          true,
 			"BACKFILL_UPLOAD_DAILY_LIMIT": true,
 		}
 		switch r.Method {

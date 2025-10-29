@@ -109,10 +109,153 @@ Suggested next steps:
 
 ### Security Notes
 
-- OAuth tokens stored plaintext in `oauth_tokens`; for production consider application‑level encryption (envelope + KMS) or a dedicated secrets store.
+- OAuth tokens are encrypted at rest using AES-256-GCM when `ENCRYPTION_KEY` is set. See "OAuth Token Encryption Migration" section below for migration from plaintext to encrypted storage.
 - Limit scope of Twitch & YouTube tokens to necessary permissions.
 - Avoid mounting the `data/` directory with overly broad permissions (use user-owned paths, not world-writable).
 - Use least‑privilege Postgres role (revoking CREATEDB, SUPERUSER if not needed). Restrict network access (security groups / firewalls).
+
+#### OAuth Token Encryption Migration
+
+vod-tender supports encrypted storage of OAuth tokens at rest using AES-256-GCM. The system maintains backward compatibility with plaintext tokens during migration.
+
+**Encryption Versions**:
+- **Version 0**: Plaintext (legacy, not recommended for production)
+- **Version 1**: AES-256-GCM encrypted (current standard)
+
+**Setting Up Encryption for New Deployments**:
+
+1. Generate a secure 32-byte encryption key:
+   ```bash
+   openssl rand -base64 32
+   ```
+
+2. Set the `ENCRYPTION_KEY` environment variable in `backend/.env`:
+   ```bash
+   ENCRYPTION_KEY=your-base64-encoded-32-byte-key-here
+   ```
+
+3. Store the key securely:
+   - For production: Use AWS Secrets Manager, HashiCorp Vault, or similar
+   - For Docker Compose: Mount as secret or use Docker secrets
+   - For Kubernetes: Use Sealed Secrets or external secrets operator
+   - **Never commit the key to version control**
+
+4. Start the application. All new tokens will be automatically encrypted (version=1).
+
+**Migrating Existing Plaintext Tokens**:
+
+If you have existing deployments with plaintext tokens (encryption_version=0), use the migration tool to encrypt them:
+
+1. **Prerequisites**:
+   - Database must be accessible via `DB_DSN`
+   - `ENCRYPTION_KEY` must be set and valid
+   - Application can remain running during migration (it handles both formats)
+
+2. **Dry-Run (Recommended First Step)**:
+   ```bash
+   # Inside the backend container or with Go installed locally
+   export DB_DSN="postgres://vod:vod@postgres:5432/vod?sslmode=disable"
+   export ENCRYPTION_KEY="your-base64-key"
+   ./migrate-tokens --dry-run
+   ```
+
+   This shows what would be migrated without making changes.
+
+3. **Run Migration**:
+   ```bash
+   # Migrate all tokens
+   ./migrate-tokens
+
+   # Or migrate specific channel only
+   ./migrate-tokens --channel "your-channel-name"
+   ```
+
+4. **Verify Migration**:
+   ```bash
+   # Check encryption status of all tokens
+   psql -U vod -d vod -c "SELECT provider, channel, encryption_version, encryption_key_id FROM oauth_tokens;"
+   ```
+
+   All tokens should show `encryption_version = 1` after successful migration.
+
+**Docker Compose Example**:
+
+```bash
+# Build the migration tool
+docker compose exec api go build -o /app/migrate-tokens ./cmd/migrate-tokens
+
+# Run dry-run
+docker compose exec api /app/migrate-tokens --dry-run
+
+# Run actual migration
+docker compose exec api /app/migrate-tokens
+```
+
+**Kubernetes Example**:
+
+```bash
+# Build and run migration in a pod
+kubectl exec -it deployment/vod-tender-backend -- sh
+cd /app
+go build -o migrate-tokens ./cmd/migrate-tokens
+./migrate-tokens --dry-run
+./migrate-tokens
+```
+
+**Migration Output**:
+
+```
+level=INFO msg="found plaintext tokens to migrate" count=3 dry_run=false
+level=INFO msg="migrated token successfully" provider=twitch channel= index=1 total=3
+level=INFO msg="migrated token successfully" provider=youtube channel= index=2 total=3
+level=INFO msg="migrated token successfully" provider=twitch channel=channel-a index=3 total=3
+level=INFO msg="migration summary" total=3 migrated=3 errors=0 dry_run=false
+level=INFO msg="migration completed successfully"
+```
+
+**Important Notes**:
+
+- The migration is **idempotent** - safe to run multiple times
+- Each token update is **atomic** (uses database transaction)
+- Tokens are migrated one at a time with progress logging
+- Failed migrations are logged but don't stop the process
+- The application continues to work with mixed encryption versions during migration
+- **After migration**, you can optionally enforce encryption by requiring `ENCRYPTION_KEY` at startup
+
+**Backward Compatibility**:
+
+The system supports reading tokens in any encryption version:
+- Version 0 (plaintext): Read directly without decryption
+- Version 1 (encrypted): Automatically decrypt using `ENCRYPTION_KEY`
+
+New tokens are always written with the highest supported version when `ENCRYPTION_KEY` is set.
+
+**Disabling Plaintext Fallback** (After Migration):
+
+Once all tokens are migrated to version 1, you can disable plaintext storage by:
+
+1. Verifying all tokens are encrypted:
+   ```sql
+   SELECT COUNT(*) FROM oauth_tokens WHERE encryption_version = 0;
+   -- Should return 0
+   ```
+
+2. Adding application logic to reject version 0 tokens if needed (optional)
+
+3. Ensuring `ENCRYPTION_KEY` is always set in production environments
+
+**Key Rotation** (Future Enhancement):
+
+Currently, the system uses a single encryption key identified as "default". For key rotation:
+
+1. Keep old `ENCRYPTION_KEY` accessible for reading existing tokens
+2. Set new key and key ID (requires code update for multi-key support)
+3. Re-encrypt all tokens with new key using migration tool
+
+For now, protect your encryption key carefully and rotate by:
+- Generating new key
+- Running migration with new key to re-encrypt all tokens
+- Update key in all environments
 
 ### Scaling Considerations
 

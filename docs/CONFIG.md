@@ -177,7 +177,23 @@ The `oauth_tokens` table includes metadata for encryption management:
 
 #### Migration from Plaintext
 
-Existing deployments with plaintext tokens will **automatically migrate to encrypted storage** on the next token refresh (OAuth renewal). No manual intervention required.
+For existing deployments with plaintext tokens (encryption_version=0), use the **migration tool** to encrypt them immediately rather than waiting for automatic refresh:
+
+```bash
+# Inside container or with Go toolchain
+export ENCRYPTION_KEY="your-base64-key-here"
+go build -o migrate-tokens ./cmd/migrate-tokens
+./migrate-tokens --dry-run  # Preview changes
+./migrate-tokens            # Execute migration
+```
+
+See the "OAuth Token Encryption Migration" section in `OPERATIONS.md` for detailed migration procedures, including:
+- Docker Compose migration steps
+- Kubernetes migration examples  
+- Verification queries
+- Rollback procedures
+
+**Automatic Migration on Token Refresh**: New tokens are always encrypted when `ENCRYPTION_KEY` is set. Existing plaintext tokens will be re-encrypted automatically during the next OAuth refresh cycle (typically within 5-15 minutes for Twitch, 10-20 minutes for YouTube). The migration tool allows immediate encryption without waiting for the refresh cycle.
 
 Migration process:
 

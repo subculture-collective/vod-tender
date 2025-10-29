@@ -58,6 +58,24 @@ All configuration is via environment variables. When running locally with `make 
 | UPLOAD_BACKOFF_BASE         | `2s`    | Base for exponential backoff on upload retries.                                                    |
 | BACKFILL_UPLOAD_DAILY_LIMIT | `10`    | Maximum number of back-catalog uploads allowed per 24h window.                                     |
 
+### Retention Policy
+
+| Variable                    | Default | Description                                                                                        |
+| --------------------------- | ------- | -------------------------------------------------------------------------------------------------- |
+| RETENTION_KEEP_DAYS         | (unset) | Keep VODs newer than this many days. Older VODs' files are deleted. Set to `0` to disable.        |
+| RETENTION_KEEP_COUNT        | (unset) | Keep only the N most recent VODs. Older VODs' files are deleted. Set to `0` to disable.           |
+| RETENTION_DRY_RUN           | `0`     | When `1`, retention job logs what would be deleted but doesn't actually delete files or update DB. |
+| RETENTION_INTERVAL          | `6h`    | How often the retention cleanup job runs.                                                          |
+
+**Notes:**
+
+- **At least one policy must be configured** for the retention job to run. You can use `RETENTION_KEEP_DAYS` alone, `RETENTION_KEEP_COUNT` alone, or both together.
+- When **both policies are set**, a VOD is retained if it matches **either** policy (union, not intersection). For example, with `RETENTION_KEEP_DAYS=7` and `RETENTION_KEEP_COUNT=100`, VODs are kept if they're newer than 7 days **or** in the 100 most recent.
+- **Safety**: The retention job automatically protects VODs that are currently being downloaded or uploaded (checked via `processed=false` with a downloaded path, recent updates, or active download state).
+- **Dry-run mode** is recommended for initial testing. Set `RETENTION_DRY_RUN=1` to preview what would be deleted without actually removing files.
+- **Database records are preserved**: Only the downloaded video files are deleted; VOD metadata, chat logs, and YouTube URLs remain in the database.
+- **Multi-channel**: Each channel's retention policy runs independently when using multi-channel mode.
+
 Notes:
 
 - The current downloader stores the original file; post-processing/transcoding is not enabled in this revision. ffmpeg may still be required by yt-dlp for muxing.

@@ -147,3 +147,4 @@ coverage.out
 
 # Backend binary
 backend/vod-tender
+backend/backend

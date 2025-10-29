@@ -289,7 +289,12 @@ func processOnce(ctx context.Context, dbc *sql.DB, channel string) error {
 	procStart := time.Now()
 	
 	// Acquire download slot (blocks if max concurrent downloads reached)
-	logger.Debug("waiting for download slot", slog.Int("active_downloads", GetActiveDownloads()), slog.Int("max_concurrent", GetMaxConcurrentDownloads()))
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Debug("waiting for download slot",
+			slog.Int("active_downloads", GetActiveDownloads()),
+			slog.Int("max_concurrent", GetMaxConcurrentDownloads()),
+		)
+	}
 	if !acquireDownloadSlot(ctx) {
 		// Context canceled while waiting for slot
 		logger.Info("download canceled while waiting for slot")

@@ -169,6 +169,12 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 	if !hasSecrets && (strings.EqualFold(os.Getenv("LOG_LEVEL"), "DEBUG") || os.Getenv("YTDLP_VERBOSE") == "1") {
 		args = append([]string{"-v"}, args...)
 	}
+	
+	// Bandwidth limit support via --limit-rate flag (e.g., "500K", "2M", "1.5M")
+	if limit := strings.TrimSpace(os.Getenv("DOWNLOAD_RATE_LIMIT")); limit != "" {
+		args = append([]string{"--limit-rate", limit}, args...)
+		logger.Debug("applying download rate limit", slog.String("rate_limit", limit))
+	}
 
 	// If aria2c available, prefer it for robustness on direct HTTP downloads
 	if _, err := exec.LookPath("aria2c"); err == nil {

@@ -17,7 +17,8 @@ COPY . .
 
 # Build (trimpath + smaller binary)
 RUN go build -trimpath -ldflags="-s -w" -o /out/vod-tender-backend . \
- && go build -trimpath -ldflags="-s -w" -o /out/healthcheck ./cmd/healthcheck
+ && go build -trimpath -ldflags="-s -w" -o /out/healthcheck ./cmd/healthcheck \
+ && go build -trimpath -ldflags="-s -w" -o /out/migrate-tokens ./cmd/migrate-tokens
 
 # Fetch yt-dlp and ffmpeg in a tiny stage
 FROM debian:bookworm-slim AS media
@@ -41,6 +42,7 @@ RUN set -eux; \
 	rm -rf /var/lib/apt/lists/*
 COPY --from=builder /out/vod-tender-backend ./vod-tender-backend
 COPY --from=builder /out/healthcheck ./healthcheck
+COPY --from=builder /out/migrate-tokens ./migrate-tokens
 COPY --from=media /usr/local/bin/yt-dlp /usr/local/bin/yt-dlp
 
 EXPOSE 8080

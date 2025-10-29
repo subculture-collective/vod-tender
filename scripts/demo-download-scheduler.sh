@@ -19,7 +19,7 @@ api_call() {
     
     local auth_header=""
     if [ -n "$ADMIN_AUTH" ]; then
-        auth_header="-H X-Admin-Token: $ADMIN_AUTH"
+        auth_header="-H \"X-Admin-Token: $ADMIN_AUTH\""
     fi
     
     if [ -n "$data" ]; then

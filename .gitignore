@@ -148,5 +148,5 @@ coverage.out
 # Backend binary
 backend/vod-tender
 backend/backend
-backend/cmd/*/migrate-tokens
-backend/cmd/*/healthcheck
+**/migrate-tokens
+**/healthcheck

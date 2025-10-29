@@ -125,7 +125,7 @@ func TestRateLimiter(t *testing.T) {
 		requestsPerIP: 3,
 		window:        100 * time.Millisecond,
 	}
-	limiter := newIPRateLimiter(context.TODO(), cfg)
+	limiter := newIPRateLimiter(context.Background(), cfg)
 
 	// First 3 requests should succeed
 	for i := 0; i < 3; i++ {
@@ -597,6 +597,117 @@ func TestParseInt(t *testing.T) {
 			got := parseInt(tt.input, tt.defaultVal)
 			if got != tt.want {
 				t.Errorf("parseInt(%q, %d) = %d, want %d", tt.input, tt.defaultVal, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestVodSensitiveEndpointPattern(t *testing.T) {
+	tests := []struct {
+		name       string
+		path       string
+		shouldMatch bool
+	}{
+		// Valid VOD endpoints that should match
+		{
+			name:       "valid cancel endpoint",
+			path:       "/vods/123/cancel",
+			shouldMatch: true,
+		},
+		{
+			name:       "valid reprocess endpoint",
+			path:       "/vods/abc123/reprocess",
+			shouldMatch: true,
+		},
+		{
+			name:       "valid cancel with alphanumeric ID",
+			path:       "/vods/v1234567890/cancel",
+			shouldMatch: true,
+		},
+		{
+			name:       "valid reprocess with hyphenated ID",
+			path:       "/vods/vod-123-456/reprocess",
+			shouldMatch: true,
+		},
+		
+		// Invalid paths that should NOT match
+		{
+			name:       "generic cancel path",
+			path:       "/anything/cancel",
+			shouldMatch: false,
+		},
+		{
+			name:       "generic reprocess path",
+			path:       "/custom/reprocess",
+			shouldMatch: false,
+		},
+		{
+			name:       "cancel without vods prefix",
+			path:       "/api/123/cancel",
+			shouldMatch: false,
+		},
+		{
+			name:       "reprocess without vods prefix",
+			path:       "/admin/123/reprocess",
+			shouldMatch: false,
+		},
+		{
+			name:       "cancel with trailing slash",
+			path:       "/vods/123/cancel/",
+			shouldMatch: false,
+		},
+		{
+			name:       "reprocess with additional path segments",
+			path:       "/vods/123/reprocess/extra",
+			shouldMatch: false,
+		},
+		{
+			name:       "cancel with no ID",
+			path:       "/vods/cancel",
+			shouldMatch: false,
+		},
+		{
+			name:       "reprocess with no ID",
+			path:       "/vods/reprocess",
+			shouldMatch: false,
+		},
+		{
+			name:       "cancel with empty ID (double slash)",
+			path:       "/vods//cancel",
+			shouldMatch: false,
+		},
+		{
+			name:       "different vod endpoint",
+			path:       "/vods/123/progress",
+			shouldMatch: false,
+		},
+		{
+			name:       "vods list endpoint",
+			path:       "/vods",
+			shouldMatch: false,
+		},
+		{
+			name:       "vods detail endpoint",
+			path:       "/vods/123",
+			shouldMatch: false,
+		},
+		{
+			name:       "root cancel",
+			path:       "/cancel",
+			shouldMatch: false,
+		},
+		{
+			name:       "root reprocess",
+			path:       "/reprocess",
+			shouldMatch: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			matched := getVodSensitiveEndpointPattern().MatchString(tt.path)
+			if matched != tt.shouldMatch {
+				t.Errorf("getVodSensitiveEndpointPattern().MatchString(%q) = %v, want %v", tt.path, matched, tt.shouldMatch)
 			}
 		})
 	}

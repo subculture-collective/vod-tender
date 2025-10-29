@@ -288,6 +288,21 @@ func processOnce(ctx context.Context, dbc *sql.DB, channel string) error {
 	telemetry.ProcessingCycles.Inc()
 	procStart := time.Now()
 	
+	// Acquire download slot (blocks if max concurrent downloads reached)
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Debug("waiting for download slot",
+			slog.Int("active_downloads", GetActiveDownloads()),
+			slog.Int("max_concurrent", GetMaxConcurrentDownloads()),
+		)
+	}
+	if !acquireDownloadSlot(ctx) {
+		// Context canceled while waiting for slot
+		logger.Info("download canceled while waiting for slot")
+		return nil
+	}
+	defer releaseDownloadSlot()
+	logger.Debug("download slot acquired", slog.Int("active_downloads", GetActiveDownloads()))
+	
 	// Download with span
 	dlStart := time.Now()
 	ctx, downloadSpan := telemetry.StartSpan(ctx, "vod-processing", "download",

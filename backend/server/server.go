@@ -307,6 +307,65 @@ func NewMux(db *sql.DB) http.Handler {
 		resp["pending"] = pending
 		resp["errored"] = errored
 		resp["processed"] = processed
+		
+		// Queue depth by priority (breakdown)
+		type priorityCount struct {
+			Priority int `json:"priority"`
+			Count    int `json:"count"`
+		}
+		var priorityCounts []priorityCount
+		rows, err := db.QueryContext(ctx, `
+			SELECT COALESCE(priority, 0) as priority, COUNT(*) as count 
+			FROM vods 
+			WHERE COALESCE(processed,false)=false 
+			GROUP BY priority 
+			ORDER BY priority DESC
+		`)
+		if err == nil {
+			defer func() {
+				if err := rows.Close(); err != nil {
+					slog.Warn("failed to close rows", slog.Any("err", err))
+				}
+			}()
+			for rows.Next() {
+				var pc priorityCount
+				if err := rows.Scan(&pc.Priority, &pc.Count); err == nil {
+					priorityCounts = append(priorityCounts, pc)
+				}
+			}
+		}
+		if len(priorityCounts) > 0 {
+			resp["queue_by_priority"] = priorityCounts
+		}
+		
+		// Download concurrency stats
+		resp["active_downloads"] = vodpkg.GetActiveDownloads()
+		resp["max_concurrent_downloads"] = vodpkg.GetMaxConcurrentDownloads()
+		
+		// Retry/backoff configuration
+		retryConfig := map[string]any{
+			"download_max_attempts":     getEnvInt("DOWNLOAD_MAX_ATTEMPTS", 5),
+			"download_backoff_base":     os.Getenv("DOWNLOAD_BACKOFF_BASE"),
+			"upload_max_attempts":       getEnvInt("UPLOAD_MAX_ATTEMPTS", 5),
+			"upload_backoff_base":       os.Getenv("UPLOAD_BACKOFF_BASE"),
+			"processing_retry_cooldown": os.Getenv("PROCESSING_RETRY_COOLDOWN"),
+		}
+		if retryConfig["download_backoff_base"] == "" {
+			retryConfig["download_backoff_base"] = "2s"
+		}
+		if retryConfig["upload_backoff_base"] == "" {
+			retryConfig["upload_backoff_base"] = "2s"
+		}
+		if retryConfig["processing_retry_cooldown"] == "" {
+			retryConfig["processing_retry_cooldown"] = "600s"
+		}
+		resp["retry_config"] = retryConfig
+		
+		// Bandwidth limit if configured
+		if limit := os.Getenv("DOWNLOAD_RATE_LIMIT"); limit != "" {
+			resp["download_rate_limit"] = limit
+		}
+		
 		// Circuit breaker
 		var cState, cFails, cUntil string
 		_ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key='circuit_state'`).Scan(&cState)
@@ -494,6 +553,50 @@ func NewMux(db *sql.DB) http.Handler {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(stats)
+	})
+
+	// Priority management endpoint: /admin/vod/{id}/priority
+	mux.HandleFunc("/admin/vod/priority", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodPut {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		
+		var req struct {
+			VodID    string `json:"vod_id"`
+			Priority int    `json:"priority"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+		
+		if req.VodID == "" {
+			http.Error(w, "vod_id required", http.StatusBadRequest)
+			return
+		}
+		
+		// Update priority in database
+		result, err := db.ExecContext(r.Context(), 
+			`UPDATE vods SET priority=$1, updated_at=NOW() WHERE twitch_vod_id=$2`,
+			req.Priority, req.VodID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		
+		rowsAffected, _ := result.RowsAffected()
+		if rowsAffected == 0 {
+			http.Error(w, "vod not found", http.StatusNotFound)
+			return
+		}
+		
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status":   "ok",
+			"vod_id":   req.VodID,
+			"priority": req.Priority,
+		})
 	})
 
 	// Chat JSON/SSE under /vods/{id}/chat and /vods/{id}/chat/stream, plus import
@@ -1028,3 +1131,14 @@ func handleVodDescription(w http.ResponseWriter, r *http.Request, db *sql.DB, vo
 		return
 	}
 }
+
+// getEnvInt returns an integer environment variable value or default if not set or invalid.
+func getEnvInt(key string, defaultVal int) int {
+	if s := os.Getenv(key); s != "" {
+		if n, err := strconv.Atoi(s); err == nil {
+			return n
+		}
+	}
+	return defaultVal
+}
+

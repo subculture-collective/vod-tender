@@ -13,8 +13,10 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -40,6 +42,13 @@ func (o *oauthTokenStore) GetOAuthToken(ctx context.Context, provider string) (a
 	access, refresh, exp, scope, dbErr := dbpkg.GetOAuthToken(ctx, o.db, provider)
 	return access, refresh, exp, scope, dbErr
 }
+
+// getVodSensitiveEndpointPattern returns a compiled regex pattern to match VOD-specific endpoints requiring rate limiting.
+// Matches paths like /vods/{id}/cancel and /vods/{id}/reprocess.
+// The pattern is lazily compiled on first use to reduce startup overhead.
+var getVodSensitiveEndpointPattern = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^/vods/[^/]+/(cancel|reprocess)$`)
+})
 
 // NewMux returns the HTTP handler with all routes.
 func NewMux(db *sql.DB) http.Handler {
@@ -554,7 +563,8 @@ func NewMux(db *sql.DB) http.Handler {
 		}
 		
 		// Apply rate limiting to sensitive VOD operations (cancel, reprocess)
-		if strings.HasSuffix(r.URL.Path, "/cancel") || strings.HasSuffix(r.URL.Path, "/reprocess") {
+		// Using regex to ensure only /vods/{id}/cancel and /vods/{id}/reprocess are matched
+		if getVodSensitiveEndpointPattern().MatchString(r.URL.Path) {
 			rateLimitMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				mux.ServeHTTP(w, r)
 			}), rateLimiter).ServeHTTP(w, r)

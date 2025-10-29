@@ -13,8 +13,10 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -41,6 +43,13 @@ func (o *oauthTokenStore) GetOAuthToken(ctx context.Context, provider string) (a
 	return access, refresh, exp, scope, dbErr
 }
 
+// getVodSensitiveEndpointPattern returns a compiled regex pattern to match VOD-specific endpoints requiring rate limiting.
+// Matches paths like /vods/{id}/cancel and /vods/{id}/reprocess.
+// The pattern is lazily compiled on first use to reduce startup overhead.
+var getVodSensitiveEndpointPattern = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^/vods/[^/]+/(cancel|reprocess)$`)
+})
+
 // NewMux returns the HTTP handler with all routes.
 func NewMux(db *sql.DB) http.Handler {
 	// Load middleware configurations
@@ -48,7 +57,7 @@ func NewMux(db *sql.DB) http.Handler {
 	rateLimiterCfg := loadRateLimiterConfig()
 	corsCfg := loadCORSConfig()
 	rateLimiter := newIPRateLimiter(context.Background(), rateLimiterCfg)
-	
+
 	mux := http.NewServeMux()
 
 	// Metrics endpoint
@@ -541,7 +550,7 @@ func NewMux(db *sql.DB) http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "vod_id": vodID})
 	})
-	
+
 	// Create a selective middleware wrapper that applies auth and rate limiting to admin endpoints
 	selectiveHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Apply auth and rate limiting to admin endpoints
@@ -552,19 +561,20 @@ func NewMux(db *sql.DB) http.Handler {
 			}), rateLimiter), authCfg).ServeHTTP(w, r)
 			return
 		}
-		
+
 		// Apply rate limiting to sensitive VOD operations (cancel, reprocess)
-		if strings.HasSuffix(r.URL.Path, "/cancel") || strings.HasSuffix(r.URL.Path, "/reprocess") {
+		// Using regex to ensure only /vods/{id}/cancel and /vods/{id}/reprocess are matched
+		if getVodSensitiveEndpointPattern().MatchString(r.URL.Path) {
 			rateLimitMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				mux.ServeHTTP(w, r)
 			}), rateLimiter).ServeHTTP(w, r)
 			return
 		}
-		
+
 		// All other endpoints: no special protection
 		mux.ServeHTTP(w, r)
 	})
-	
+
 	// Wrap with correlation ID injector and tracing middleware
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Reuse corr header if provided else generate

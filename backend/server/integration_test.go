@@ -226,3 +226,96 @@ func TestPublicEndpointsUnprotected(t *testing.T) {
 		})
 	}
 }
+
+// TestRateLimitingPathMatching verifies that rate limiting is only applied to specific VOD endpoints
+func TestRateLimitingPathMatching(t *testing.T) {
+	db := testutil.SetupTestDB(t)
+
+	// Enable rate limiting with very low limit for testing
+	t.Setenv("RATE_LIMIT_ENABLED", "1")
+	t.Setenv("RATE_LIMIT_REQUESTS_PER_IP", "1")
+	t.Setenv("RATE_LIMIT_WINDOW_SECONDS", "60")
+
+	handler := NewMux(db)
+
+	tests := []struct {
+		name                 string
+		path                 string
+		shouldBeRateLimited  bool
+		description          string
+	}{
+		// Paths that SHOULD be rate limited
+		{
+			name:                "vod cancel endpoint",
+			path:                "/vods/123/cancel",
+			shouldBeRateLimited: true,
+			description:         "VOD cancel endpoint should be rate limited",
+		},
+		{
+			name:                "vod reprocess endpoint",
+			path:                "/vods/abc456/reprocess",
+			shouldBeRateLimited: true,
+			description:         "VOD reprocess endpoint should be rate limited",
+		},
+		
+		// Paths that should NOT be rate limited (the bug this fixes)
+		{
+			name:                "generic cancel path",
+			path:                "/anything/cancel",
+			shouldBeRateLimited: false,
+			description:         "Generic /anything/cancel should NOT be rate limited",
+		},
+		{
+			name:                "generic reprocess path",
+			path:                "/custom/reprocess",
+			shouldBeRateLimited: false,
+			description:         "Generic /custom/reprocess should NOT be rate limited",
+		},
+		{
+			name:                "api cancel path",
+			path:                "/api/cancel",
+			shouldBeRateLimited: false,
+			description:         "/api/cancel should NOT be rate limited",
+		},
+		{
+			name:                "root cancel path",
+			path:                "/cancel",
+			shouldBeRateLimited: false,
+			description:         "Root /cancel should NOT be rate limited",
+		},
+		{
+			name:                "vod progress endpoint",
+			path:                "/vods/123/progress",
+			shouldBeRateLimited: false,
+			description:         "Other VOD endpoints should NOT be rate limited",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Make first request
+			req1 := httptest.NewRequest(http.MethodPost, tt.path, nil)
+			req1.RemoteAddr = "192.168.1.100:12345"
+			rr1 := httptest.NewRecorder()
+			handler.ServeHTTP(rr1, req1)
+
+			// Make second request immediately (should hit rate limit if path is rate limited)
+			req2 := httptest.NewRequest(http.MethodPost, tt.path, nil)
+			req2.RemoteAddr = "192.168.1.100:12345"
+			rr2 := httptest.NewRecorder()
+			handler.ServeHTTP(rr2, req2)
+
+			if tt.shouldBeRateLimited {
+				// Second request should be rate limited (429)
+				if rr2.Code != http.StatusTooManyRequests {
+					t.Errorf("%s: expected rate limit (429) on second request, got %d", tt.description, rr2.Code)
+				}
+			} else {
+				// Second request should NOT be rate limited
+				if rr2.Code == http.StatusTooManyRequests {
+					t.Errorf("%s: should NOT be rate limited, but got 429", tt.description)
+				}
+			}
+		})
+	}
+}

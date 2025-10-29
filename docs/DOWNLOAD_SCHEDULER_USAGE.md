@@ -172,7 +172,10 @@ done
 # Find and prioritize VODs matching criteria
 # (requires database access)
 
-# Example: Prioritize all VODs from a specific date range
+# ⚠️  WARNING: Direct database manipulation bypasses API validation and logging.
+# Prefer using /admin/vod/priority endpoint for individual VODs when possible.
+
+# Example: Prioritize all VODs from a specific date range (batch operation)
 psql -U vod -d vod -c "
   UPDATE vods 
   SET priority = 50 
@@ -198,7 +201,7 @@ curl -X POST http://localhost:8080/admin/vod/priority \
   -d '{"vod_id":"EMERGENCY_VOD_ID","priority":1000}'
 
 # 3. Monitor until processed
-watch -n 5 'curl -s http://localhost:8080/vods/EMERGENCY_VOD_ID | jq .processed'
+watch -n 5 'curl -s http://localhost:8080/vods/EMERGENCY_VOD_ID | jq ".processed // false"'
 ```
 
 ### Batch Processing Optimization
@@ -215,12 +218,12 @@ watch -n 5 'curl -s http://localhost:8080/vods/EMERGENCY_VOD_ID | jq .processed'
 # 3. Restart service to apply changes
 docker compose restart api
 
-# 4. Monitor throughput
+# 4. Monitor throughput (note: avg_download_ms may not be present initially)
 curl http://localhost:8080/status | jq '{
   active: .active_downloads,
   max: .max_concurrent_downloads,
   pending: .pending,
-  avg_download_ms: .avg_download_ms
+  avg_download_ms: (.avg_download_ms // "N/A")
 }'
 ```
 
@@ -266,7 +269,11 @@ curl http://localhost:8080/status | jq '{
 ### Reset Circuit Breaker
 
 ```bash
-# If circuit breaker is stuck open, reset it manually
+# ⚠️  WARNING: Manual circuit breaker reset can mask underlying issues.
+# Always investigate the root cause (credentials, API outages, network issues)
+# before manually resetting the circuit breaker state.
+
+# If circuit breaker is stuck open after resolving the root issue, reset it manually
 docker compose exec postgres psql -U vod -d vod -c "
   UPDATE kv SET value='closed' WHERE key='circuit_state';
   UPDATE kv SET value='0' WHERE key='circuit_failures';
@@ -305,10 +312,12 @@ curl http://localhost:8080/metrics | grep vod_
 
 Add these panels to your Grafana dashboard:
 
-1. **Active Downloads**: Query `vod_active_downloads` (from /status endpoint)
-2. **Queue Depth by Priority**: Query database or parse /status JSON
+1. **Active Downloads**: Parse JSON from /status endpoint (field: `active_downloads`)
+2. **Queue Depth by Priority**: Parse JSON from /status endpoint (field: `queue_by_priority`)
 3. **Download Success Rate**: `rate(vod_downloads_succeeded_total[5m]) / rate(vod_downloads_started_total[5m])`
 4. **Average Download Time**: `rate(vod_download_duration_seconds_sum[5m]) / rate(vod_download_duration_seconds_count[5m])`
+
+Note: `active_downloads` and `queue_by_priority` require parsing the /status JSON endpoint, as they are not exposed as Prometheus metrics.
 
 ## Best Practices
 

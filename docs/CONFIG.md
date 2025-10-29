@@ -43,6 +43,8 @@ All configuration is via environment variables. When running locally with `make 
 | Variable                    | Default | Description                                                                                        |
 | --------------------------- | ------- | -------------------------------------------------------------------------------------------------- |
 | DATA_DIR                    | `data`  | Directory for downloaded media files.                                                              |
+| MAX_CONCURRENT_DOWNLOADS    | `1`     | Maximum number of concurrent VOD downloads. Set to higher values for parallel processing (e.g., 3). |
+| DOWNLOAD_RATE_LIMIT         | (unset) | Global bandwidth limit per download (e.g., `500K`, `2M`, `1.5M`). Passed to yt-dlp `--limit-rate`. |
 | YTDLP_COOKIES_PATH          | (unset) | Absolute path to a Netscape-format cookies file (inside container) used for Twitch auth.           |
 | YTDLP_ARGS                  | (unset) | Extra yt-dlp flags injected before the default ones.                                               |
 | YTDLP_VERBOSE               | `0`     | When `1`, enables yt-dlp `-v` debug output (avoid when passing cookies to prevent secret leakage). |
@@ -323,4 +325,72 @@ CORS_ALLOWED_ORIGINS=https://vod.example.com,https://vod-admin.example.com,*.app
 
 ---
 
+## API Endpoints
+
+### Download Scheduler & Priority Management
+
+#### GET /status
+
+Returns comprehensive system status including queue depth, priority breakdown, download concurrency, and retry configuration.
+
+**Response fields:**
+- `pending` - Total unprocessed VODs
+- `errored` - VODs with processing errors
+- `processed` - Successfully processed VODs
+- `queue_by_priority` - Array of `{priority, count}` objects showing queue depth by priority level
+- `active_downloads` - Current number of active concurrent downloads
+- `max_concurrent_downloads` - Configured maximum concurrent downloads
+- `retry_config` - Retry/backoff settings (max attempts, backoff base, cooldown)
+- `download_rate_limit` - Bandwidth limit if configured
+- `circuit_state` - Circuit breaker state (`open`, `closed`, `half-open`)
+- `avg_download_ms`, `avg_upload_ms`, `avg_total_ms` - Moving averages for performance tracking
+
+**Example:**
+```bash
+curl http://localhost:8080/status
+```
+
+#### POST /admin/vod/priority
+
+Update the priority of a VOD to control processing order. Higher priority values are processed first.
+
+**Request body:**
+```json
+{
+  "vod_id": "123456789",
+  "priority": 10
+}
+```
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "vod_id": "123456789",
+  "priority": 10
+}
+```
+
+**Example:**
+```bash
+# Bump priority to front of queue
+curl -X POST http://localhost:8080/admin/vod/priority \
+  -H "Content-Type: application/json" \
+  -d '{"vod_id":"123456789","priority":100}'
+
+# Reset priority to default
+curl -X POST http://localhost:8080/admin/vod/priority \
+  -H "Content-Type: application/json" \
+  -d '{"vod_id":"123456789","priority":0}'
+```
+
+**Notes:**
+- Requires admin authentication if `ADMIN_USERNAME`/`ADMIN_PASSWORD` or `ADMIN_TOKEN` configured
+- Priority field already exists in DB schema; this endpoint provides runtime control
+- Default priority is 0; use positive values for higher priority, negative for lower
+- VODs are processed in order: highest priority first, then oldest date first
+
+---
+
 If a variable is absent above it is either deprecated or internal to implementation details.
+

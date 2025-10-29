@@ -253,7 +253,7 @@ func TestRateLimitMiddlewareWithXForwardedFor(t *testing.T) {
 	// Requests with X-Forwarded-For should use the forwarded IP
 	for i := 0; i < 2; i++ {
 		req := httptest.NewRequest(http.MethodGet, "/test", nil)
-		req.RemoteAddr = "10.0.0.1:12345"                         // Proxy IP
+		req.RemoteAddr = "10.0.0.1:12345"                          // Proxy IP
 		req.Header.Set("X-Forwarded-For", "203.0.113.1, 10.0.0.2") // Client IP, other proxies
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
@@ -275,14 +275,123 @@ func TestRateLimitMiddlewareWithXForwardedFor(t *testing.T) {
 	}
 }
 
+func TestRateLimitMiddlewareIPv6(t *testing.T) {
+	cfg := &rateLimiterConfig{
+		enabled:       true,
+		requestsPerIP: 2,
+		window:        1 * time.Second,
+	}
+	limiter := newIPRateLimiter(context.Background(), cfg)
+
+	handler := rateLimitMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), limiter)
+
+	// Test IPv6 address with port
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		req.RemoteAddr = "[2001:db8::1]:12345"
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("IPv6 request %d: expected 200, got %d", i+1, rr.Code)
+		}
+	}
+
+	// 3rd request should be rate limited
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req.RemoteAddr = "[2001:db8::1]:54321"
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusTooManyRequests {
+		t.Errorf("IPv6 request 3: expected 429, got %d", rr.Code)
+	}
+}
+
+func TestRateLimitMiddlewareIPv6WithoutPort(t *testing.T) {
+	cfg := &rateLimiterConfig{
+		enabled:       true,
+		requestsPerIP: 2,
+		window:        1 * time.Second,
+	}
+	limiter := newIPRateLimiter(context.Background(), cfg)
+
+	handler := rateLimitMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), limiter)
+
+	// Test IPv6 address without port (e.g., from X-Forwarded-For)
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		req.RemoteAddr = "127.0.0.1:8080" // Doesn't matter
+		req.Header.Set("X-Forwarded-For", "2001:db8::42")
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("IPv6 without port request %d: expected 200, got %d", i+1, rr.Code)
+		}
+	}
+
+	// 3rd request should be rate limited
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req.RemoteAddr = "127.0.0.1:8080"
+	req.Header.Set("X-Forwarded-For", "2001:db8::42")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusTooManyRequests {
+		t.Errorf("IPv6 without port request 3: expected 429, got %d", rr.Code)
+	}
+}
+
+func TestRateLimitMiddlewareIPv4WithoutPort(t *testing.T) {
+	cfg := &rateLimiterConfig{
+		enabled:       true,
+		requestsPerIP: 2,
+		window:        1 * time.Second,
+	}
+	limiter := newIPRateLimiter(context.Background(), cfg)
+
+	handler := rateLimitMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), limiter)
+
+	// Test IPv4 address without port (e.g., from X-Forwarded-For)
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		req.RemoteAddr = "10.0.0.1:8080" // Doesn't matter
+		req.Header.Set("X-Forwarded-For", "192.0.2.1")
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("IPv4 without port request %d: expected 200, got %d", i+1, rr.Code)
+		}
+	}
+
+	// 3rd request should be rate limited
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req.RemoteAddr = "10.0.0.1:8080"
+	req.Header.Set("X-Forwarded-For", "192.0.2.1")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusTooManyRequests {
+		t.Errorf("IPv4 without port request 3: expected 429, got %d", rr.Code)
+	}
+}
+
 func TestCORSConfig(t *testing.T) {
 	tests := []struct {
-		name               string
-		permissive         bool
-		allowedOrigins     []string
-		requestOrigin      string
-		expectAllowOrigin  string
-		expectCredentials  bool
+		name              string
+		permissive        bool
+		allowedOrigins    []string
+		requestOrigin     string
+		expectAllowOrigin string
+		expectCredentials bool
 	}{
 		{
 			name:              "permissive mode allows all origins",
@@ -450,10 +559,10 @@ func TestLoadAuthConfig(t *testing.T) {
 
 func TestLoadCORSConfig(t *testing.T) {
 	tests := []struct {
-		name               string
-		envVars            map[string]string
-		wantPermissive     bool
-		wantOriginsLen     int
+		name           string
+		envVars        map[string]string
+		wantPermissive bool
+		wantOriginsLen int
 	}{
 		{
 			name:           "default dev mode",
@@ -478,7 +587,7 @@ func TestLoadCORSConfig(t *testing.T) {
 		{
 			name: "production with allowed origins",
 			envVars: map[string]string{
-				"ENV":                   "production",
+				"ENV":                  "production",
 				"CORS_ALLOWED_ORIGINS": "https://example.com,https://app.example.com",
 			},
 			wantPermissive: false,

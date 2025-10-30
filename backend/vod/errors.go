@@ -32,7 +32,7 @@ func (ec ErrorClass) String() string {
 
 // ClassifyDownloadError classifies download errors into retryable vs fatal categories.
 //
-// Fatal errors (non-retriable):
+// Fatal errors (non-retryable):
 // - Authentication/authorization errors (subscriber-only, login required, 403/401)
 // - Content not found errors (404, video unavailable, deleted)
 // - Invalid input errors (malformed URL, invalid video ID)

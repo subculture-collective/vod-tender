@@ -128,14 +128,136 @@ paths:
                 '200': { description: Stream started }
     /vods/{id}/segments:
         get:
-            summary: Placeholder for future segmentation API
+            summary: List segments for a VOD
+            description: Retrieve all temporal segments (highlights, chapters, bookmarks) for a VOD
             parameters:
                 - in: path
                   name: id
                   required: true
                   schema: { type: string }
+                  description: Twitch VOD ID
+                - in: query
+                  name: type
+                  schema: { type: string }
+                  description: 'Filter by segment type (comma-separated): highlight, chapter, bookmark, clip'
+                - in: query
+                  name: sort
+                  schema:
+                      {
+                          type: string,
+                          enum:
+                              [
+                                  start_asc,
+                                  start_desc,
+                                  created_asc,
+                                  created_desc,
+                                  duration_desc,
+                              ],
+                          default: start_asc,
+                      }
+                  description: Sort order for segments
             responses:
-                '501': { description: Not implemented }
+                '200':
+                    description: List of segments
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SegmentList'
+                '404': { description: VOD not found }
+        post:
+            summary: Create a new segment
+            description: Add a temporal segment to a VOD
+            parameters:
+                - in: path
+                  name: id
+                  required: true
+                  schema: { type: string }
+                  description: Twitch VOD ID
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/SegmentCreate'
+            responses:
+                '201':
+                    description: Segment created
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Segment'
+                '400': { description: Validation error }
+                '404': { description: VOD not found }
+                '422': { description: Logical error (e.g., end_time <= start_time) }
+    /vods/{vodId}/segments/{segmentId}:
+        get:
+            summary: Get a single segment
+            description: Retrieve details of a specific segment
+            parameters:
+                - in: path
+                  name: vodId
+                  required: true
+                  schema: { type: string }
+                  description: Twitch VOD ID
+                - in: path
+                  name: segmentId
+                  required: true
+                  schema: { type: string }
+                  description: Segment ID
+            responses:
+                '200':
+                    description: Segment details
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Segment'
+                '404': { description: VOD or segment not found }
+        patch:
+            summary: Update a segment
+            description: Partially update segment fields
+            parameters:
+                - in: path
+                  name: vodId
+                  required: true
+                  schema: { type: string }
+                  description: Twitch VOD ID
+                - in: path
+                  name: segmentId
+                  required: true
+                  schema: { type: string }
+                  description: Segment ID
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/SegmentUpdate'
+            responses:
+                '200':
+                    description: Segment updated
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Segment'
+                '400': { description: Validation error }
+                '404': { description: VOD or segment not found }
+        delete:
+            summary: Delete a segment
+            description: Remove a segment from a VOD
+            parameters:
+                - in: path
+                  name: vodId
+                  required: true
+                  schema: { type: string }
+                  description: Twitch VOD ID
+                - in: path
+                  name: segmentId
+                  required: true
+                  schema: { type: string }
+                  description: Segment ID
+            responses:
+                '204': { description: Segment deleted }
+                '404': { description: VOD or segment not found }
 components:
     schemas:
         VODListItem:
@@ -181,3 +303,121 @@ components:
                 badges: { type: string, nullable: true }
                 emotes: { type: string, nullable: true }
                 color: { type: string, nullable: true }
+        Segment:
+            type: object
+            properties:
+                id:
+                    type: string
+                    description: Unique segment identifier (e.g., seg_abc123)
+                vod_id:
+                    type: string
+                    description: Twitch VOD ID this segment belongs to
+                type:
+                    type: string
+                    enum: [highlight, chapter, bookmark, clip]
+                    description: Segment type/category
+                title:
+                    type: string
+                    maxLength: 200
+                    description: Segment title
+                start_time:
+                    type: number
+                    format: double
+                    minimum: 0
+                    description: Start time in seconds from VOD beginning
+                end_time:
+                    type: number
+                    format: double
+                    description: End time in seconds from VOD beginning
+                duration:
+                    type: number
+                    format: double
+                    description: Computed duration (end_time - start_time)
+                description:
+                    type: string
+                    maxLength: 2000
+                    nullable: true
+                    description: Optional detailed description
+                tags:
+                    type: array
+                    items: { type: string, maxLength: 50 }
+                    maxItems: 10
+                    nullable: true
+                    description: Optional array of tags
+                metadata:
+                    type: object
+                    additionalProperties: true
+                    nullable: true
+                    description: Flexible JSON metadata (e.g., clip URLs, colors)
+                created_at:
+                    type: string
+                    format: date-time
+                    description: Segment creation timestamp
+                updated_at:
+                    type: string
+                    format: date-time
+                    description: Last update timestamp
+        SegmentCreate:
+            type: object
+            required: [type, title, start_time, end_time]
+            properties:
+                type:
+                    type: string
+                    enum: [highlight, chapter, bookmark, clip]
+                title:
+                    type: string
+                    maxLength: 200
+                start_time:
+                    type: number
+                    format: double
+                    minimum: 0
+                end_time:
+                    type: number
+                    format: double
+                description:
+                    type: string
+                    maxLength: 2000
+                tags:
+                    type: array
+                    items: { type: string, maxLength: 50 }
+                    maxItems: 10
+                metadata:
+                    type: object
+                    additionalProperties: true
+        SegmentUpdate:
+            type: object
+            description: Partial update - all fields optional
+            properties:
+                type:
+                    type: string
+                    enum: [highlight, chapter, bookmark, clip]
+                title:
+                    type: string
+                    maxLength: 200
+                start_time:
+                    type: number
+                    format: double
+                    minimum: 0
+                end_time:
+                    type: number
+                    format: double
+                description:
+                    type: string
+                    maxLength: 2000
+                tags:
+                    type: array
+                    items: { type: string, maxLength: 50 }
+                    maxItems: 10
+                metadata:
+                    type: object
+                    additionalProperties: true
+        SegmentList:
+            type: object
+            properties:
+                vod_id:
+                    type: string
+                    description: Twitch VOD ID
+                segments:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/Segment'

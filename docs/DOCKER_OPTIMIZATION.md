@@ -22,16 +22,40 @@ This document describes the optimizations applied to vod-tender's Docker images 
 - Trusted, regularly updated builds
 - Includes all codecs needed for Twitch VOD processing
 - No system library dependencies
+- Version pinned (7.0.2) for reproducibility
 
 ```dockerfile
-# Download static ffmpeg from John Van Sickle
-curl -L https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz -o /tmp/ffmpeg.tar.xz;
-tar xf /tmp/ffmpeg.tar.xz -C /tmp;
+# Download static ffmpeg from John Van Sickle (pinned version)
+FFMPEG_VERSION=7.0.2;
+FFMPEG_TARBALL="ffmpeg-${FFMPEG_VERSION}-amd64-static.tar.xz";
+FFMPEG_URL="https://johnvansickle.com/ffmpeg/releases/${FFMPEG_TARBALL}";
+curl -L "$FFMPEG_URL" -o /tmp/${FFMPEG_TARBALL};
+tar xf /tmp/${FFMPEG_TARBALL} -C /tmp;
 mv /tmp/ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/ffmpeg;
 mv /tmp/ffmpeg-*-amd64-static/ffprobe /usr/local/bin/ffprobe;
 ```
 
 **Savings**: ~320MB
+
+**Security**: Version is pinned for reproducibility. John Van Sickle doesn't provide separate checksum files, but pinning to a specific version prevents unintended changes.
+
+### 1a. yt-dlp with Checksum Verification
+**Problem**: Downloading binaries without verification poses security risks
+
+**Solution**: Pin yt-dlp version and verify with SHA256 checksums from GitHub releases
+- Version pinned (2024.04.09) for reproducibility
+- Checksum verification using official SHA2-256SUMS file
+- Prevents tampering or corrupted downloads
+
+```dockerfile
+# Download yt-dlp (pinned version) and verify checksum
+YTDLP_VERSION="2024.04.09";
+curl -L "https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/yt-dlp" -o /usr/local/bin/yt-dlp;
+curl -L "https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/SHA2-256SUMS" -o /tmp/SHA2-256SUMS;
+cd /usr/local/bin && grep "yt-dlp$" /tmp/SHA2-256SUMS | sha256sum -c;
+```
+
+**Security**: Both version pinning and checksum verification provide strong assurance of build reproducibility and integrity.
 
 ### 2. BuildKit Cache Mounts
 **Problem**: Go modules and build artifacts re-downloaded on every build
@@ -150,17 +174,32 @@ When updating to newer base images:
 ### Updating Static ffmpeg
 John Van Sickle releases are tracked at: https://johnvansickle.com/ffmpeg/
 
-Current version: 7.0.2 (downloaded via `ffmpeg-release-amd64-static.tar.xz`)
+Current version: 7.0.2
 
-To pin a specific version, replace:
+To update to a newer version:
+1. Check available versions at https://johnvansickle.com/ffmpeg/
+2. Update the `FFMPEG_VERSION` variable in the Dockerfile
+3. Test the build to ensure the new version works
+
 ```dockerfile
-curl -L https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+FFMPEG_VERSION=7.1.0;  # Update this line
 ```
 
-With:
+**Note**: John Van Sickle doesn't provide separate checksum files. Version pinning ensures reproducibility, but checksums are not verified.
+
+### Updating yt-dlp
+Current version: 2024.04.09
+
+To update to a newer version with checksum verification:
+1. Check latest release at https://github.com/yt-dlp/yt-dlp/releases
+2. Update the `YTDLP_VERSION` variable in the Dockerfile
+3. Build will automatically verify the checksum from the release's SHA2-256SUMS file
+
 ```dockerfile
-curl -L https://johnvansickle.com/ffmpeg/releases/ffmpeg-7.0.2-amd64-static.tar.xz
+YTDLP_VERSION="2024.11.18";  # Update this line
 ```
+
+**Security**: Checksum verification ensures the downloaded binary matches the official release.
 
 ## Why Not Further Optimization?
 

@@ -31,12 +31,19 @@ RUN set -eux; \
 	apt-get update; \
 	DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 		ca-certificates curl xz-utils; \
-	# Download yt-dlp (latest stable release)
-	curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp; \
+	# Download yt-dlp (pinned version) and verify checksum
+	YTDLP_VERSION="2024.04.09"; \
+	curl -L "https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/yt-dlp" -o /usr/local/bin/yt-dlp; \
+	curl -L "https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/SHA2-256SUMS" -o /tmp/SHA2-256SUMS; \
+	cd /usr/local/bin && grep "yt-dlp$" /tmp/SHA2-256SUMS | sha256sum -c; \
 	chmod +x /usr/local/bin/yt-dlp; \
-	# Download static ffmpeg from John Van Sickle (trusted source, ~70MB vs ~400MB apt package)
-	curl -L https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz -o /tmp/ffmpeg.tar.xz; \
-	tar xf /tmp/ffmpeg.tar.xz -C /tmp; \
+	# Download static ffmpeg from John Van Sickle (pinned version for reproducibility)
+	# Note: John Van Sickle builds don't provide separate checksum files, but pinning version ensures reproducibility
+	FFMPEG_VERSION=7.0.2; \
+	FFMPEG_TARBALL="ffmpeg-${FFMPEG_VERSION}-amd64-static.tar.xz"; \
+	FFMPEG_URL="https://johnvansickle.com/ffmpeg/releases/${FFMPEG_TARBALL}"; \
+	curl -L "$FFMPEG_URL" -o /tmp/${FFMPEG_TARBALL}; \
+	tar xf /tmp/${FFMPEG_TARBALL} -C /tmp; \
 	mv /tmp/ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/ffmpeg; \
 	mv /tmp/ffmpeg-*-amd64-static/ffprobe /usr/local/bin/ffprobe; \
 	chmod +x /usr/local/bin/ffmpeg /usr/local/bin/ffprobe; \
@@ -61,8 +68,8 @@ COPY --from=builder /out/healthcheck ./healthcheck
 COPY --from=builder /out/migrate-tokens ./migrate-tokens
 
 # Copy media tools from media stage
-# Note: ffprobe is included with static ffmpeg build but we only copy ffmpeg for video downloads
-# yt-dlp may use ffprobe for advanced operations, but basic video download works with ffmpeg alone
+# Both ffmpeg and ffprobe are copied from the static build, as yt-dlp may use both for video downloads and processing.
+# ffprobe is required for some yt-dlp operations, so both binaries are included in the runtime image.
 COPY --from=media /usr/local/bin/yt-dlp /usr/local/bin/yt-dlp
 COPY --from=media /usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
 COPY --from=media /usr/local/bin/ffprobe /usr/local/bin/ffprobe

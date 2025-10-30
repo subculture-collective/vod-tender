@@ -157,6 +157,13 @@ func TestStatusEndpoint(t *testing.T) {
 	db := testutil.SetupTestDB(t)
 	handler := NewMux(db)
 
+	// Insert sample EMA values for backward compatibility test
+	_, _ = db.Exec(`INSERT INTO kv (key, value, updated_at) VALUES 
+		('avg_download_ms', '300000', NOW()),
+		('avg_upload_ms', '120000', NOW()),
+		('avg_total_ms', '420000', NOW())
+		ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`)
+
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	w := httptest.NewRecorder()
 
@@ -177,6 +184,14 @@ func TestStatusEndpoint(t *testing.T) {
 	for _, field := range expectedFields {
 		if _, ok := status[field]; !ok {
 			t.Errorf("status response missing field: %s", field)
+		}
+	}
+
+	// Test backward compatibility: EMA fields should be present
+	emaFields := []string{"avg_download_ms", "avg_upload_ms", "avg_total_ms"}
+	for _, field := range emaFields {
+		if _, ok := status[field]; !ok {
+			t.Errorf("status response missing backward-compatible EMA field: %s", field)
 		}
 	}
 }

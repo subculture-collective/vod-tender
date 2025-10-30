@@ -112,6 +112,136 @@ Duration histograms use realistic buckets for VOD operations:
 - **Uploads**: 30s, 1m, 2m, 5m, 10m, 30m
 - **Total Processing**: 1m, 5m, 15m, 30m, 1h, 2h
 
+### PromQL Query Examples
+
+Duration metrics are exposed as Prometheus histograms, enabling rich statistical queries. The `/status` endpoint also retains backward-compatible EMA fields (`avg_download_ms`, `avg_upload_ms`, `avg_total_ms`) for legacy integrations.
+
+#### Percentiles
+
+Calculate percentile durations over the last hour:
+
+```promql
+# 95th percentile download duration
+histogram_quantile(0.95, rate(vod_download_duration_seconds_bucket[1h]))
+
+# 50th percentile (median) upload duration
+histogram_quantile(0.50, rate(vod_upload_duration_seconds_bucket[1h]))
+
+# 99th percentile total processing duration
+histogram_quantile(0.99, rate(vod_processing_total_duration_seconds_bucket[1h]))
+```
+
+#### Average Duration
+
+Calculate average duration over time windows:
+
+```promql
+# Average download duration (last 5m)
+rate(vod_download_duration_seconds_sum[5m]) / rate(vod_download_duration_seconds_count[5m])
+
+# Average upload duration (last 1h)
+rate(vod_upload_duration_seconds_sum[1h]) / rate(vod_upload_duration_seconds_count[1h])
+
+# Average total processing duration (last 30m)
+rate(vod_processing_total_duration_seconds_sum[30m]) / rate(vod_processing_total_duration_seconds_count[30m])
+```
+
+#### Distribution Analysis
+
+Analyze how durations are distributed across buckets:
+
+```promql
+# Percentage of downloads completing within 10 minutes
+sum(rate(vod_download_duration_seconds_bucket{le="600"}[1h])) / sum(rate(vod_download_duration_seconds_bucket{le="+Inf"}[1h])) * 100
+
+# Percentage of uploads completing within 2 minutes
+sum(rate(vod_upload_duration_seconds_bucket{le="120"}[1h])) / sum(rate(vod_upload_duration_seconds_bucket{le="+Inf"}[1h])) * 100
+
+# Count of processing cycles exceeding 1 hour
+sum(increase(vod_processing_total_duration_seconds_bucket{le="+Inf"}[1h])) - sum(increase(vod_processing_total_duration_seconds_bucket{le="3600"}[1h]))
+```
+
+#### Trend Detection
+
+Detect performance degradation over time:
+
+```promql
+# Download duration trend (compare current hour vs previous hour)
+histogram_quantile(0.95, rate(vod_download_duration_seconds_bucket[1h])) 
+  / 
+histogram_quantile(0.95, rate(vod_download_duration_seconds_bucket[1h] offset 1h))
+
+# Upload throughput (operations per minute)
+rate(vod_upload_duration_seconds_count[5m]) * 60
+```
+
+#### Processing Rate
+
+Calculate processing throughput:
+
+```promql
+# Downloads per hour
+rate(vod_downloads_started_total[1h]) * 3600
+
+# Successful uploads per minute
+rate(vod_uploads_succeeded_total[5m]) * 60
+
+# Processing cycles per hour
+rate(vod_processing_cycles_total[1h]) * 3600
+```
+
+#### Success Rate
+
+Monitor operation success rates:
+
+```promql
+# Download success rate (percentage)
+sum(rate(vod_downloads_succeeded_total[5m])) / sum(rate(vod_downloads_started_total[5m])) * 100
+
+# Upload success rate (percentage)
+sum(rate(vod_uploads_succeeded_total[5m])) / (sum(rate(vod_uploads_succeeded_total[5m])) + sum(rate(vod_uploads_failed_total[5m]))) * 100
+```
+
+#### Step-Level Durations
+
+Analyze individual processing steps:
+
+```promql
+# 95th percentile by step
+histogram_quantile(0.95, rate(vod_processing_step_duration_seconds_bucket[1h]))
+
+# Average duration by step (grouped)
+rate(vod_processing_step_duration_seconds_sum[30m]) / rate(vod_processing_step_duration_seconds_count[30m])
+```
+
+#### Grafana Variables
+
+Use these queries in Grafana for dashboard variables:
+
+```promql
+# Auto-populate step types
+label_values(vod_processing_step_duration_seconds_bucket, step)
+
+# Note: For percentile dropdowns, use a static list (0.50, 0.95, 0.99) rather than
+# querying bucket boundaries, as label_values() includes '+Inf' which is not suitable
+# for percentile calculations.
+```
+
+### Migration from EMA to Histograms
+
+**Legacy EMA Fields**: The `/status` endpoint continues to return `avg_download_ms`, `avg_upload_ms`, and `avg_total_ms` for backward compatibility. These are exponential moving averages stored in the `kv` table.
+
+**Recommended Migration**:
+- **New dashboards and alerts** should use histogram-based PromQL queries for richer insights (percentiles, distribution analysis)
+- **Existing integrations** relying on `/status` fields will continue to work without changes
+- **Future deprecation**: EMA fields may be deprecated in a future major version once all integrations migrate to histogram queries
+
+**Advantages of Histograms**:
+- Percentile calculation (p50, p95, p99)
+- Distribution analysis across custom time windows
+- Aggregation across multiple instances
+- Standard Prometheus ecosystem integration (Grafana, alerting)
+
 ## Alerting
 
 ### Alert Rules

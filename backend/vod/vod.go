@@ -340,6 +340,15 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 			telemetry.DownloadsSucceeded.Inc()
 			return out, nil
 		}
+		// Check if context was canceled (user-initiated or timeout)
+		if ctx.Err() != nil {
+			// Clear download state but don't increment retries; this was an intentional cancel
+			logger.Info("download canceled", slog.Any("reason", ctx.Err()))
+			// Use a background context for DB update since ctx is canceled
+			bgCtx := context.Background()
+			_, _ = db.ExecContext(bgCtx, `UPDATE vods SET download_state=$1, download_bytes=0, download_total=0, progress_updated_at=NOW() WHERE twitch_vod_id=$2`, "canceled", id)
+			return "", ctx.Err()
+		}
 		// Classify error from stderr state we captured last; fallback to err.Error()
 		detail := strings.Join(lastLines, "\n")
 		lower := strings.ToLower(detail)
@@ -349,10 +358,6 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 		lastErr = fmt.Errorf("yt-dlp: %w\nlast output:\n%s", err, detail)
 		// Increment retry counter
 		_, _ = db.ExecContext(ctx, `UPDATE vods SET download_retries = COALESCE(download_retries,0) + 1, progress_updated_at=NOW() WHERE twitch_vod_id=$1`, id)
-		// If context canceled, stop immediately
-		if ctx.Err() != nil {
-			return "", ctx.Err()
-		}
 	}
 	telemetry.DownloadsFailed.Inc()
 	logger.Error("download exhausted retries", slog.Any("err", lastErr))

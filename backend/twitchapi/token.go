@@ -37,6 +37,14 @@ func (ts *TokenSource) Get(ctx context.Context) (string, error) {
 	return ts.refresh(ctx)
 }
 
+// SetToken sets the token and expiry for testing purposes.
+func (ts *TokenSource) SetToken(token string, expiresAt time.Time) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.token = token
+	ts.expiresAt = expiresAt
+}
+
 func (ts *TokenSource) refresh(ctx context.Context) (string, error) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()

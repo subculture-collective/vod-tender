@@ -152,7 +152,7 @@ Analyze how durations are distributed across buckets:
 
 ```promql
 # Percentage of downloads completing within 10 minutes
-sum(rate(vod_download_duration_seconds_bucket{le="600"}[1h])) / sum(rate(vod_download_duration_seconds_count[1h])) * 100
+sum(rate(vod_download_duration_seconds_bucket{le="600"}[1h])) / sum(rate(vod_download_duration_seconds_bucket{le="+Inf"}[1h])) * 100
 
 # Percentage of uploads completing within 2 minutes
 sum(rate(vod_upload_duration_seconds_bucket{le="120"}[1h])) / sum(rate(vod_upload_duration_seconds_count[1h])) * 100

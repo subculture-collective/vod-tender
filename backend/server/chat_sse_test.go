@@ -19,7 +19,9 @@ import (
 // generateRandomID generates a random hex string for unique test IDs
 func generateRandomID() string {
 	b := make([]byte, 8)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("failed to generate random ID: %v", err))
+	}
 	return hex.EncodeToString(b)
 }
 
@@ -147,11 +149,13 @@ func TestChatSSE_SpeedAccuracy(t *testing.T) {
 			}
 
 			// Estimate total time taken (should be approximately 3 intervals worth)
+			// Sum of intervals: 0→100→200→300ms
+			const totalRealTimeMs = 300 // 3 intervals of 100ms each
 			// At 0.5x: 0.3s real time = 0.6s playback
 			// At 1x: 0.3s real time = 0.3s playback  
 			// At 2x: 0.3s real time = 0.15s playback
 			totalTime := time.Since(startTime)
-			expectedTime := time.Duration(float64(300*time.Millisecond) / tt.speed)
+			expectedTime := time.Duration(float64(totalRealTimeMs)*float64(time.Millisecond) / tt.speed)
 			tolerance := 200 * time.Millisecond
 			
 			diff := totalTime - expectedTime
@@ -203,7 +207,11 @@ func TestChatSSE_Backpressure(t *testing.T) {
 	}
 
 	// Test at high speed to ensure backpressure handling
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	
 	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/vods/%s/chat/stream?speed=100", vodID), nil)
+	req = req.WithContext(ctx)
 	w := newFlushableRecorder()
 
 	done := make(chan struct{})
@@ -217,7 +225,8 @@ func TestChatSSE_Backpressure(t *testing.T) {
 	case <-done:
 		// Good, handler completed
 	case <-time.After(5 * time.Second):
-		// Timeout is OK - we're testing that it handles backpressure without blocking
+		// Timeout - handler will be cancelled via context
+		t.Log("Handler timed out, context cancellation will stop it")
 	}
 
 	// Count received messages
@@ -311,8 +320,13 @@ monitorLoop:
 				if receivedCount >= 2 {
 					// Cancel after receiving 2 messages
 					cancel()
-					// Wait a bit for handler to exit
-					time.Sleep(500 * time.Millisecond)
+					// Wait for handler to exit, up to 200ms
+					select {
+					case <-done:
+						// Handler exited
+					case <-time.After(200 * time.Millisecond):
+						t.Log("timeout waiting for handler to exit after cancellation")
+					}
 					break monitorLoop
 				}
 			}

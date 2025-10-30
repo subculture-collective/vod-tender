@@ -154,3 +154,93 @@ func TestCircuitBreakerTransitions(t *testing.T) {
 		t.Fatalf("expected state closed got %s", v)
 	}
 }
+
+func TestCircuitBreakerHalfOpenSuccess(t *testing.T) {
+	dsn := os.Getenv("TEST_PG_DSN")
+	if dsn == "" {
+		t.Skip("TEST_PG_DSN not set")
+	}
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("failed to close db: %v", err)
+		}
+	}()
+	if err := dbpkg.Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	channel := "test-half-open-success"
+	
+	// Set circuit to half-open state
+	_, _ = db.ExecContext(ctx, `INSERT INTO kv (channel,key,value,updated_at) VALUES ($1,'circuit_state','half-open',NOW())
+		ON CONFLICT(channel,key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, channel)
+	
+	// Success in half-open should close the circuit
+	resetCircuit(ctx, db, channel)
+	
+	var state string
+	_ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE channel=$1 AND key='circuit_state'`, channel).Scan(&state)
+	if state != "closed" {
+		t.Fatalf("expected state closed after half-open success, got %s", state)
+	}
+	
+	// Verify failures are reset
+	var failures string
+	_ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE channel=$1 AND key='circuit_failures'`, channel).Scan(&failures)
+	if failures != "0" {
+		t.Fatalf("expected failures=0 after reset, got %s", failures)
+	}
+}
+
+func TestCircuitBreakerHalfOpenFailure(t *testing.T) {
+	dsn := os.Getenv("TEST_PG_DSN")
+	if dsn == "" {
+		t.Skip("TEST_PG_DSN not set")
+	}
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("failed to close db: %v", err)
+		}
+	}()
+	if err := dbpkg.Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Setenv("CIRCUIT_FAILURE_THRESHOLD", "2"); err != nil {
+		t.Fatalf("failed to set env: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("CIRCUIT_FAILURE_THRESHOLD"); err != nil {
+			t.Errorf("failed to unset env: %v", err)
+		}
+	}()
+	ctx := context.Background()
+	channel := "test-half-open-failure"
+	
+	// Set circuit to half-open state
+	_, _ = db.ExecContext(ctx, `INSERT INTO kv (channel,key,value,updated_at) VALUES ($1,'circuit_state','half-open',NOW())
+		ON CONFLICT(channel,key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, channel)
+	
+	// Failure in half-open should reopen the circuit immediately
+	updateCircuitOnFailure(ctx, db, channel)
+	
+	var state string
+	_ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE channel=$1 AND key='circuit_state'`, channel).Scan(&state)
+	if state != "open" {
+		t.Fatalf("expected state open after half-open failure, got %s", state)
+	}
+	
+	// Verify circuit_open_until is set
+	var until string
+	_ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE channel=$1 AND key='circuit_open_until'`, channel).Scan(&until)
+	if until == "" {
+		t.Fatal("expected circuit_open_until to be set after reopening from half-open")
+	}
+}

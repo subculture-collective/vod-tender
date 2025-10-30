@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -704,7 +705,7 @@ func TestReconciliation_ConcurrentMessages(t *testing.T) {
 	for i := 0; i < numMessages; i++ {
 		relTime := float64(i * 10) // every 10 seconds
 		absTime := streamStart.Add(time.Duration(relTime * float64(time.Second)))
-		username := "user" + string(rune('a'+i%26)) // create valid usernames
+		username := fmt.Sprintf("user%03d", i) // create unique usernames for all messages
 		_, err := db.ExecContext(ctx, `INSERT INTO chat_messages (channel, vod_id, username, message, abs_timestamp, rel_timestamp) 
 			VALUES ($1, $2, $3, $4, $5, $6)`, channel, placeholderID, username, "message", absTime, relTime)
 		if err != nil {

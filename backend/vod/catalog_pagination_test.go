@@ -10,6 +10,43 @@ import (
 	dbpkg "github.com/onnwee/vod-tender/backend/db"
 )
 
+// Test helper functions for catalog pagination tests
+
+// insertVOD inserts a VOD with idempotent ON CONFLICT DO NOTHING
+func insertVOD(ctx context.Context, db *sql.DB, channel string, vod VOD) error {
+	_, err := db.ExecContext(ctx,
+		`INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at) 
+		 VALUES ($1,$2,$3,$4,$5,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`,
+		channel, vod.ID, vod.Title, vod.Date, vod.Duration)
+	return err
+}
+
+// upsertKVCursor inserts or updates a catalog_after cursor in the kv table
+func upsertKVCursor(ctx context.Context, db *sql.DB, channel, cursor string) error {
+	_, err := db.ExecContext(ctx,
+		`INSERT INTO kv (channel, key, value, updated_at) 
+		 VALUES ($1, 'catalog_after', $2, NOW())
+		 ON CONFLICT(channel, key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`,
+		channel, cursor)
+	return err
+}
+
+// getKVCursor retrieves a catalog_after cursor from the kv table
+func getKVCursor(ctx context.Context, db *sql.DB, channel string) (string, error) {
+	var cursor string
+	err := db.QueryRowContext(ctx,
+		"SELECT value FROM kv WHERE channel = $1 AND key = 'catalog_after'",
+		channel).Scan(&cursor)
+	return cursor, err
+}
+
+// countVODs counts VODs for a channel
+func countVODs(ctx context.Context, db *sql.DB, channel string) (int, error) {
+	var count int
+	err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM vods WHERE channel = $1", channel).Scan(&count)
+	return count, err
+}
+
 // TestBackfillCatalogNoDuplicateInserts verifies idempotent VOD inserts
 // This test ensures that running BackfillCatalog multiple times with the same
 // VOD IDs doesn't create duplicate entries in the database
@@ -49,25 +86,15 @@ func TestBackfillCatalogNoDuplicateInserts(t *testing.T) {
 	}
 
 	// First insert
-	_, err = db.ExecContext(ctx,
-		`INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at) 
-		 VALUES ($1,$2,$3,$4,$5,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`,
-		channel, vod1.ID, vod1.Title, vod1.Date, vod1.Duration)
-	if err != nil {
-		t.Fatalf("First insert error: %v", err)
+	if err = insertVOD(ctx, db, channel, vod1); err != nil {
+		t.Fatalf("First insert vod1 error: %v", err)
 	}
-
-	_, err = db.ExecContext(ctx,
-		`INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at) 
-		 VALUES ($1,$2,$3,$4,$5,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`,
-		channel, vod2.ID, vod2.Title, vod2.Date, vod2.Duration)
-	if err != nil {
-		t.Fatalf("First insert error: %v", err)
+	if err = insertVOD(ctx, db, channel, vod2); err != nil {
+		t.Fatalf("First insert vod2 error: %v", err)
 	}
 
 	// Count rows after first insert
-	var count1 int
-	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM vods WHERE channel = $1", channel).Scan(&count1)
+	count1, err := countVODs(ctx, db, channel)
 	if err != nil {
 		t.Fatalf("Failed to count rows: %v", err)
 	}
@@ -77,25 +104,15 @@ func TestBackfillCatalogNoDuplicateInserts(t *testing.T) {
 	}
 
 	// Second insert with same data (should be no-op due to ON CONFLICT DO NOTHING)
-	_, err = db.ExecContext(ctx,
-		`INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at) 
-		 VALUES ($1,$2,$3,$4,$5,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`,
-		channel, vod1.ID, vod1.Title, vod1.Date, vod1.Duration)
-	if err != nil {
-		t.Fatalf("Second insert error: %v", err)
+	if err = insertVOD(ctx, db, channel, vod1); err != nil {
+		t.Fatalf("Second insert vod1 error: %v", err)
 	}
-
-	_, err = db.ExecContext(ctx,
-		`INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at) 
-		 VALUES ($1,$2,$3,$4,$5,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`,
-		channel, vod2.ID, vod2.Title, vod2.Date, vod2.Duration)
-	if err != nil {
-		t.Fatalf("Second insert error: %v", err)
+	if err = insertVOD(ctx, db, channel, vod2); err != nil {
+		t.Fatalf("Second insert vod2 error: %v", err)
 	}
 
 	// Count rows after second insert - should be same
-	var count2 int
-	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM vods WHERE channel = $1", channel).Scan(&count2)
+	count2, err := countVODs(ctx, db, channel)
 	if err != nil {
 		t.Fatalf("Failed to count rows: %v", err)
 	}
@@ -143,20 +160,12 @@ func TestKVCursorStorageAndRetrieval(t *testing.T) {
 
 	// Test storing a cursor
 	testCursor := "test-cursor-abc123"
-	_, err = db.ExecContext(ctx,
-		`INSERT INTO kv (channel, key, value, updated_at) 
-		 VALUES ($1, 'catalog_after', $2, NOW())
-		 ON CONFLICT(channel, key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`,
-		channel, testCursor)
-	if err != nil {
+	if err = upsertKVCursor(ctx, db, channel, testCursor); err != nil {
 		t.Fatalf("Failed to insert cursor: %v", err)
 	}
 
 	// Test retrieving the cursor
-	var retrievedCursor string
-	err = db.QueryRowContext(ctx,
-		"SELECT value FROM kv WHERE channel = $1 AND key = 'catalog_after'",
-		channel).Scan(&retrievedCursor)
+	retrievedCursor, err := getKVCursor(ctx, db, channel)
 	if err != nil {
 		t.Fatalf("Failed to retrieve cursor: %v", err)
 	}
@@ -167,20 +176,12 @@ func TestKVCursorStorageAndRetrieval(t *testing.T) {
 
 	// Test updating the cursor
 	updatedCursor := "test-cursor-def456"
-	_, err = db.ExecContext(ctx,
-		`INSERT INTO kv (channel, key, value, updated_at) 
-		 VALUES ($1, 'catalog_after', $2, NOW())
-		 ON CONFLICT(channel, key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`,
-		channel, updatedCursor)
-	if err != nil {
+	if err = upsertKVCursor(ctx, db, channel, updatedCursor); err != nil {
 		t.Fatalf("Failed to update cursor: %v", err)
 	}
 
 	// Verify cursor was updated
-	var newCursor string
-	err = db.QueryRowContext(ctx,
-		"SELECT value FROM kv WHERE channel = $1 AND key = 'catalog_after'",
-		channel).Scan(&newCursor)
+	newCursor, err := getKVCursor(ctx, db, channel)
 	if err != nil {
 		t.Fatalf("Failed to retrieve updated cursor: %v", err)
 	}
@@ -245,31 +246,18 @@ func TestKVCursorMultipleChannelIsolation(t *testing.T) {
 
 	// Store cursor for channel 1
 	cursor1 := "cursor-channel-1"
-	_, err = db.ExecContext(ctx,
-		`INSERT INTO kv (channel, key, value, updated_at) 
-		 VALUES ($1, 'catalog_after', $2, NOW())
-		 ON CONFLICT(channel, key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`,
-		channel1, cursor1)
-	if err != nil {
+	if err = upsertKVCursor(ctx, db, channel1, cursor1); err != nil {
 		t.Fatalf("Failed to insert cursor for channel 1: %v", err)
 	}
 
 	// Store cursor for channel 2
 	cursor2 := "cursor-channel-2"
-	_, err = db.ExecContext(ctx,
-		`INSERT INTO kv (channel, key, value, updated_at) 
-		 VALUES ($1, 'catalog_after', $2, NOW())
-		 ON CONFLICT(channel, key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`,
-		channel2, cursor2)
-	if err != nil {
+	if err = upsertKVCursor(ctx, db, channel2, cursor2); err != nil {
 		t.Fatalf("Failed to insert cursor for channel 2: %v", err)
 	}
 
 	// Retrieve cursor for channel 1
-	var retrievedCursor1 string
-	err = db.QueryRowContext(ctx,
-		"SELECT value FROM kv WHERE channel = $1 AND key = 'catalog_after'",
-		channel1).Scan(&retrievedCursor1)
+	retrievedCursor1, err := getKVCursor(ctx, db, channel1)
 	if err != nil {
 		t.Fatalf("Failed to retrieve cursor for channel 1: %v", err)
 	}
@@ -279,10 +267,7 @@ func TestKVCursorMultipleChannelIsolation(t *testing.T) {
 	}
 
 	// Retrieve cursor for channel 2
-	var retrievedCursor2 string
-	err = db.QueryRowContext(ctx,
-		"SELECT value FROM kv WHERE channel = $1 AND key = 'catalog_after'",
-		channel2).Scan(&retrievedCursor2)
+	retrievedCursor2, err := getKVCursor(ctx, db, channel2)
 	if err != nil {
 		t.Fatalf("Failed to retrieve cursor for channel 2: %v", err)
 	}
@@ -293,19 +278,12 @@ func TestKVCursorMultipleChannelIsolation(t *testing.T) {
 
 	// Update cursor for channel 1
 	updatedCursor1 := "cursor-channel-1-updated"
-	_, err = db.ExecContext(ctx,
-		`INSERT INTO kv (channel, key, value, updated_at) 
-		 VALUES ($1, 'catalog_after', $2, NOW())
-		 ON CONFLICT(channel, key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`,
-		channel1, updatedCursor1)
-	if err != nil {
+	if err = upsertKVCursor(ctx, db, channel1, updatedCursor1); err != nil {
 		t.Fatalf("Failed to update cursor for channel 1: %v", err)
 	}
 
 	// Verify channel 1 cursor was updated
-	err = db.QueryRowContext(ctx,
-		"SELECT value FROM kv WHERE channel = $1 AND key = 'catalog_after'",
-		channel1).Scan(&retrievedCursor1)
+	retrievedCursor1, err = getKVCursor(ctx, db, channel1)
 	if err != nil {
 		t.Fatalf("Failed to retrieve updated cursor for channel 1: %v", err)
 	}
@@ -315,9 +293,7 @@ func TestKVCursorMultipleChannelIsolation(t *testing.T) {
 	}
 
 	// Verify channel 2 cursor was NOT affected
-	err = db.QueryRowContext(ctx,
-		"SELECT value FROM kv WHERE channel = $1 AND key = 'catalog_after'",
-		channel2).Scan(&retrievedCursor2)
+	retrievedCursor2, err = getKVCursor(ctx, db, channel2)
 	if err != nil {
 		t.Fatalf("Failed to retrieve cursor for channel 2 after update: %v", err)
 	}

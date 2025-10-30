@@ -724,6 +724,13 @@ func (r *statusRecorder) WriteHeader(statusCode int) {
 	r.ResponseWriter.WriteHeader(statusCode)
 }
 
+// Flush implements http.Flusher if the underlying ResponseWriter supports it
+func (r *statusRecorder) Flush() {
+	if flusher, ok := r.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
 // cfgGet returns an override value from kv for a given key (with cfg: prefix) or falls back to env.
 // Start runs the HTTP server and shuts down gracefully on context cancellation.
 func Start(ctx context.Context, db *sql.DB, addr string) error {

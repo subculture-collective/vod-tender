@@ -58,14 +58,14 @@ func TestTimeFuncRecordsObservation(t *testing.T) {
 	// Ensure Init is called
 	Init()
 
-	// Create a mock histogram to verify observations
+	// Create a test-specific registry to avoid interference between tests
+	registry := prometheus.NewRegistry()
 	testHistogram := prometheus.NewHistogram(prometheus.HistogramOpts{
 		Name:    "test_duration_seconds",
 		Help:    "Test duration",
 		Buckets: prometheus.DefBuckets,
 	})
-	prometheus.MustRegister(testHistogram)
-	defer prometheus.Unregister(testHistogram)
+	registry.MustRegister(testHistogram)
 
 	// TimeFunc should measure and record duration
 	executed := false

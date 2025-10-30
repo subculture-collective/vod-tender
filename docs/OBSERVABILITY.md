@@ -219,11 +219,12 @@ rate(vod_processing_step_duration_seconds_sum[30m]) / rate(vod_processing_step_d
 Use these queries in Grafana for dashboard variables:
 
 ```promql
-# Auto-populate percentile dropdown
-label_values(vod_download_duration_seconds_bucket, le)
-
 # Auto-populate step types
 label_values(vod_processing_step_duration_seconds_bucket, step)
+
+# Note: For percentile dropdowns, use a static list (0.50, 0.95, 0.99) rather than
+# querying bucket boundaries, as label_values() includes '+Inf' which is not suitable
+# for percentile calculations.
 ```
 
 ### Migration from EMA to Histograms

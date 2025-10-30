@@ -357,7 +357,7 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 		}
 		lastErr = fmt.Errorf("yt-dlp: %w\nlast output:\n%s", err, detail)
 		// Increment retry counter
-		_, _ = db.ExecContext(ctx, `UPDATE vods SET download_retries = COALESCE(download_retries,0) + 1, progress_updated_at=NOW() WHERE twitch_vod_id=$1`, id)
+		_, _ = db.ExecContext(context.Background(), `UPDATE vods SET download_retries = COALESCE(download_retries,0) + 1, progress_updated_at=NOW() WHERE twitch_vod_id=$1`, id)
 	}
 	telemetry.DownloadsFailed.Inc()
 	logger.Error("download exhausted retries", slog.Any("err", lastErr))

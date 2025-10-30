@@ -320,6 +320,13 @@ func processOnce(ctx context.Context, dbc *sql.DB, channel string) error {
 		telemetry.RecordError(downloadSpan, err)
 		downloadSpan.End()
 		
+		// Check if download was canceled (user-initiated or timeout)
+		if ctx.Err() != nil {
+			logger.Info("download canceled", slog.Any("reason", ctx.Err()))
+			// Don't treat cancellation as a failure or trip circuit breaker
+			return nil
+		}
+		
 		lower := strings.ToLower(err.Error())
 		// Expected/auth-required: skip retries and do not trip circuit
 		if strings.Contains(lower, "subscriber-only") || strings.Contains(lower, "must be logged into") || strings.Contains(lower, "login required") {

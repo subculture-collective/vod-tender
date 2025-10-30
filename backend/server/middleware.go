@@ -332,20 +332,4 @@ func isOriginAllowed(origin string, allowedOrigins []string) bool {
 	return false
 }
 
-// contextKey is a custom type for context keys to avoid collisions
-type contextKey string
-
-const authContextKey contextKey = "authenticated"
-
-// withAuthContext adds authentication status to request context
-func withAuthContext(ctx context.Context, authenticated bool) context.Context {
-	return context.WithValue(ctx, authContextKey, authenticated)
-}
-
-// isAuthenticated checks if the request is authenticated
-func isAuthenticated(ctx context.Context) bool {
-	if v, ok := ctx.Value(authContextKey).(bool); ok {
-		return v
-	}
-	return false
-}
+// Note: authentication helpers removed as they were unused.

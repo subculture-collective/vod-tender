@@ -14,7 +14,7 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"go.opentelemetry.io/otel/attribute"
-	
+
 	"github.com/onnwee/vod-tender/backend/config"
 	"github.com/onnwee/vod-tender/backend/db"
 	"github.com/onnwee/vod-tender/backend/telemetry"
@@ -101,12 +101,15 @@ func processOnce(ctx context.Context, dbc *sql.DB, channel string) error {
 				if time.Now().Before(t) {
 					slog.Debug("circuit open; skipping processing cycle", slog.String("until", until), slog.String("channel", channel))
 					span.SetAttributes(attribute.String("circuit.state", "open"))
+					telemetry.SetCircuitState("open")
 					return nil
 				}
 				_, _ = dbc.ExecContext(ctx, `INSERT INTO kv (channel,key,value,updated_at) VALUES ($1,'circuit_state','half-open',CURRENT_TIMESTAMP)
 					ON CONFLICT(channel,key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP`, channel)
 				slog.Info("circuit transitioning to half-open", slog.String("channel", channel))
 				span.SetAttributes(attribute.String("circuit.state", "half-open"))
+				telemetry.SetCircuitState("half-open")
+				telemetry.RecordCircuitStateChange("open", "half-open")
 			}
 		}
 	}

@@ -106,10 +106,7 @@ func runRetentionCleanup(ctx context.Context, dbc *sql.DB, channel string, polic
 		slog.Bool("dry_run", policy.DryRun),
 	)
 
-	dataDir := os.Getenv("DATA_DIR")
-	if dataDir == "" {
-		dataDir = "data"
-	}
+	// Note: data directory is not needed here; paths are sourced from the DB.
 
 	// Build list of VOD IDs that should be retained
 	retainedIDs := make(map[string]struct{})

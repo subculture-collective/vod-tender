@@ -4,10 +4,10 @@
 
 1. Copy `backend/.env.example` (or create) and fill required Twitch + optional YouTube variables.
 2. Ensure dependencies installed:
-   - `go` (matching module toolchain)
-   - `yt-dlp` (required for VOD downloads)
-   - `ffmpeg` (recommended; used by yt-dlp for muxing)
-   - `aria2c` (optional performance / reliability boost)
+    - `go` (matching module toolchain)
+    - `yt-dlp` (required for VOD downloads)
+    - `ffmpeg` (recommended; used by yt-dlp for muxing)
+    - `aria2c` (optional performance / reliability boost)
 3. Run: `make run` (loads `backend/.env`).
 
 ### Docker
@@ -25,11 +25,11 @@ Pass environment variables (see CONFIG.md) using an env file or compose `environ
 
 Compose is parameterized via a root `.env` file. Copy `.env.example` to `.env` and set:
 
-- `STACK_NAME` – instance name (used in container names/labels)
-- `TWITCH_CHANNEL` – for identification and defaults
-- `API_PORT`, `FRONTEND_PORT` – host ports
-- `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST` – database settings
-- `SECRETS_DIR`, `YTDLP_COOKIES_PATH` – cookies mount for this instance
+-   `STACK_NAME` – instance name (used in container names/labels)
+-   `TWITCH_CHANNEL` – for identification and defaults
+-   `API_PORT`, `FRONTEND_PORT` – host ports
+-   `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST` – database settings
+-   `SECRETS_DIR`, `YTDLP_COOKIES_PATH` – cookies mount for this instance
 
 You can spin up multiple instances by using separate directories each with its own `.env` and backend `.env` files, sharing an external `WEB_NETWORK`:
 
@@ -58,87 +58,117 @@ Logging: Uses Go `slog` with configurable level (`LOG_LEVEL`) and format (`LOG_F
 
 Endpoints:
 
-- `/healthz` – liveness (DB ping only). Returns 200 OK or 503.
-- `/status` – lightweight JSON summary: pending / errored / processed counts, circuit breaker state, moving averages, last process run timestamp.
-- `/metrics` – Prometheus exposition format metrics (see Metrics section below).
-- `/admin/monitor` – extended internal stats (job timestamps, circuit).
+-   `/healthz` – liveness (DB ping only). Returns 200 OK or 503.
+-   `/status` – lightweight JSON summary: pending / errored / processed counts, circuit breaker state, moving averages, last process run timestamp.
+-   `/metrics` – Prometheus exposition format metrics (see Metrics section below).
+-   `/admin/monitor` – extended internal stats (job timestamps, circuit).
 
 Moving Averages (EMAs) stored in `kv`:
 
-- `avg_download_ms` – recent download duration trend.
-- `avg_upload_ms` – recent upload duration trend.
-- `avg_total_ms` – overall processing time trend.
+-   `avg_download_ms` – recent download duration trend.
+-   `avg_upload_ms` – recent upload duration trend.
+-   `avg_total_ms` – overall processing time trend.
 
 Interpretation: Rising `avg_download_ms` may indicate network or Twitch CDN slowness; rising `avg_upload_ms` could be YouTube API throttling; high `avg_total_ms` vs sum of others suggests local queuing or CPU bottlenecks.
 
 Metrics Exposed (Prometheus):
 
-- `vod_downloads_started_total` / `vod_downloads_succeeded_total` / `vod_downloads_failed_total`
-- `vod_uploads_succeeded_total` / `vod_uploads_failed_total`
-- `vod_processing_cycles_total`
-- `vod_download_duration_seconds` (histogram)
-- `vod_upload_duration_seconds` (histogram)
-- `vod_processing_total_duration_seconds` (histogram)
-- `vod_queue_depth` (gauge) – unprocessed VOD count
-- `vod_circuit_open` (gauge 1/0)
+-   `vod_downloads_started_total` / `vod_downloads_succeeded_total` / `vod_downloads_failed_total`
+-   `vod_uploads_succeeded_total` / `vod_uploads_failed_total`
+-   `vod_processing_cycles_total`
+-   `vod_download_duration_seconds` (histogram)
+-   `vod_upload_duration_seconds` (histogram)
+-   `vod_processing_total_duration_seconds` (histogram)
+-   `vod_queue_depth` (gauge) – unprocessed VOD count
+-   `vod_circuit_open` (gauge 1/0) – DEPRECATED: use `vod_circuit_breaker_state`
+-   `vod_circuit_breaker_state` (gauge) – current circuit breaker state: 0=closed, 1=half-open, 2=open
+-   `vod_circuit_breaker_failures_total` (counter) – total number of circuit breaker failures
+-   `circuit_breaker_state_changes_total{from,to}` (counter) – tracks state transitions
 
 Correlation IDs:
 
-- Each HTTP request gets an `X-Correlation-ID` header (reused if supplied) added to logs as `corr`. It is propagated into processing and download logs for traceability.
+-   Each HTTP request gets an `X-Correlation-ID` header (reused if supplied) added to logs as `corr`. It is propagated into processing and download logs for traceability.
 
 Suggested next steps:
 
-- Add readiness endpoint ensuring circuit not open and required credentials present.
-- Add histogram buckets tuning if needed for long VOD durations.
+-   Add readiness endpoint ensuring circuit not open and required credentials present.
+-   Add histogram buckets tuning if needed for long VOD durations.
+
+### Circuit Breaker
+
+The circuit breaker prevents hot-looping on systemic failures (e.g., API outages, auth issues). It has three states:
+
+#### States
+
+1. **Closed** (normal operation): Downloads proceed normally. Failures increment the failure counter.
+2. **Open** (failing): After reaching `CIRCUIT_FAILURE_THRESHOLD` consecutive failures, the circuit opens. All processing is skipped for `CIRCUIT_OPEN_COOLDOWN` duration (default 5 minutes).
+3. **Half-Open** (probing): After cooldown expires, the circuit transitions to half-open and allows one request to probe system health.
+    - **Success**: Circuit closes immediately, failure counter resets to 0, normal processing resumes.
+    - **Failure**: Circuit reopens immediately for another cooldown period.
+
+#### Configuration
+
+-   `CIRCUIT_FAILURE_THRESHOLD` – number of consecutive failures before opening (default: disabled). Example: `2`
+-   `CIRCUIT_OPEN_COOLDOWN` – duration to keep circuit open before transitioning to half-open (default: `5m`). Example: `10m`
+
+#### Monitoring
+
+-   Monitor `vod_circuit_breaker_state` gauge: 0=closed (healthy), 1=half-open (probing), 2=open (degraded)
+-   Monitor `vod_circuit_breaker_failures_total` counter for failure rate trends
+-   Monitor `circuit_breaker_state_changes_total` for transition frequency
 
 ### Common Operational Scenarios
 
-| Scenario                   | Symptoms                                | Action                                                                                                     |
-| -------------------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Download stuck / slow      | Progress percent not updating           | Check network; consider installing `aria2c`; verify disk space.                                            |
-| Circuit breaker open       | Processing halts, log: `circuit opened` | Investigate root error (credentials, API outage). Adjust `CIRCUIT_FAILURE_THRESHOLD` / cooldown if needed. |
-| Chat not recording         | Log: `chat recorder disabled`           | Ensure `CHAT_AUTO_START=1` or provide `TWITCH_CHANNEL`,`TWITCH_BOT_USERNAME`,`TWITCH_OAUTH_TOKEN`.         |
-| Auto chat never reconciles | Placeholder VOD persists >15m           | Increase window or inspect Helix API credentials; ensure `TWITCH_CLIENT_ID/SECRET` valid.                  |
-| YouTube uploads missing    | `youtube_url` empty                     | Provide valid YouTube OAuth token & client creds; check token expiry refresh logs.                         |
+| Scenario                   | Symptoms                                | Action                                                                                                                                                                   |
+| -------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Download stuck / slow      | Progress percent not updating           | Check network; consider installing `aria2c`; verify disk space.                                                                                                          |
+| Circuit breaker open       | Processing halts, log: `circuit opened` | Investigate root error (credentials, API outage). Adjust `CIRCUIT_FAILURE_THRESHOLD` / cooldown if needed. Circuit will auto-recover via half-open probe after cooldown. |
+| Chat not recording         | Log: `chat recorder disabled`           | Ensure `CHAT_AUTO_START=1` or provide `TWITCH_CHANNEL`,`TWITCH_BOT_USERNAME`,`TWITCH_OAUTH_TOKEN`.                                                                       |
+| Auto chat never reconciles | Placeholder VOD persists >15m           | Increase window or inspect Helix API credentials; ensure `TWITCH_CLIENT_ID/SECRET` valid.                                                                                |
+| YouTube uploads missing    | `youtube_url` empty                     | Provide valid YouTube OAuth token & client creds; check token expiry refresh logs.                                                                                       |
 
 ### Data Management
 
-- To reset processing state (force reprocess a VOD): `UPDATE vods SET processed=0, processing_error=NULL, youtube_url=NULL WHERE twitch_vod_id='...'`.
-- To clear circuit breaker: delete its keys: `DELETE FROM kv WHERE key IN ('circuit_state','circuit_failures','circuit_open_until');`.
-- Backup strategy: use `pg_dump` (logical) or base backups (e.g., `pg_basebackup`) plus the `data/` directory (video files). For small hobby deployments a daily `pg_dump > backup.sql` is usually sufficient.
+-   To reset processing state (force reprocess a VOD): `UPDATE vods SET processed=0, processing_error=NULL, youtube_url=NULL WHERE twitch_vod_id='...'`.
+-   To clear circuit breaker: delete its keys: `DELETE FROM kv WHERE key IN ('circuit_state','circuit_failures','circuit_open_until');`.
+-   Backup strategy: use `pg_dump` (logical) or base backups (e.g., `pg_basebackup`) plus the `data/` directory (video files). For small hobby deployments a daily `pg_dump > backup.sql` is usually sufficient.
 
 ### Security Notes
 
-- OAuth tokens are encrypted at rest using AES-256-GCM when `ENCRYPTION_KEY` is set. See "OAuth Token Encryption Migration" section below for migration from plaintext to encrypted storage.
-- Limit scope of Twitch & YouTube tokens to necessary permissions.
-- Avoid mounting the `data/` directory with overly broad permissions (use user-owned paths, not world-writable).
-- Use least‑privilege Postgres role (revoking CREATEDB, SUPERUSER if not needed). Restrict network access (security groups / firewalls).
+-   OAuth tokens are encrypted at rest using AES-256-GCM when `ENCRYPTION_KEY` is set. See "OAuth Token Encryption Migration" section below for migration from plaintext to encrypted storage.
+-   Limit scope of Twitch & YouTube tokens to necessary permissions.
+-   Avoid mounting the `data/` directory with overly broad permissions (use user-owned paths, not world-writable).
+-   Use least‑privilege Postgres role (revoking CREATEDB, SUPERUSER if not needed). Restrict network access (security groups / firewalls).
 
 #### OAuth Token Encryption Migration
 
 vod-tender supports encrypted storage of OAuth tokens at rest using AES-256-GCM. The system maintains backward compatibility with plaintext tokens during migration.
 
 **Encryption Versions**:
-- **Version 0**: Plaintext (legacy, not recommended for production)
-- **Version 1**: AES-256-GCM encrypted (current standard)
+
+-   **Version 0**: Plaintext (legacy, not recommended for production)
+-   **Version 1**: AES-256-GCM encrypted (current standard)
 
 **Setting Up Encryption for New Deployments**:
 
 1. Generate a secure 32-byte encryption key:
-   ```bash
-   openssl rand -base64 32
-   ```
+
+    ```bash
+    openssl rand -base64 32
+    ```
 
 2. Set the `ENCRYPTION_KEY` environment variable in `backend/.env`:
-   ```bash
-   ENCRYPTION_KEY=your-base64-encoded-32-byte-key-here
-   ```
+
+    ```bash
+    ENCRYPTION_KEY=your-base64-encoded-32-byte-key-here
+    ```
 
 3. Store the key securely:
-   - For production: Use AWS Secrets Manager, HashiCorp Vault, or similar
-   - For Docker Compose: Mount as secret or use Docker secrets
-   - For Kubernetes: Use Sealed Secrets or external secrets operator
-   - **Never commit the key to version control**
+
+    - For production: Use AWS Secrets Manager, HashiCorp Vault, or similar
+    - For Docker Compose: Mount as secret or use Docker secrets
+    - For Kubernetes: Use Sealed Secrets or external secrets operator
+    - **Never commit the key to version control**
 
 4. Start the application. All new tokens will be automatically encrypted (version=1).
 
@@ -147,36 +177,40 @@ vod-tender supports encrypted storage of OAuth tokens at rest using AES-256-GCM.
 If you have existing deployments with plaintext tokens (encryption_version=0), use the migration tool to encrypt them:
 
 1. **Prerequisites**:
-   - Database must be accessible via `DB_DSN`
-   - `ENCRYPTION_KEY` must be set and valid
-   - Application can remain running during migration (it handles both formats)
+
+    - Database must be accessible via `DB_DSN`
+    - `ENCRYPTION_KEY` must be set and valid
+    - Application can remain running during migration (it handles both formats)
 
 2. **Dry-Run (Recommended First Step)**:
-   ```bash
-   # Inside the backend container or with Go installed locally
-   export DB_DSN="postgres://vod:vod@postgres:5432/vod?sslmode=disable"
-   export ENCRYPTION_KEY="your-base64-key"
-   ./migrate-tokens --dry-run
-   ```
 
-   This shows what would be migrated without making changes.
+    ```bash
+    # Inside the backend container or with Go installed locally
+    export DB_DSN="postgres://vod:vod@postgres:5432/vod?sslmode=disable"
+    export ENCRYPTION_KEY="your-base64-key"
+    ./migrate-tokens --dry-run
+    ```
+
+    This shows what would be migrated without making changes.
 
 3. **Run Migration**:
-   ```bash
-   # Migrate all tokens
-   ./migrate-tokens
 
-   # Or migrate specific channel only
-   ./migrate-tokens --channel "your-channel-name"
-   ```
+    ```bash
+    # Migrate all tokens
+    ./migrate-tokens
+
+    # Or migrate specific channel only
+    ./migrate-tokens --channel "your-channel-name"
+    ```
 
 4. **Verify Migration**:
-   ```bash
-   # Check encryption status of all tokens
-   psql -U vod -d vod -c "SELECT provider, channel, encryption_version, encryption_key_id FROM oauth_tokens;"
-   ```
 
-   All tokens should show `encryption_version = 1` after successful migration.
+    ```bash
+    # Check encryption status of all tokens
+    psql -U vod -d vod -c "SELECT provider, channel, encryption_version, encryption_key_id FROM oauth_tokens;"
+    ```
+
+    All tokens should show `encryption_version = 1` after successful migration.
 
 **Docker Compose Example**:
 
@@ -215,18 +249,19 @@ level=INFO msg="migration completed successfully"
 
 **Important Notes**:
 
-- The migration is **idempotent** - safe to run multiple times
-- Each token update is **atomic** (uses database transaction)
-- Tokens are migrated one at a time with progress logging
-- Failed migrations are logged but don't stop the process
-- The application continues to work with mixed encryption versions during migration
-- **After migration**, you can optionally enforce encryption by requiring `ENCRYPTION_KEY` at startup
+-   The migration is **idempotent** - safe to run multiple times
+-   Each token update is **atomic** (uses database transaction)
+-   Tokens are migrated one at a time with progress logging
+-   Failed migrations are logged but don't stop the process
+-   The application continues to work with mixed encryption versions during migration
+-   **After migration**, you can optionally enforce encryption by requiring `ENCRYPTION_KEY` at startup
 
 **Backward Compatibility**:
 
 The system supports reading tokens in any encryption version:
-- Version 0 (plaintext): Read directly without decryption
-- Version 1 (encrypted): Automatically decrypt using `ENCRYPTION_KEY`
+
+-   Version 0 (plaintext): Read directly without decryption
+-   Version 1 (encrypted): Automatically decrypt using `ENCRYPTION_KEY`
 
 New tokens are always written with the highest supported version when `ENCRYPTION_KEY` is set.
 
@@ -235,10 +270,11 @@ New tokens are always written with the highest supported version when `ENCRYPTIO
 Once all tokens are migrated to version 1, you can disable plaintext storage by:
 
 1. Verifying all tokens are encrypted:
-   ```sql
-   SELECT COUNT(*) FROM oauth_tokens WHERE encryption_version = 0;
-   -- Should return 0
-   ```
+
+    ```sql
+    SELECT COUNT(*) FROM oauth_tokens WHERE encryption_version = 0;
+    -- Should return 0
+    ```
 
 2. Adding application logic to reject version 0 tokens if needed (optional)
 
@@ -253,9 +289,10 @@ Currently, the system uses a single encryption key identified as "default". For 
 3. Re-encrypt all tokens with new key using migration tool
 
 For now, protect your encryption key carefully and rotate by:
-- Generating new key
-- Running migration with new key to re-encrypt all tokens
-- Update key in all environments
+
+-   Generating new key
+-   Running migration with new key to re-encrypt all tokens
+-   Update key in all environments
 
 ### Scaling Considerations
 
@@ -278,12 +315,12 @@ For now, protect your encryption key carefully and rotate by:
 
 The CI pipeline includes automated container security scanning using Trivy:
 
-- **Backend image**: Scanned for OS and library vulnerabilities in `vod-tender-backend`
-- **Frontend image**: Scanned for OS and library vulnerabilities in `vod-tender-frontend`
-- **Severity threshold**: Build fails on CRITICAL or HIGH severity vulnerabilities
-- **Reports**: Available as CI artifacts (SARIF and JSON formats) with 30-day retention
-- **GitHub Security**: SARIF results automatically uploaded to GitHub Security tab for tracking
-- **Baseline allowlist**: Optional `.trivyignore` file available for suppressing reviewed/accepted vulnerabilities
+-   **Backend image**: Scanned for OS and library vulnerabilities in `vod-tender-backend`
+-   **Frontend image**: Scanned for OS and library vulnerabilities in `vod-tender-frontend`
+-   **Severity threshold**: Build fails on CRITICAL or HIGH severity vulnerabilities
+-   **Reports**: Available as CI artifacts (SARIF and JSON formats) with 30-day retention
+-   **GitHub Security**: SARIF results automatically uploaded to GitHub Security tab for tracking
+-   **Baseline allowlist**: Optional `.trivyignore` file available for suppressing reviewed/accepted vulnerabilities
 
 To manually scan images locally:
 
@@ -294,7 +331,7 @@ curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/inst
 # Scan backend image
 trivy image vod-tender-backend:latest --severity CRITICAL,HIGH
 
-# Scan frontend image  
+# Scan frontend image
 trivy image vod-tender-frontend:latest --severity CRITICAL,HIGH
 
 # Generate detailed JSON report
@@ -303,9 +340,9 @@ trivy image vod-tender-backend:latest --format json --output backend-scan.json
 
 ### Maintenance Tasks
 
-- Postgres routine maintenance: autovacuum should suffice; consider manual `VACUUM ANALYZE` only if bloat observed.
-- Regular backups (`pg_dump` or WAL archiving) and periodic restore tests.
-- Rotate logs via process manager (if not using Docker log drivers with retention).
+-   Postgres routine maintenance: autovacuum should suffice; consider manual `VACUUM ANALYZE` only if bloat observed.
+-   Regular backups (`pg_dump` or WAL archiving) and periodic restore tests.
+-   Rotate logs via process manager (if not using Docker log drivers with retention).
 
 #### Storage Retention and Cleanup
 
@@ -346,13 +383,13 @@ Before enabling retention cleanup in production, **always test with dry-run mode
 
 **What Gets Deleted**
 
-- **Files deleted**: Local video files (`*.mp4`, `*.mkv`, `*.webm`) in the `DATA_DIR` that exceed retention policy
-- **Database preserved**: VOD metadata, dates, titles, YouTube URLs, and chat logs remain in the database
-- **Protected from deletion**:
-  - VODs currently being downloaded or processed
-  - VODs updated within the last hour (may be uploading)
-  - VODs with active `download_state` (downloading, processing)
-  - VODs matching retention policies (by date or count)
+-   **Files deleted**: Local video files (`*.mp4`, `*.mkv`, `*.webm`) in the `DATA_DIR` that exceed retention policy
+-   **Database preserved**: VOD metadata, dates, titles, YouTube URLs, and chat logs remain in the database
+-   **Protected from deletion**:
+    -   VODs currently being downloaded or processed
+    -   VODs updated within the last hour (may be uploading)
+    -   VODs with active `download_state` (downloading, processing)
+    -   VODs matching retention policies (by date or count)
 
 **Monitoring**
 
@@ -365,20 +402,21 @@ level=INFO msg="deleted old vod file" path=data/vod123.mp4 vod_id=123 title="Old
 ```
 
 Key metrics to monitor:
-- `cleaned`: Number of files deleted
-- `skipped`: Number of files retained (should match your policy expectations)
-- `errors`: Should typically be 0; investigate if non-zero
-- `bytes_freed`: Total disk space reclaimed
+
+-   `cleaned`: Number of files deleted
+-   `skipped`: Number of files retained (should match your policy expectations)
+-   `errors`: Should typically be 0; investigate if non-zero
+-   `bytes_freed`: Total disk space reclaimed
 
 **Common Retention Strategies**
 
-| Use Case                      | Configuration                          | Notes                                                    |
-|-------------------------------|----------------------------------------|----------------------------------------------------------|
-| Short-term local cache        | `RETENTION_KEEP_DAYS=7`                | Keep last week only; rely on YouTube for long-term      |
-| Fixed-size archive            | `RETENTION_KEEP_COUNT=50`              | Always keep exactly 50 most recent VODs                  |
-| Hybrid approach               | `RETENTION_KEEP_DAYS=14` + `KEEP_COUNT=100` | Keep 2 weeks OR top 100, whichever is more permissive   |
-| High-volume streamer          | `RETENTION_KEEP_DAYS=3`                | Short retention for daily/multi-daily streams            |
-| Archive everything locally    | (leave both unset)                     | No automatic cleanup; manage manually                     |
+| Use Case                   | Configuration                               | Notes                                                 |
+| -------------------------- | ------------------------------------------- | ----------------------------------------------------- |
+| Short-term local cache     | `RETENTION_KEEP_DAYS=7`                     | Keep last week only; rely on YouTube for long-term    |
+| Fixed-size archive         | `RETENTION_KEEP_COUNT=50`                   | Always keep exactly 50 most recent VODs               |
+| Hybrid approach            | `RETENTION_KEEP_DAYS=14` + `KEEP_COUNT=100` | Keep 2 weeks OR top 100, whichever is more permissive |
+| High-volume streamer       | `RETENTION_KEEP_DAYS=3`                     | Short retention for daily/multi-daily streams         |
+| Archive everything locally | (leave both unset)                          | No automatic cleanup; manage manually                 |
 
 **Manual Cleanup**
 
@@ -398,13 +436,13 @@ When running multiple channels, each channel's retention policy runs independent
 
 **Troubleshooting**
 
-| Issue                          | Cause                                   | Solution                                                     |
-|--------------------------------|-----------------------------------------|--------------------------------------------------------------|
-| Retention job not running      | No policy configured                    | Set at least `RETENTION_KEEP_DAYS` or `RETENTION_KEEP_COUNT` |
-| Files not being deleted        | Dry-run mode enabled                    | Set `RETENTION_DRY_RUN=0` or remove the variable             |
-| Too many files deleted         | Policy too aggressive                   | Increase `KEEP_DAYS` or `KEEP_COUNT` values                  |
-| Active downloads deleted       | Bug (should not happen)                 | Check logs and report issue; safety checks should prevent     |
-| Disk still full                | Policy too permissive                   | Reduce retention values or clean up manually                 |
+| Issue                     | Cause                   | Solution                                                     |
+| ------------------------- | ----------------------- | ------------------------------------------------------------ |
+| Retention job not running | No policy configured    | Set at least `RETENTION_KEEP_DAYS` or `RETENTION_KEEP_COUNT` |
+| Files not being deleted   | Dry-run mode enabled    | Set `RETENTION_DRY_RUN=0` or remove the variable             |
+| Too many files deleted    | Policy too aggressive   | Increase `KEEP_DAYS` or `KEEP_COUNT` values                  |
+| Active downloads deleted  | Bug (should not happen) | Check logs and report issue; safety checks should prevent    |
+| Disk still full           | Policy too permissive   | Reduce retention values or clean up manually                 |
 
 ## CI/CD & Security
 
@@ -412,8 +450,8 @@ When running multiple channels, each channel's retention policy runs independent
 
 The CI pipeline includes automated security scans:
 
-- **Gitleaks** – Scans commits and PRs for secrets (API keys, tokens, passwords). Fails on any findings. Use `.gitleaks.toml` to suppress false positives if needed.
-- **govulncheck** – Checks Go dependencies for known vulnerabilities from the official Go vulnerability database. Fails on any exploitable vulnerabilities affecting the codebase.
+-   **Gitleaks** – Scans commits and PRs for secrets (API keys, tokens, passwords). Fails on any findings. Use `.gitleaks.toml` to suppress false positives if needed.
+-   **govulncheck** – Checks Go dependencies for known vulnerabilities from the official Go vulnerability database. Fails on any exploitable vulnerabilities affecting the codebase.
 
 Both tools run automatically on every push to `main` and on all pull requests. The build will fail if security issues are detected.
 

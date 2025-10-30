@@ -28,8 +28,10 @@ var (
 	TotalProcessDuration prometheus.Observer
 
 	// Gauges
-	QueueDepthGauge  prometheus.Gauge
-	CircuitOpenGauge prometheus.Gauge // 1=open,0=closed
+	QueueDepthGauge     prometheus.Gauge
+	CircuitOpenGauge    prometheus.Gauge // 1=open,0=closed (DEPRECATED: use CircuitStateGauge)
+	CircuitStateGauge   prometheus.Gauge // 0=closed, 1=half-open, 2=open
+	CircuitFailureCount prometheus.Counter
 
 	// Enhanced metrics
 	ChatMessagesRecorded        *prometheus.CounterVec
@@ -71,7 +73,9 @@ func Init() {
 		})
 		
 		QueueDepthGauge = promauto.NewGauge(prometheus.GaugeOpts{Name: "vod_queue_depth", Help: "Current number of unprocessed VODs"})
-		CircuitOpenGauge = promauto.NewGauge(prometheus.GaugeOpts{Name: "vod_circuit_open", Help: "Circuit breaker open=1 closed=0"})
+		CircuitOpenGauge = promauto.NewGauge(prometheus.GaugeOpts{Name: "vod_circuit_open", Help: "Circuit breaker open=1 closed=0 (DEPRECATED: use vod_circuit_breaker_state)"})
+		CircuitStateGauge = promauto.NewGauge(prometheus.GaugeOpts{Name: "vod_circuit_breaker_state", Help: "Circuit breaker state: 0=closed, 1=half-open, 2=open"})
+		CircuitFailureCount = promauto.NewCounter(prometheus.CounterOpts{Name: "vod_circuit_breaker_failures_total", Help: "Total number of circuit breaker failures"})
 
 		// Enhanced metrics
 		ChatMessagesRecorded = promauto.NewCounterVec(
@@ -132,7 +136,7 @@ func Init() {
 	})
 }
 
-// UpdateCircuitGauge sets gauge to 1 if open else 0.
+// UpdateCircuitGauge sets gauge to 1 if open else 0 (DEPRECATED: use SetCircuitState).
 func UpdateCircuitGauge(open bool) {
 	if CircuitOpenGauge != nil {
 		if open {
@@ -140,6 +144,29 @@ func UpdateCircuitGauge(open bool) {
 		} else {
 			CircuitOpenGauge.Set(0)
 		}
+	}
+}
+
+// SetCircuitState sets the circuit state gauge. States: closed=0, half-open=1, open=2.
+func SetCircuitState(state string) {
+	if CircuitStateGauge != nil {
+		switch state {
+		case "closed":
+			CircuitStateGauge.Set(0)
+		case "half-open":
+			CircuitStateGauge.Set(1)
+		case "open":
+			CircuitStateGauge.Set(2)
+		default:
+			CircuitStateGauge.Set(0) // default to closed
+		}
+	}
+}
+
+// IncrementCircuitFailures increments the circuit failure counter.
+func IncrementCircuitFailures() {
+	if CircuitFailureCount != nil {
+		CircuitFailureCount.Inc()
 	}
 }
 

@@ -217,10 +217,6 @@ func TestKVCursorStorageAndRetrieval(t *testing.T) {
 	}
 }
 
-
-
-
-
 // TestKVCursorMultipleChannelIsolation tests that cursors are isolated per channel
 func TestKVCursorMultipleChannelIsolation(t *testing.T) {
 	dsn := os.Getenv("TEST_PG_DSN")

@@ -337,8 +337,7 @@ func TestHelixClient_ListVideosEmptyPages(t *testing.T) {
 		ClientID:     "test-client-id",
 		ClientSecret: "test-secret",
 	}
-	ts.token = "test-token"
-	ts.expiresAt = time.Now().Add(1 * time.Hour)
+	ts.SetToken("test-token", time.Now().Add(1 * time.Hour))
 
 	client := &HelixClient{
 		AppTokenSource: ts,
@@ -441,8 +440,7 @@ func TestHelixClient_ListVideosPaginationCursors(t *testing.T) {
 		ClientID:     "test-client-id",
 		ClientSecret: "test-secret",
 	}
-	ts.token = "test-token"
-	ts.expiresAt = time.Now().Add(1 * time.Hour)
+	ts.SetToken("test-token", time.Now().Add(1 * time.Hour))
 
 	client := &HelixClient{
 		AppTokenSource: ts,
@@ -548,8 +546,7 @@ func TestHelixClient_ListVideos429RateLimiting(t *testing.T) {
 		ClientID:     "test-client-id",
 		ClientSecret: "test-secret",
 	}
-	ts.token = "test-token"
-	ts.expiresAt = time.Now().Add(1 * time.Hour)
+	ts.SetToken("test-token", time.Now().Add(1 * time.Hour))
 
 	client := &HelixClient{
 		AppTokenSource: ts,
@@ -605,8 +602,7 @@ func TestHelixClient_ListVideosNoCursorOnLastPage(t *testing.T) {
 		ClientID:     "test-client-id",
 		ClientSecret: "test-secret",
 	}
-	ts.token = "test-token"
-	ts.expiresAt = time.Now().Add(1 * time.Hour)
+	ts.SetToken("test-token", time.Now().Add(1 * time.Hour))
 
 	client := &HelixClient{
 		AppTokenSource: ts,

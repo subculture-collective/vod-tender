@@ -11,6 +11,38 @@ import (
 	vodpkg "github.com/onnwee/vod-tender/backend/vod"
 )
 
+// Auto chat reconciliation tests
+//
+// These tests validate the live placeholder → real VOD reconciliation logic
+// implemented in auto.go (lines 115-193). The reconciliation process occurs when
+// a live stream ends and the real VOD becomes available on Twitch.
+//
+// Core reconciliation steps tested:
+// 1. Create placeholder VOD with ID "live-<unix_timestamp>" when stream starts
+// 2. Record chat messages with rel_timestamp relative to stream start
+// 3. When stream ends, poll Twitch API for matching VOD (±10 minute window)
+// 4. Calculate time delta between placeholder and real VOD start times
+// 5. Shift chat message rel_timestamp values: rel_timestamp -= delta
+// 6. Update chat message vod_id from placeholder to real VOD ID
+// 7. Delete placeholder VOD
+//
+// Key scenarios covered:
+// - Exact time match (delta = 0): no timestamp shift needed
+// - Positive offset (real VOD starts after placeholder): timestamps shift backward
+// - Negative offset (real VOD starts before placeholder): timestamps shift forward
+// - Multiple VODs in window: select closest to stream start
+// - No matching VOD: placeholder and chat messages remain unchanged
+// - Edge cases: empty chat, bulk operations
+//
+// Test setup:
+// - Uses testutil.SetupTestDB for test database with migrations
+// - Each test uses unique channel name for isolation
+// - Cleanup functions ensure no data leaks between tests
+// - Tests require TEST_PG_DSN environment variable
+//
+// Run tests:
+//   TEST_PG_DSN="postgres://vod:vod@localhost:5469/vod?sslmode=disable" go test ./chat/... -v
+
 // TestReconciliation_ExactTimeMatch tests reconciliation when VOD start time matches placeholder exactly
 func TestReconciliation_ExactTimeMatch(t *testing.T) {
 	db := testutil.SetupTestDB(t)

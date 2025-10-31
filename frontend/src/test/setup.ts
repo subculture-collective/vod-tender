@@ -11,7 +11,6 @@ export const handlers = [
     const limit = parseInt(url.searchParams.get('limit') || '50', 10)
     const offset = parseInt(url.searchParams.get('offset') || '0', 10)
 
-    // Sample data for testing
     const allVods = [
       {
         id: '1',
@@ -29,7 +28,6 @@ export const handlers = [
       },
     ]
 
-    // Apply pagination
     const paginatedVods = allVods.slice(offset, offset + limit)
     return HttpResponse.json(paginatedVods)
   }),

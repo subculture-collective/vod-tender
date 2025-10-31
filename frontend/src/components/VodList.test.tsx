@@ -146,4 +146,40 @@ describe('VodList', () => {
     // onVodSelect should not be called when clicking YouTube link
     expect(onVodSelect).not.toHaveBeenCalled()
   })
+
+  it('renders pagination controls', async () => {
+    render(<VodList />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Test VOD 1')).toBeInTheDocument()
+    })
+
+    // Check for pagination buttons
+    expect(screen.getByText('Previous')).toBeInTheDocument()
+    expect(screen.getByText('Next')).toBeInTheDocument()
+    expect(screen.getByText('Page 1')).toBeInTheDocument()
+  })
+
+  it('disables Previous button on first page', async () => {
+    render(<VodList />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Test VOD 1')).toBeInTheDocument()
+    })
+
+    const previousButton = screen.getByText('Previous')
+    expect(previousButton).toBeDisabled()
+  })
+
+  it('disables Next button when fewer items than limit', async () => {
+    render(<VodList />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Test VOD 1')).toBeInTheDocument()
+    })
+
+    // Since we only have 2 VODs (less than limit of 50), Next should be disabled
+    const nextButton = screen.getByText('Next')
+    expect(nextButton).toBeDisabled()
+  })
 })

@@ -192,9 +192,7 @@ describe('VodDetail', () => {
 
     // Check for retry guidance
     expect(screen.getByText(/Retry Guidance:/)).toBeInTheDocument()
-    expect(
-      screen.getByText(/automatically retry this VOD/)
-    ).toBeInTheDocument()
+    expect(screen.getByText(/automatically retry this VOD/)).toBeInTheDocument()
   })
 
   it('polls progress until completion', async () => {
@@ -261,76 +259,72 @@ describe('VodDetail', () => {
     expect(pollCount).toBeGreaterThan(1)
   })
 
-  it(
-    'stops polling when processing error occurs',
-    async () => {
-      let pollCount = 0
+  it('stops polling when processing error occurs', async () => {
+    let pollCount = 0
 
-      // Mock progress endpoint to simulate error after first poll
-      server.use(
-        http.get('/vods/6', () => {
+    // Mock progress endpoint to simulate error after first poll
+    server.use(
+      http.get('/vods/6', () => {
+        return HttpResponse.json({
+          id: '6',
+          title: 'Test VOD 6',
+          date: '2025-10-20T12:00:00Z',
+          processed: false,
+          youtube_url: null,
+        })
+      }),
+      http.get('/vods/6/progress', () => {
+        pollCount++
+        if (pollCount === 1) {
           return HttpResponse.json({
-            id: '6',
-            title: 'Test VOD 6',
-            date: '2025-10-20T12:00:00Z',
+            vod_id: '6',
+            state: 'downloading',
+            percent: 50,
+            retries: 0,
+            total_bytes: 1024 * 1024 * 100,
+            downloaded_path: null,
             processed: false,
             youtube_url: null,
+            progress_updated_at: '2025-10-20T12:00:00Z',
           })
-        }),
-        http.get('/vods/6/progress', () => {
-          pollCount++
-          if (pollCount === 1) {
-            return HttpResponse.json({
-              vod_id: '6',
-              state: 'downloading',
-              percent: 50,
-              retries: 0,
-              total_bytes: 1024 * 1024 * 100,
-              downloaded_path: null,
-              processed: false,
-              youtube_url: null,
-              progress_updated_at: '2025-10-20T12:00:00Z',
-            })
-          } else {
-            return HttpResponse.json({
-              vod_id: '6',
-              state: 'failed',
-              percent: 50,
-              retries: 1,
-              total_bytes: 1024 * 1024 * 100,
-              downloaded_path: null,
-              processed: false,
-              processing_error: 'Network timeout',
-              youtube_url: null,
-              progress_updated_at: '2025-10-20T12:02:00Z',
-            })
-          }
-        })
-      )
-
-      render(<VodDetail vodId="6" onBack={mockOnBack} />)
-
-      // Initial state
-      await waitFor(() => {
-        expect(screen.getByText('Test VOD 6')).toBeInTheDocument()
+        } else {
+          return HttpResponse.json({
+            vod_id: '6',
+            state: 'failed',
+            percent: 50,
+            retries: 1,
+            total_bytes: 1024 * 1024 * 100,
+            downloaded_path: null,
+            processed: false,
+            processing_error: 'Network timeout',
+            youtube_url: null,
+            progress_updated_at: '2025-10-20T12:02:00Z',
+          })
+        }
       })
+    )
 
-      // Wait for error to appear after next poll
-      await waitFor(
-        () => {
-          expect(screen.getByText('Processing Error')).toBeInTheDocument()
-        },
-        { timeout: 5000 }
-      )
-      expect(screen.getByText('Network timeout')).toBeInTheDocument()
+    render(<VodDetail vodId="6" onBack={mockOnBack} />)
 
-      // Record the count after error and wait to ensure no more polls
-      const countAfterError = pollCount
-      await new Promise((resolve) => setTimeout(resolve, 4000))
+    // Initial state
+    await waitFor(() => {
+      expect(screen.getByText('Test VOD 6')).toBeInTheDocument()
+    })
 
-      // pollCount should not increase after error
-      expect(pollCount).toBe(countAfterError)
-    },
-    10000
-  )
+    // Wait for error to appear after next poll
+    await waitFor(
+      () => {
+        expect(screen.getByText('Processing Error')).toBeInTheDocument()
+      },
+      { timeout: 5000 }
+    )
+    expect(screen.getByText('Network timeout')).toBeInTheDocument()
+
+    // Record the count after error and wait to ensure no more polls
+    const countAfterError = pollCount
+    await new Promise((resolve) => setTimeout(resolve, 4000))
+
+    // pollCount should not increase after error
+    expect(pollCount).toBe(countAfterError)
+  }, 10000)
 })

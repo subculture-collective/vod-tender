@@ -190,16 +190,19 @@ describe('VodList', () => {
         const url = new URL(request.url)
         const limit = parseInt(url.searchParams.get('limit') || '50', 10)
         const offset = parseInt(url.searchParams.get('offset') || '0', 10)
-        
+
         // Generate 51 VODs to simulate having more pages
-        const manyVods = Array.from({ length: Math.min(limit, 51) }, (_, i) => ({
-          id: `${offset + i + 1}`,
-          title: `Test VOD ${offset + i + 1}`,
-          date: '2025-10-19T10:00:00Z',
-          processed: true,
-          youtube_url: 'https://youtube.com/watch?v=test1',
-        }))
-        
+        const manyVods = Array.from(
+          { length: Math.min(limit, 51) },
+          (_, i) => ({
+            id: `${offset + i + 1}`,
+            title: `Test VOD ${offset + i + 1}`,
+            date: '2025-10-19T10:00:00Z',
+            processed: true,
+            youtube_url: 'https://youtube.com/watch?v=test1',
+          })
+        )
+
         return HttpResponse.json(manyVods)
       })
     )

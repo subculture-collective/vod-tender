@@ -824,16 +824,17 @@ func handleVodProgress(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID
                COALESCE(downloaded_path, ''),
                COALESCE(processed, FALSE),
                COALESCE(youtube_url, ''),
+               COALESCE(processing_error, ''),
                progress_updated_at
     FROM vods WHERE twitch_vod_id=$1
     `, vodID)
-	var state, path, yt string
+	var state, path, yt, processingError string
 	var retries int
 	var total int64
 	var bytes int64
 	var processed bool
 	var updated *time.Time
-	if err := row.Scan(&state, &retries, &total, &bytes, &path, &processed, &yt, &updated); err != nil {
+	if err := row.Scan(&state, &retries, &total, &bytes, &path, &processed, &yt, &processingError, &updated); err != nil {
 		if err == sql.ErrNoRows {
 			http.NotFound(w, r)
 			return
@@ -867,6 +868,7 @@ func handleVodProgress(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID
 		"total_bytes":         total,
 		"downloaded_path":     path,
 		"processed":           processed,
+		"processing_error":    processingError,
 		"youtube_url":         yt,
 		"progress_updated_at": updated,
 	}

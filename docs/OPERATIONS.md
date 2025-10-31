@@ -89,10 +89,280 @@ Correlation IDs:
 
 -   Each HTTP request gets an `X-Correlation-ID` header (reused if supplied) added to logs as `corr`. It is propagated into processing and download logs for traceability.
 
-Suggested next steps:
+### Health & Readiness Checks
 
--   Add readiness endpoint ensuring circuit not open and required credentials present.
--   Add histogram buckets tuning if needed for long VOD durations.
+vod-tender exposes two health endpoints for monitoring service health:
+
+#### Endpoints
+
+**`/healthz` - Liveness Probe**
+
+- **Purpose**: Verifies the application process is alive and responsive
+- **Check**: Database connectivity (simple ping)
+- **Use case**: Kubernetes liveness probes, process monitors
+- **Response**: 200 OK (healthy) or 503 Service Unavailable (unhealthy)
+- **Failure action**: Restart container/process
+
+**`/readyz` - Readiness Probe**
+
+- **Purpose**: Verifies the application is ready to handle traffic
+- **Checks performed**:
+  1. Database connectivity (ping)
+  2. Circuit breaker state (fails if open)
+  3. OAuth credentials presence (Twitch/YouTube tokens)
+- **Use case**: Load balancer health checks, Docker Compose healthchecks, Kubernetes readiness probes
+- **Response**: 200 OK with `{"status":"ready"}` (ready) or 503 with failure details (not ready)
+- **Failure action**: Remove from load balancer rotation, wait for recovery
+
+**Response Format (`/readyz`)**:
+
+```json
+// Success
+{"status":"ready"}
+
+// Failure
+{
+  "status":"not_ready",
+  "failed_check":"circuit_breaker",
+  "error":"circuit breaker open"
+}
+```
+
+#### Docker Compose Healthchecks
+
+The `docker-compose.yml` configures healthchecks for all services:
+
+**API Service**
+```yaml
+healthcheck:
+  test: ["CMD", "/app/healthcheck"]  # Built-in binary checks /healthz
+  interval: 15s
+  timeout: 5s
+  retries: 5
+```
+
+The `/app/healthcheck` binary checks `/healthz` by default (simple DB ping). For stricter checks including circuit breaker state and credentials, set `HEALTHCHECK_ENDPOINT=http://localhost:8080/readyz` in the environment.
+
+**Postgres Service**
+```yaml
+healthcheck:
+  test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+  interval: 10s
+  timeout: 5s
+  retries: 5
+```
+
+**Frontend Service**
+```yaml
+healthcheck:
+  test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/ >/dev/null 2>&1 || exit 1"]
+  interval: 30s
+  timeout: 5s
+  retries: 5
+```
+
+**Jaeger Service**
+```yaml
+healthcheck:
+  test: ["CMD-SHELL", "wget -q -O - http://localhost:14269/ >/dev/null 2>&1 || exit 1"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+```
+
+Port 14269 is Jaeger's admin endpoint, which exposes health status and metrics and serves as the standard healthcheck endpoint for Jaeger all-in-one deployments.
+
+**Check Service Health**
+
+```bash
+# View all service health status
+docker compose ps
+
+# Check specific service logs for health failures
+docker compose logs api | grep -i health
+
+# Manually test healthcheck command
+docker compose exec api /app/healthcheck
+echo $?  # 0 = healthy, 1 = unhealthy
+```
+
+#### Kubernetes Probe Configuration
+
+K8s manifests in `k8s/base/` configure both probe types. See full examples in [k8s/base/api-deployment.yaml](../k8s/base/api-deployment.yaml) and [k8s/base/frontend-deployment.yaml](../k8s/base/frontend-deployment.yaml).
+
+**API Deployment Probes**
+
+There are two recommended options for configuring the readiness probe:
+
+1. **Simple readiness probe** (default): uses `/healthz`, which checks basic database connectivity. This is suitable for most deployments and matches the default in the provided manifests.
+
+    ```yaml
+    readinessProbe:
+      httpGet:
+        path: /healthz
+        port: 8080
+        scheme: HTTP
+      initialDelaySeconds: 10
+      periodSeconds: 5
+      timeoutSeconds: 3
+      successThreshold: 1
+      failureThreshold: 3
+
+    livenessProbe:
+      httpGet:
+        path: /healthz
+        port: 8080
+        scheme: HTTP
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      successThreshold: 1
+      failureThreshold: 3
+    ```
+
+2. **Comprehensive readiness probe**: uses `/readyz`, which performs stricter checks (database connectivity, circuit breaker state, OAuth credentials). This may delay readiness if dependencies are unavailable, but provides stronger guarantees that the service is fully operational before receiving traffic.
+
+    ```yaml
+    readinessProbe:
+      httpGet:
+        path: /readyz
+        port: 8080
+        scheme: HTTP
+      initialDelaySeconds: 10
+      periodSeconds: 5
+      timeoutSeconds: 3
+      successThreshold: 1
+      failureThreshold: 3
+
+    livenessProbe:
+      httpGet:
+        path: /healthz
+        port: 8080
+        scheme: HTTP
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      successThreshold: 1
+      failureThreshold: 3
+    ```
+
+**Trade-offs:**  
+- `/healthz` is fast and always available, but may not detect deeper issues (e.g., circuit breaker open, missing credentials).  
+- `/readyz` is stricter and may block readiness if circuit breaker is open or credentials are missing, but ensures the service is truly ready to serve requests.  
+
+Choose the probe that best matches your operational requirements.
+
+**Frontend Deployment Probes**
+
+```yaml
+readinessProbe:
+  httpGet:
+    path: /
+    port: 80
+    scheme: HTTP
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  successThreshold: 1
+  failureThreshold: 3
+
+livenessProbe:
+  httpGet:
+    path: /
+    port: 80
+    scheme: HTTP
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  successThreshold: 1
+  failureThreshold: 3
+```
+
+**Probe Parameter Guidance**
+
+| Parameter | Description | API Recommendation | Frontend Recommendation |
+|-----------|-------------|-------------------|------------------------|
+| `initialDelaySeconds` | Wait before first probe | 10-30s (DB migrations) | 5-10s (static files) |
+| `periodSeconds` | Probe frequency | 5-10s | 5-10s |
+| `timeoutSeconds` | Single probe timeout | 3-5s | 3s |
+| `failureThreshold` | Failures before action | 3 (allow transient issues) | 3 |
+| `successThreshold` | Successes to recover | 1 (default) | 1 (default) |
+
+**Startup Probes (Optional)**
+
+For slow-starting applications, add a startup probe:
+
+```yaml
+startupProbe:
+  httpGet:
+    path: /healthz
+    port: 8080
+  initialDelaySeconds: 0
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 30  # 30 * 5s = 150s max startup time
+```
+
+This delays liveness checks until startup completes, preventing premature restarts during migrations or initialization.
+
+#### Troubleshooting Health Checks
+
+**Docker Compose: Service shows "unhealthy"**
+
+1. Check healthcheck logs:
+   ```bash
+   docker inspect vod-api | jq '.[0].State.Health'
+   ```
+
+2. Manually run healthcheck:
+   ```bash
+   docker compose exec api /app/healthcheck
+   ```
+
+3. Check endpoint directly:
+   ```bash
+   docker compose exec api curl -v http://localhost:8080/readyz
+   ```
+
+4. Common causes:
+   - Database not ready: Check `postgres` service health
+   - Circuit breaker open: Check `/status` endpoint for circuit state
+   - Missing credentials: Ensure OAuth tokens configured in `backend/.env`
+
+**Kubernetes: Pod stuck in "Not Ready" state**
+
+1. Check probe failures:
+   ```bash
+   kubectl describe pod <pod-name> -n vod-tender
+   # Look for "Readiness probe failed" events
+   ```
+
+2. Check pod logs:
+   ```bash
+   kubectl logs <pod-name> -n vod-tender
+   ```
+
+3. Test endpoint from within pod:
+   ```bash
+   kubectl exec <pod-name> -n vod-tender -- curl -v http://localhost:8080/readyz
+   ```
+
+4. Common causes:
+   - Database connection failure: Check Postgres pod status
+   - Circuit breaker open: Query database or check logs
+   - Init container failure: Check init container logs
+
+**Readiness vs Liveness: Which to Use?**
+
+| Scenario | Probe Type | Endpoint | Rationale |
+|----------|-----------|----------|-----------|
+| K8s liveness probe | Liveness | `/healthz` | Simple check; restart on basic failures |
+| K8s readiness probe | Readiness | `/healthz` or `/readyz` | Use `/healthz` for simpler check; `/readyz` if circuit breaker awareness needed |
+| Docker healthcheck | Readiness | `/readyz` | Comprehensive check; mark unhealthy on circuit breaker open |
+| Load balancer check | Readiness | `/readyz` | Remove from rotation when not ready to serve |
+| Uptime monitor | Liveness | `/healthz` | Basic availability check |
+
+**Note on K8s Probes**: The existing K8s manifests use `/healthz` for both liveness and readiness. This is intentional for simplicity, as circuit breaker state is transient and self-recovers. For stricter readiness requirements, switch readiness probes to `/readyz`.
 
 ### Circuit Breaker
 

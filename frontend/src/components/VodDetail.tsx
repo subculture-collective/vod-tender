@@ -18,6 +18,7 @@ interface Progress {
   total_bytes?: number
   downloaded_path?: string
   processed: boolean
+  processing_error?: string
   youtube_url?: string | null
   progress_updated_at?: string
 }
@@ -29,17 +30,50 @@ export default function VodDetail({ vodId, onBack }: VodDetailProps) {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    setLoading(true)
-    Promise.all([
-      fetch(`${API_BASE_URL}/vods/${vodId}`).then((r) => r.json()),
-      fetch(`${API_BASE_URL}/vods/${vodId}/progress`).then((r) => r.json()),
-    ])
-      .then(([vodData, progressData]) => {
+    let cancelled = false
+    let timeoutId: number | null = null
+
+    const fetchData = async () => {
+      if (cancelled) return
+
+      try {
+        setLoading(true)
+        const [vodData, progressData] = await Promise.all([
+          fetch(`${API_BASE_URL}/vods/${vodId}`).then((r) => r.json()),
+          fetch(`${API_BASE_URL}/vods/${vodId}/progress`).then((r) => r.json()),
+        ])
+
+        if (cancelled) return
+
         setVod(vodData)
         setProgress(progressData)
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false))
+        setError(null)
+
+        // Poll if VOD is not processed and has no error
+        const shouldPoll =
+          !progressData.processed && !progressData.processing_error
+        if (shouldPoll) {
+          timeoutId = window.setTimeout(fetchData, 3000) // Poll every 3 seconds
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : 'Unknown error')
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      }
+    }
+
+    fetchData()
+
+    return () => {
+      cancelled = true
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId)
+      }
+    }
   }, [vodId])
 
   if (loading) return <div className="p-4">Loading VOD...</div>
@@ -77,6 +111,41 @@ export default function VodDetail({ vodId, onBack }: VodDetailProps) {
               ? `, ${Math.round(progress.total_bytes / 1024 / 1024)} MB`
               : ''}
             {progress.retries > 0 ? `, retries: ${progress.retries}` : ''}
+          </div>
+        </div>
+      )}
+      {progress?.processing_error && (
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded">
+          <div className="flex items-start">
+            <div className="flex-shrink-0">
+              <svg
+                className="h-5 w-5 text-red-400"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            </div>
+            <div className="ml-3 flex-1">
+              <h3 className="text-sm font-medium text-red-800">
+                Processing Error
+              </h3>
+              <div className="mt-2 text-sm text-red-700">
+                <p>{progress.processing_error}</p>
+              </div>
+              <div className="mt-3 text-sm">
+                <p className="text-red-600">
+                  <strong>Retry Guidance:</strong> The system will
+                  automatically retry this VOD after a cooldown period. If the
+                  issue persists, you can use the reprocess action from the VOD
+                  list to manually retry.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       )}

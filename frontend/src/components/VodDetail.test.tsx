@@ -149,4 +149,188 @@ describe('VodDetail', () => {
     // ChatReplay should be rendered
     expect(screen.getByText('Chat Replay')).toBeInTheDocument()
   })
+
+  it('displays processing error with retry guidance', async () => {
+    // Mock a VOD with processing error
+    server.use(
+      http.get('/vods/4', () => {
+        return HttpResponse.json({
+          id: '4',
+          title: 'Test VOD 4',
+          date: '2025-10-20T10:00:00Z',
+          processed: false,
+          youtube_url: null,
+        })
+      }),
+      http.get('/vods/4/progress', () => {
+        return HttpResponse.json({
+          vod_id: '4',
+          state: 'failed',
+          percent: 0,
+          retries: 3,
+          total_bytes: 0,
+          downloaded_path: null,
+          processed: false,
+          processing_error: 'Download failed: HTTP 403 Forbidden',
+          youtube_url: null,
+          progress_updated_at: '2025-10-20T10:30:00Z',
+        })
+      })
+    )
+
+    render(<VodDetail vodId="4" onBack={mockOnBack} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Test VOD 4')).toBeInTheDocument()
+    })
+
+    // Check for error display
+    expect(screen.getByText('Processing Error')).toBeInTheDocument()
+    expect(
+      screen.getByText('Download failed: HTTP 403 Forbidden')
+    ).toBeInTheDocument()
+
+    // Check for retry guidance
+    expect(screen.getByText(/Retry Guidance:/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/automatically retry this VOD/)
+    ).toBeInTheDocument()
+  })
+
+  it('polls progress until completion', async () => {
+    let pollCount = 0
+
+    // Mock progress endpoint to simulate completion after 2 polls
+    server.use(
+      http.get('/vods/5', () => {
+        return HttpResponse.json({
+          id: '5',
+          title: 'Test VOD 5',
+          date: '2025-10-20T11:00:00Z',
+          processed: false,
+          youtube_url: null,
+        })
+      }),
+      http.get('/vods/5/progress', () => {
+        pollCount++
+        if (pollCount === 1) {
+          return HttpResponse.json({
+            vod_id: '5',
+            state: 'downloading',
+            percent: 25,
+            retries: 0,
+            total_bytes: 1024 * 1024 * 100,
+            downloaded_path: null,
+            processed: false,
+            youtube_url: null,
+            progress_updated_at: '2025-10-20T11:00:00Z',
+          })
+        } else {
+          return HttpResponse.json({
+            vod_id: '5',
+            state: 'completed',
+            percent: 100,
+            retries: 0,
+            total_bytes: 1024 * 1024 * 100,
+            downloaded_path: '/data/vod-5.mp4',
+            processed: true,
+            youtube_url: null,
+            progress_updated_at: '2025-10-20T11:05:00Z',
+          })
+        }
+      })
+    )
+
+    render(<VodDetail vodId="5" onBack={mockOnBack} />)
+
+    // Initial state
+    await waitFor(() => {
+      expect(screen.getByText('Test VOD 5')).toBeInTheDocument()
+    })
+    expect(screen.getByText(/25\.0%/)).toBeInTheDocument()
+
+    // Wait for the component to poll and update (should happen within 3-4 seconds)
+    await waitFor(
+      () => {
+        expect(screen.getByText(/100\.0%/)).toBeInTheDocument()
+      },
+      { timeout: 5000 }
+    )
+
+    // Verify we actually polled
+    expect(pollCount).toBeGreaterThan(1)
+  })
+
+  it(
+    'stops polling when processing error occurs',
+    async () => {
+      let pollCount = 0
+
+      // Mock progress endpoint to simulate error after first poll
+      server.use(
+        http.get('/vods/6', () => {
+          return HttpResponse.json({
+            id: '6',
+            title: 'Test VOD 6',
+            date: '2025-10-20T12:00:00Z',
+            processed: false,
+            youtube_url: null,
+          })
+        }),
+        http.get('/vods/6/progress', () => {
+          pollCount++
+          if (pollCount === 1) {
+            return HttpResponse.json({
+              vod_id: '6',
+              state: 'downloading',
+              percent: 50,
+              retries: 0,
+              total_bytes: 1024 * 1024 * 100,
+              downloaded_path: null,
+              processed: false,
+              youtube_url: null,
+              progress_updated_at: '2025-10-20T12:00:00Z',
+            })
+          } else {
+            return HttpResponse.json({
+              vod_id: '6',
+              state: 'failed',
+              percent: 50,
+              retries: 1,
+              total_bytes: 1024 * 1024 * 100,
+              downloaded_path: null,
+              processed: false,
+              processing_error: 'Network timeout',
+              youtube_url: null,
+              progress_updated_at: '2025-10-20T12:02:00Z',
+            })
+          }
+        })
+      )
+
+      render(<VodDetail vodId="6" onBack={mockOnBack} />)
+
+      // Initial state
+      await waitFor(() => {
+        expect(screen.getByText('Test VOD 6')).toBeInTheDocument()
+      })
+
+      // Wait for error to appear after next poll
+      await waitFor(
+        () => {
+          expect(screen.getByText('Processing Error')).toBeInTheDocument()
+        },
+        { timeout: 5000 }
+      )
+      expect(screen.getByText('Network timeout')).toBeInTheDocument()
+
+      // Record the count after error and wait to ensure no more polls
+      const countAfterError = pollCount
+      await new Promise((resolve) => setTimeout(resolve, 4000))
+
+      // pollCount should not increase after error
+      expect(pollCount).toBe(countAfterError)
+    },
+    10000
+  )
 })

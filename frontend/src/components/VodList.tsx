@@ -20,17 +20,24 @@ export default function VodList({ onVodSelect }: VodListProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [page, setPage] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
   const limit = 50 // Match backend default
 
   useEffect(() => {
     setLoading(true)
     const offset = page * limit
-    fetch(`${API_BASE_URL}/vods?limit=${limit}&offset=${offset}`)
+    // Fetch limit + 1 to detect if there are more pages
+    fetch(`${API_BASE_URL}/vods?limit=${limit + 1}&offset=${offset}`)
       .then((res) => {
         if (!res.ok) throw new Error('Failed to fetch VODs')
         return res.json()
       })
-      .then(setVods)
+      .then((data: Vod[]) => {
+        // If we got more than limit items, there's a next page
+        setHasMore(data.length > limit)
+        // Only show limit items
+        setVods(data.slice(0, limit))
+      })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
   }, [page])
@@ -105,7 +112,7 @@ export default function VodList({ onVodSelect }: VodListProps) {
         </span>
         <button
           onClick={() => setPage((p) => p + 1)}
-          disabled={vods.length < limit || loading}
+          disabled={!hasMore || loading}
           className="px-4 py-2 bg-indigo-600 text-white rounded disabled:bg-gray-400 disabled:cursor-not-allowed"
         >
           Next

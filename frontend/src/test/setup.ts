@@ -5,9 +5,14 @@ import { http, HttpResponse } from 'msw'
 
 // Mock API handlers
 export const handlers = [
-  // GET /vods - list all VODs
-  http.get('/vods', () => {
-    return HttpResponse.json([
+  // GET /vods - list all VODs (with pagination support)
+  http.get('/vods', ({ request }) => {
+    const url = new URL(request.url)
+    const limit = parseInt(url.searchParams.get('limit') || '50', 10)
+    const offset = parseInt(url.searchParams.get('offset') || '0', 10)
+
+    // Sample data for testing
+    const allVods = [
       {
         id: '1',
         title: 'Test VOD 1',
@@ -22,7 +27,11 @@ export const handlers = [
         processed: false,
         youtube_url: null,
       },
-    ])
+    ]
+
+    // Apply pagination
+    const paginatedVods = allVods.slice(offset, offset + limit)
+    return HttpResponse.json(paginatedVods)
   }),
 
   // GET /vods/:id - get VOD details

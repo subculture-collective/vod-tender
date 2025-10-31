@@ -5,9 +5,11 @@ import { http, HttpResponse } from 'msw'
 import VodList from './VodList'
 
 describe('VodList', () => {
-  it('renders loading state initially', () => {
+  it('renders loading skeleton initially', () => {
     render(<VodList />)
-    expect(screen.getByText(/loading vods/i)).toBeInTheDocument()
+    // Check for skeleton loading state (aria-busy)
+    const skeletons = screen.getAllByRole('generic', { busy: true })
+    expect(skeletons.length).toBeGreaterThan(0)
   })
 
   it('renders VOD list after loading', async () => {
@@ -15,7 +17,9 @@ describe('VodList', () => {
 
     // Wait for loading to complete
     await waitFor(() => {
-      expect(screen.queryByText(/loading vods/i)).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('generic', { busy: true })
+      ).not.toBeInTheDocument()
     })
 
     // Check if VODs are rendered
@@ -145,5 +149,89 @@ describe('VodList', () => {
 
     // onVodSelect should not be called when clicking YouTube link
     expect(onVodSelect).not.toHaveBeenCalled()
+  })
+
+  it('displays pagination controls', async () => {
+    render(<VodList />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Test VOD 1')).toBeInTheDocument()
+    })
+
+    // Check pagination controls exist
+    expect(screen.getByLabelText('Previous page')).toBeInTheDocument()
+    expect(screen.getByLabelText('Next page')).toBeInTheDocument()
+    const pageTexts = screen.getAllByText(/page 1/i)
+    expect(pageTexts.length).toBeGreaterThan(0)
+  })
+
+  it('disables Previous button on first page', async () => {
+    render(<VodList />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Test VOD 1')).toBeInTheDocument()
+    })
+
+    const prevButton = screen.getByLabelText('Previous page')
+    expect(prevButton).toBeDisabled()
+  })
+
+  it('disables Next button when no more pages', async () => {
+    // Mock response with fewer items than page size
+    server.use(
+      http.get('/vods', () => {
+        return HttpResponse.json([
+          {
+            id: '1',
+            title: 'Test VOD 1',
+            date: '2025-10-19T10:00:00Z',
+            processed: true,
+            youtube_url: 'https://youtube.com/watch?v=test1',
+          },
+        ])
+      })
+    )
+
+    render(<VodList />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Test VOD 1')).toBeInTheDocument()
+    })
+
+    const nextButton = screen.getByLabelText('Next page')
+    expect(nextButton).toBeDisabled()
+  })
+
+  it('displays page info with VOD count', async () => {
+    render(<VodList />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Test VOD 1')).toBeInTheDocument()
+    })
+
+    // Check for page info display
+    expect(screen.getByText(/page 1.*showing 2 vods/i)).toBeInTheDocument()
+  })
+
+  it('shows "No VODs found" message when list is empty', async () => {
+    // Override MSW handler to return empty array
+    server.use(
+      http.get('/vods', () => {
+        return HttpResponse.json([])
+      })
+    )
+
+    render(<VodList />)
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('generic', { busy: true })
+      ).not.toBeInTheDocument()
+    })
+
+    expect(screen.getByText('No VODs found')).toBeInTheDocument()
+    // Pagination should not be shown
+    expect(screen.queryByLabelText('Previous page')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Next page')).not.toBeInTheDocument()
   })
 })

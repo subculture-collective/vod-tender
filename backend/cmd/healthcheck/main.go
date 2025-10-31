@@ -9,11 +9,12 @@ import (
 )
 
 func main() {
-	// Use readyz for Docker healthchecks - more comprehensive check
-	// (DB connectivity, circuit breaker state, credentials presence)
+	// Default to /healthz for consistency with Kubernetes manifests.
+	// Override with HEALTHCHECK_ENDPOINT=http://localhost:8080/readyz for stricter checks
+	// (DB connectivity, circuit breaker state, credentials presence).
 	endpoint := os.Getenv("HEALTHCHECK_ENDPOINT")
 	if endpoint == "" {
-		endpoint = "http://localhost:8080/readyz"
+		endpoint = "http://localhost:8080/healthz"
 	}
 
 	client := &http.Client{Timeout: 3 * time.Second}

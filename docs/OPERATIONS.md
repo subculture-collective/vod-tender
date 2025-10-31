@@ -135,13 +135,13 @@ The `docker-compose.yml` configures healthchecks for all services:
 **API Service**
 ```yaml
 healthcheck:
-  test: ["CMD", "/app/healthcheck"]  # Built-in binary checks /readyz
+  test: ["CMD", "/app/healthcheck"]  # Built-in binary checks /healthz
   interval: 15s
   timeout: 5s
   retries: 5
 ```
 
-The `/app/healthcheck` binary checks `/readyz` by default. Override with `HEALTHCHECK_ENDPOINT` env var if needed.
+The `/app/healthcheck` binary checks `/healthz` by default (simple DB ping). For stricter checks including circuit breaker state and credentials, set `HEALTHCHECK_ENDPOINT=http://localhost:8080/readyz` in the environment.
 
 **Postgres Service**
 ```yaml
@@ -170,7 +170,7 @@ healthcheck:
   retries: 3
 ```
 
-Port 14269 is Jaeger's admin endpoint that exposes health status and metrics. This is the standard healthcheck endpoint for Jaeger all-in-one deployments.
+Port 14269 is Jaeger's admin endpoint, which exposes health status and metrics and serves as the standard healthcheck endpoint for Jaeger all-in-one deployments.
 
 **Check Service Health**
 
@@ -192,38 +192,65 @@ K8s manifests in `k8s/base/` configure both probe types. See full examples in [k
 
 **API Deployment Probes**
 
-```yaml
-readinessProbe:
-  httpGet:
-    path: /healthz
-    port: 8080
-    scheme: HTTP
-  initialDelaySeconds: 10
-  periodSeconds: 5
-  timeoutSeconds: 3
-  successThreshold: 1
-  failureThreshold: 3
+There are two recommended options for configuring the readiness probe:
 
-livenessProbe:
-  httpGet:
-    path: /healthz
-    port: 8080
-    scheme: HTTP
-  initialDelaySeconds: 30
-  periodSeconds: 10
-  timeoutSeconds: 5
-  successThreshold: 1
-  failureThreshold: 3
-```
+1. **Simple readiness probe** (default): uses `/healthz`, which checks basic database connectivity. This is suitable for most deployments and matches the default in the provided manifests.
 
-**Note**: These examples use `/healthz` for both probes, matching the existing K8s manifests. This provides a simple, consistent check that restarts pods on database failures. For stricter readiness requirements (e.g., remove from load balancer when circuit breaker is open), change the readiness probe to use `/readyz`:
+    ```yaml
+    readinessProbe:
+      httpGet:
+        path: /healthz
+        port: 8080
+        scheme: HTTP
+      initialDelaySeconds: 10
+      periodSeconds: 5
+      timeoutSeconds: 3
+      successThreshold: 1
+      failureThreshold: 3
 
-```yaml
-readinessProbe:
-  httpGet:
-    path: /readyz  # More comprehensive: DB, circuit breaker, credentials
-    port: 8080
-```
+    livenessProbe:
+      httpGet:
+        path: /healthz
+        port: 8080
+        scheme: HTTP
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      successThreshold: 1
+      failureThreshold: 3
+    ```
+
+2. **Comprehensive readiness probe**: uses `/readyz`, which performs stricter checks (database connectivity, circuit breaker state, OAuth credentials). This may delay readiness if dependencies are unavailable, but provides stronger guarantees that the service is fully operational before receiving traffic.
+
+    ```yaml
+    readinessProbe:
+      httpGet:
+        path: /readyz
+        port: 8080
+        scheme: HTTP
+      initialDelaySeconds: 10
+      periodSeconds: 5
+      timeoutSeconds: 3
+      successThreshold: 1
+      failureThreshold: 3
+
+    livenessProbe:
+      httpGet:
+        path: /healthz
+        port: 8080
+        scheme: HTTP
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      successThreshold: 1
+      failureThreshold: 3
+    ```
+
+**Trade-offs:**  
+- `/healthz` is fast and always available, but may not detect deeper issues (e.g., circuit breaker open, missing credentials).  
+- `/readyz` is stricter and may block readiness if circuit breaker is open or credentials are missing, but ensures the service is truly ready to serve requests.  
+
+Choose the probe that best matches your operational requirements.
 
 **Frontend Deployment Probes**
 

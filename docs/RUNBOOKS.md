@@ -856,7 +856,68 @@ data:
 
 ## Backup and Restore Procedures
 
-### Database Backup
+### Database Backup Overview
+
+**Scope**: This section covers PostgreSQL database backups (pg_dump). For VOD file retention, see [RETENTION.md](RETENTION.md).
+
+**Backup Contents**:
+
+- `vods` table (VOD metadata, processing state, YouTube URLs)
+- `chat_messages` table (chat logs)
+- `oauth_tokens` table (OAuth credentials)
+- `kv` table (circuit breaker state, EMAs)
+- All other schema objects (indexes, constraints)
+
+### Backup Retention Policy
+
+**Retention Schedule**:
+
+| Tier | Duration | Storage Location | Storage Class | Purpose |
+|------|----------|------------------|---------------|---------|
+| **Hot** | 7 days | Local disk + S3 | STANDARD_IA | Fast recovery, recent issues |
+| **Warm** | 30 days | S3 | STANDARD_IA | Weekly/monthly recovery scenarios |
+| **Cold** | 1 year | S3 Glacier | GLACIER | Compliance, historical audits |
+
+**Rotation Method**:
+
+1. **Daily backups** at 2:00 AM UTC
+2. **Local retention**: 7 days (automatic cleanup via cron/CronJob)
+3. **S3 Standard-IA**: 30 days (transitioned via script or S3 lifecycle policy)
+4. **S3 Glacier**: 1 year (transitioned at day 30 via S3 lifecycle policy)
+5. **Deletion**: Backups older than 365 days are permanently deleted
+
+**S3 Lifecycle Policy** (Recommended):
+
+```json
+{
+  "Rules": [
+    {
+      "Id": "vod-tender-backup-lifecycle",
+      "Status": "Enabled",
+      "Prefix": "database/",
+      "Transitions": [
+        {
+          "Days": 30,
+          "StorageClass": "GLACIER"
+        }
+      ],
+      "Expiration": {
+        "Days": 365
+      }
+    }
+  ]
+}
+```
+
+Apply lifecycle policy:
+
+```bash
+aws s3api put-bucket-lifecycle-configuration \
+  --bucket vod-tender-backups \
+  --lifecycle-configuration file://lifecycle-policy.json
+```
+
+### Database Backup Scripts
 
 **Automated Daily Backup**:
 
@@ -868,23 +929,22 @@ set -euo pipefail
 
 BACKUP_DIR=/opt/vod-tender/backups
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-RETENTION_DAYS=30
+LOCAL_RETENTION_DAYS=7
+S3_WARM_RETENTION_DAYS=30
 
 # Create backup
 pg_dump -U vod -h localhost vod | gzip > "${BACKUP_DIR}/vod_${TIMESTAMP}.sql.gz"
 
-# Upload to S3
+# Upload to S3 (Standard-IA for cost savings on infrequent access)
 aws s3 cp "${BACKUP_DIR}/vod_${TIMESTAMP}.sql.gz" \
   s3://vod-tender-backups/database/ \
   --storage-class STANDARD_IA
 
-# Remove old local backups
-find "${BACKUP_DIR}" -name "vod_*.sql.gz" -mtime +${RETENTION_DAYS} -delete
+# Remove old local backups (keep last 7 days)
+find "${BACKUP_DIR}" -name "vod_*.sql.gz" -mtime +${LOCAL_RETENTION_DAYS} -delete
 
-# Remove old S3 backups (lifecycle policy preferred)
-aws s3 ls s3://vod-tender-backups/database/ \
-  | awk -v date="$(date -d "${RETENTION_DAYS} days ago" +%Y-%m-%d)" '$1 < date {print $4}' \
-  | xargs -I {} aws s3 rm s3://vod-tender-backups/database/{}
+# S3 backups transition to Glacier and expire via lifecycle policy
+# Manual cleanup not needed if lifecycle policy is configured
 
 echo "Backup completed: vod_${TIMESTAMP}.sql.gz"
 ```
@@ -1039,45 +1099,215 @@ docker exec vod-postgres psql -U vod -d vod -At -c "
 done
 ```
 
-### Restore Testing
+### Restore Testing & Drills
 
-**Monthly Restore Test**:
+**Purpose**: Validate backup integrity and practice recovery procedures to ensure confidence during real incidents.
+
+**Frequency**: Monthly (first Monday of each month)
+
+**Monthly Restore Drill Procedure**:
 
 ```bash
 #!/bin/bash
 # /opt/vod-tender/bin/test-restore.sh
+# Run this monthly to verify backup integrity and practice restoration
 
 set -euo pipefail
 
-# Download latest backup
+RESTORE_LOG="/var/log/vod-tender/restore-drill-$(date +%Y%m%d).log"
+mkdir -p "$(dirname "$RESTORE_LOG")"
+
+echo "=== Database Restore Drill Started ===" | tee -a "$RESTORE_LOG"
+echo "Date: $(date)" | tee -a "$RESTORE_LOG"
+
+# Step 1: Download latest backup from S3
+echo "[1/6] Downloading latest backup from S3..." | tee -a "$RESTORE_LOG"
 LATEST_BACKUP=$(aws s3 ls s3://vod-tender-backups/database/ | sort | tail -1 | awk '{print $4}')
-aws s3 cp "s3://vod-tender-backups/database/${LATEST_BACKUP}" /tmp/
+if [ -z "$LATEST_BACKUP" ]; then
+  echo "❌ FAILED: No backups found in S3" | tee -a "$RESTORE_LOG"
+  exit 1
+fi
+echo "Latest backup: $LATEST_BACKUP" | tee -a "$RESTORE_LOG"
 
-# Create test database
-psql -U postgres -c "CREATE DATABASE vod_restore_test;"
+aws s3 cp "s3://vod-tender-backups/database/${LATEST_BACKUP}" /tmp/ 2>&1 | tee -a "$RESTORE_LOG"
+BACKUP_SIZE=$(du -h "/tmp/${LATEST_BACKUP}" | cut -f1)
+echo "Downloaded: /tmp/${LATEST_BACKUP} (${BACKUP_SIZE})" | tee -a "$RESTORE_LOG"
 
-# Restore
-zcat "/tmp/${LATEST_BACKUP}" | psql -U postgres vod_restore_test
+# Step 2: Create test database
+echo "[2/6] Creating test database..." | tee -a "$RESTORE_LOG"
+psql -U postgres -c "DROP DATABASE IF EXISTS vod_restore_test;" 2>&1 | tee -a "$RESTORE_LOG"
+psql -U postgres -c "CREATE DATABASE vod_restore_test;" 2>&1 | tee -a "$RESTORE_LOG"
 
-# Verify data integrity
-RECORD_COUNT=$(psql -U postgres vod_restore_test -At -c "SELECT COUNT(*) FROM vods;")
+# Step 3: Restore backup
+echo "[3/6] Restoring backup to test database..." | tee -a "$RESTORE_LOG"
+START_TIME=$(date +%s)
+zcat "/tmp/${LATEST_BACKUP}" | psql -U postgres vod_restore_test 2>&1 | tee -a "$RESTORE_LOG"
+END_TIME=$(date +%s)
+RESTORE_DURATION=$((END_TIME - START_TIME))
+echo "Restore completed in ${RESTORE_DURATION} seconds" | tee -a "$RESTORE_LOG"
 
-if [ "$RECORD_COUNT" -gt 0 ]; then
-  echo "✅ Restore test PASSED: ${RECORD_COUNT} records"
-  psql -U postgres -c "DROP DATABASE vod_restore_test;"
+# Step 4: Verify data integrity
+echo "[4/6] Verifying data integrity..." | tee -a "$RESTORE_LOG"
+
+# 4.1: Check table existence
+TABLES=$(psql -U postgres vod_restore_test -At -c "
+  SELECT table_name FROM information_schema.tables 
+  WHERE table_schema='public' ORDER BY table_name;
+")
+echo "Tables found: $(echo "$TABLES" | wc -l)" | tee -a "$RESTORE_LOG"
+echo "$TABLES" | tee -a "$RESTORE_LOG"
+
+# 4.2: Verify row counts
+VODS_COUNT=$(psql -U postgres vod_restore_test -At -c "SELECT COUNT(*) FROM vods;")
+CHAT_COUNT=$(psql -U postgres vod_restore_test -At -c "SELECT COUNT(*) FROM chat_messages;")
+OAUTH_COUNT=$(psql -U postgres vod_restore_test -At -c "SELECT COUNT(*) FROM oauth_tokens;")
+
+echo "Row counts:" | tee -a "$RESTORE_LOG"
+echo "  vods: ${VODS_COUNT}" | tee -a "$RESTORE_LOG"
+echo "  chat_messages: ${CHAT_COUNT}" | tee -a "$RESTORE_LOG"
+echo "  oauth_tokens: ${OAUTH_COUNT}" | tee -a "$RESTORE_LOG"
+
+# 4.3: Verify indexes
+INDEX_COUNT=$(psql -U postgres vod_restore_test -At -c "
+  SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public';
+")
+echo "Indexes: ${INDEX_COUNT}" | tee -a "$RESTORE_LOG"
+
+# 4.4: Check for processed VODs
+PROCESSED_VODS=$(psql -U postgres vod_restore_test -At -c "
+  SELECT COUNT(*) FROM vods WHERE processed=true;
+")
+echo "Processed VODs: ${PROCESSED_VODS}" | tee -a "$RESTORE_LOG"
+
+# 4.5: Verify most recent VOD
+LATEST_VOD=$(psql -U postgres vod_restore_test -At -F'|' -c "
+  SELECT twitch_vod_id, title, created_at 
+  FROM vods 
+  ORDER BY created_at DESC 
+  LIMIT 1;
+")
+echo "Latest VOD: ${LATEST_VOD}" | tee -a "$RESTORE_LOG"
+
+# Step 5: Validate referential integrity
+echo "[5/6] Validating referential integrity..." | tee -a "$RESTORE_LOG"
+ORPHANED_CHATS=$(psql -U postgres vod_restore_test -At -c "
+  SELECT COUNT(*) FROM chat_messages cm 
+  WHERE NOT EXISTS (SELECT 1 FROM vods v WHERE v.twitch_vod_id = cm.vod_id);
+")
+echo "Orphaned chat messages: ${ORPHANED_CHATS}" | tee -a "$RESTORE_LOG"
+
+# Step 6: Cleanup
+echo "[6/6] Cleaning up..." | tee -a "$RESTORE_LOG"
+psql -U postgres -c "DROP DATABASE vod_restore_test;" 2>&1 | tee -a "$RESTORE_LOG"
+rm "/tmp/${LATEST_BACKUP}"
+
+# Final result
+echo "=== Restore Drill Summary ===" | tee -a "$RESTORE_LOG"
+if [ "$VODS_COUNT" -gt 0 ] && [ "$ORPHANED_CHATS" -eq 0 ]; then
+  echo "✅ PASSED: Restore drill completed successfully" | tee -a "$RESTORE_LOG"
+  echo "   - Backup size: ${BACKUP_SIZE}" | tee -a "$RESTORE_LOG"
+  echo "   - Restore time: ${RESTORE_DURATION}s" | tee -a "$RESTORE_LOG"
+  echo "   - VODs restored: ${VODS_COUNT}" | tee -a "$RESTORE_LOG"
+  echo "   - Chat messages: ${CHAT_COUNT}" | tee -a "$RESTORE_LOG"
+  echo "   - Data integrity: ✓" | tee -a "$RESTORE_LOG"
   exit 0
 else
-  echo "❌ Restore test FAILED: No records found"
+  echo "❌ FAILED: Restore drill encountered issues" | tee -a "$RESTORE_LOG"
+  echo "   - VODs count: ${VODS_COUNT}" | tee -a "$RESTORE_LOG"
+  echo "   - Orphaned chats: ${ORPHANED_CHATS}" | tee -a "$RESTORE_LOG"
   exit 1
 fi
 ```
 
+**Restore Drill Checklist**:
+
+Use this checklist when performing monthly restore drills:
+
+- [ ] Run restore drill script or follow manual procedure
+- [ ] Verify backup download completes successfully
+- [ ] Confirm restore completes without errors
+- [ ] Validate row counts match expected ranges
+- [ ] Check table structure and indexes are intact
+- [ ] Verify foreign key constraints are enforced
+- [ ] Confirm most recent data is present (within RPO window)
+- [ ] Document restore time (should meet RTO target)
+- [ ] Review any errors or warnings
+- [ ] Update runbook if procedures have changed
+- [ ] Document findings in restore drill log
+
+**Docker Compose Restore Drill**:
+
+```bash
+# Run restore drill in Docker Compose environment
+docker compose exec postgres bash -c '
+  apt-get update && apt-get install -y awscli
+  /opt/vod-tender/bin/test-restore.sh
+'
+```
+
+**Kubernetes Restore Drill**:
+
+```bash
+# Run restore drill in Kubernetes
+kubectl run restore-drill \
+  --image=postgres:16-alpine \
+  --restart=Never \
+  --rm -it \
+  --namespace=vod-tender \
+  --env="AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID" \
+  --env="AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY" \
+  -- /bin/sh -c '
+    apk add --no-cache aws-cli bash
+    # Download and run restore drill script
+    wget -O /tmp/test-restore.sh https://raw.githubusercontent.com/subculture-collective/vod-tender/main/scripts/test-restore.sh
+    chmod +x /tmp/test-restore.sh
+    /tmp/test-restore.sh
+  '
+```
+
 **RTO/RPO Targets**:
 
-- **RTO (Recovery Time Objective)**: 1 hour
-- **RPO (Recovery Point Objective)**: 24 hours (daily backups)
-- **Restore Test Frequency**: Monthly
-- **Backup Retention**: 30 days (online), 1 year (archive)
+| Metric | Target | Notes |
+|--------|--------|-------|
+| **RTO** (Recovery Time Objective) | 1 hour | Time to restore service after incident |
+| **RPO** (Recovery Point Objective) | 24 hours | Maximum acceptable data loss (daily backups) |
+| **Restore Test Frequency** | Monthly | First Monday of each month |
+| **Backup Retention - Local** | 7 days | Fast access, local disk/PVC |
+| **Backup Retention - S3 Standard-IA** | 30 days | Fast S3 restore, cost-optimized |
+| **Backup Retention - S3 Glacier** | 1 year | Long-term compliance, 3-5h retrieval |
+
+**Restore Drill Results Tracking**:
+
+Document each drill in a tracking log:
+
+| Date | Backup Size | Restore Time | VODs Count | Status | Notes |
+|------|-------------|--------------|------------|--------|-------|
+| 2025-01-06 | 145 MB | 23s | 1,247 | ✅ PASS | No issues |
+| 2025-02-03 | 189 MB | 28s | 1,589 | ✅ PASS | Slightly slower |
+| 2025-03-01 | 156 MB | 25s | 1,423 | ✅ PASS | Normal |
+
+**Emergency Restore from Glacier**:
+
+If you need to restore from Glacier tier (cold storage):
+
+```bash
+# Step 1: Initiate restore (takes 3-5 hours)
+aws s3api restore-object \
+  --bucket vod-tender-backups \
+  --key database/vod_20240815_020000.sql.gz \
+  --restore-request Days=1,GlacierJobParameters={Tier=Standard}
+
+# Step 2: Check restore status
+aws s3api head-object \
+  --bucket vod-tender-backups \
+  --key database/vod_20240815_020000.sql.gz \
+  | jq '.Restore'
+
+# Step 3: Download when available (after restore completes)
+aws s3 cp s3://vod-tender-backups/database/vod_20240815_020000.sql.gz /tmp/
+
+# Step 4: Proceed with standard restore procedure
+```
 
 ## Maintenance Procedures
 

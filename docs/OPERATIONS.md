@@ -170,6 +170,8 @@ healthcheck:
   retries: 3
 ```
 
+Port 14269 is Jaeger's admin endpoint that exposes health status and metrics. This is the standard healthcheck endpoint for Jaeger all-in-one deployments.
+
 **Check Service Health**
 
 ```bash

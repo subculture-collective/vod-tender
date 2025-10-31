@@ -15,7 +15,7 @@ func main() {
 	if endpoint == "" {
 		endpoint = "http://localhost:8080/readyz"
 	}
-	
+
 	client := &http.Client{Timeout: 3 * time.Second}
 	ctx := context.Background()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)

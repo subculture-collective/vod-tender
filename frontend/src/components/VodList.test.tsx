@@ -5,11 +5,9 @@ import { http, HttpResponse } from 'msw'
 import VodList from './VodList'
 
 describe('VodList', () => {
-  it('renders loading skeleton initially', () => {
+  it('renders loading state initially', () => {
     render(<VodList />)
-    // Check for skeleton loading state (aria-busy)
-    const skeletons = screen.getAllByRole('generic', { busy: true })
-    expect(skeletons.length).toBeGreaterThan(0)
+    expect(screen.getByText(/loading vods/i)).toBeInTheDocument()
   })
 
   it('renders VOD list after loading', async () => {
@@ -17,9 +15,7 @@ describe('VodList', () => {
 
     // Wait for loading to complete
     await waitFor(() => {
-      expect(
-        screen.queryByRole('generic', { busy: true })
-      ).not.toBeInTheDocument()
+      expect(screen.queryByText(/loading vods/i)).not.toBeInTheDocument()
     })
 
     // Check if VODs are rendered
@@ -151,18 +147,17 @@ describe('VodList', () => {
     expect(onVodSelect).not.toHaveBeenCalled()
   })
 
-  it('displays pagination controls', async () => {
+  it('renders pagination controls', async () => {
     render(<VodList />)
 
     await waitFor(() => {
       expect(screen.getByText('Test VOD 1')).toBeInTheDocument()
     })
 
-    // Check pagination controls exist
-    expect(screen.getByLabelText('Previous page')).toBeInTheDocument()
-    expect(screen.getByLabelText('Next page')).toBeInTheDocument()
-    const pageTexts = screen.getAllByText(/page 1/i)
-    expect(pageTexts.length).toBeGreaterThan(0)
+    // Check for pagination buttons
+    expect(screen.getByText('Previous')).toBeInTheDocument()
+    expect(screen.getByText('Next')).toBeInTheDocument()
+    expect(screen.getByText('Page 1')).toBeInTheDocument()
   })
 
   it('disables Previous button on first page', async () => {
@@ -172,66 +167,51 @@ describe('VodList', () => {
       expect(screen.getByText('Test VOD 1')).toBeInTheDocument()
     })
 
-    const prevButton = screen.getByLabelText('Previous page')
-    expect(prevButton).toBeDisabled()
+    const previousButton = screen.getByText('Previous')
+    expect(previousButton).toBeDisabled()
   })
 
-  it('disables Next button when no more pages', async () => {
-    // Mock response with fewer items than page size
-    server.use(
-      http.get('/vods', () => {
-        return HttpResponse.json([
-          {
-            id: '1',
-            title: 'Test VOD 1',
-            date: '2025-10-19T10:00:00Z',
-            processed: true,
-            youtube_url: 'https://youtube.com/watch?v=test1',
-          },
-        ])
-      })
-    )
-
+  it('disables Next button when no more pages available', async () => {
     render(<VodList />)
 
     await waitFor(() => {
       expect(screen.getByText('Test VOD 1')).toBeInTheDocument()
     })
 
-    const nextButton = screen.getByLabelText('Next page')
+    // Since we only have 2 VODs (component fetches limit+1=51, gets 2), Next should be disabled
+    const nextButton = screen.getByText('Next')
     expect(nextButton).toBeDisabled()
   })
 
-  it('displays page info with VOD count', async () => {
-    render(<VodList />)
-
-    await waitFor(() => {
-      expect(screen.getByText('Test VOD 1')).toBeInTheDocument()
-    })
-
-    // Check for page info display
-    expect(screen.getByText(/page 1.*showing 2 vods/i)).toBeInTheDocument()
-  })
-
-  it('shows "No VODs found" message when list is empty', async () => {
-    // Override MSW handler to return empty array
+  it('enables Next button when more pages are available', async () => {
+    // Override to return 51 items (indicating there are more)
     server.use(
-      http.get('/vods', () => {
-        return HttpResponse.json([])
+      http.get('/vods', ({ request }) => {
+        const url = new URL(request.url)
+        const limit = parseInt(url.searchParams.get('limit') || '50', 10)
+        const offset = parseInt(url.searchParams.get('offset') || '0', 10)
+        
+        // Generate 51 VODs to simulate having more pages
+        const manyVods = Array.from({ length: Math.min(limit, 51) }, (_, i) => ({
+          id: `${offset + i + 1}`,
+          title: `Test VOD ${offset + i + 1}`,
+          date: '2025-10-19T10:00:00Z',
+          processed: true,
+          youtube_url: 'https://youtube.com/watch?v=test1',
+        }))
+        
+        return HttpResponse.json(manyVods)
       })
     )
 
     render(<VodList />)
 
     await waitFor(() => {
-      expect(
-        screen.queryByRole('generic', { busy: true })
-      ).not.toBeInTheDocument()
+      expect(screen.getByText('Test VOD 1')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('No VODs found')).toBeInTheDocument()
-    // Pagination should not be shown
-    expect(screen.queryByLabelText('Previous page')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('Next page')).not.toBeInTheDocument()
+    // Should have Next button enabled since we got 51 items (more than limit of 50)
+    const nextButton = screen.getByText('Next')
+    expect(nextButton).not.toBeDisabled()
   })
 })

@@ -1,0 +1,78 @@
+# Prometheus configuration for vod-tender
+# This is an example configuration showing how to scrape metrics from vod-tender API
+
+global:
+  scrape_interval: 15s      # How frequently to scrape targets
+  evaluation_interval: 15s   # How frequently to evaluate rules
+  external_labels:
+    cluster: 'vod-tender'
+    environment: 'production'  # Adjust based on your deployment
+
+# Alertmanager configuration (optional)
+# Uncomment and configure if you're using Alertmanager for notifications
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+#           - alertmanager:9093
+
+# Load alerting rules
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+# Scrape configurations
+scrape_configs:
+  # vod-tender API metrics endpoint
+  - job_name: 'vod-tender-api'
+    
+    # Metrics path (default is /metrics)
+    metrics_path: /metrics
+    
+    # Scrape interval for this job (optional, overrides global)
+    scrape_interval: 15s
+    
+    # Scrape timeout
+    scrape_timeout: 10s
+    
+    # Static targets configuration
+    # Update host:port based on your deployment
+    static_configs:
+      - targets:
+          - 'localhost:8080'           # Local development
+          # - 'vod-api:8080'           # Docker Compose (use service name)
+          # - 'api.example.com:8080'   # Production (use actual hostname)
+        
+        # Optional: Add labels to identify this instance
+        labels:
+          instance: 'vod-tender-main'
+          service: 'vod-tender'
+          
+  # Example: Multi-instance setup (for monitoring multiple channels)
+  # Uncomment and duplicate this block for each instance
+  # - job_name: 'vod-tender-channel-a'
+  #   metrics_path: /metrics
+  #   static_configs:
+  #     - targets:
+  #         - 'vod-api-channel-a:8080'
+  #       labels:
+  #         instance: 'channel-a'
+  #         service: 'vod-tender'
+  #         channel: 'channelA'
+
+  # - job_name: 'vod-tender-channel-b'
+  #   metrics_path: /metrics
+  #   static_configs:
+  #     - targets:
+  #         - 'vod-api-channel-b:8080'
+  #       labels:
+  #         instance: 'channel-b'
+  #         service: 'vod-tender'
+  #         channel: 'channelB'
+
+# Storage configuration is typically set via command-line flags
+# Example Docker command:
+#   command:
+#     - '--config.file=/etc/prometheus/prometheus.yml'
+#     - '--storage.tsdb.path=/prometheus'
+#     - '--storage.tsdb.retention.time=15d'
+#     - '--storage.tsdb.retention.size=10GB'

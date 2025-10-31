@@ -99,19 +99,31 @@
           },
           "mappings": [
             {
+              "type": "value",
               "options": {
                 "0": {
-                  "color": "green",
-                  "index": 0,
-                  "text": "Closed"
-                },
-                "1": {
-                  "color": "red",
-                  "index": 1,
-                  "text": "Open"
+                  "text": "Closed",
+                  "color": "green"
                 }
-              },
-              "type": "value"
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "Half-Open",
+                  "color": "yellow"
+                }
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "2": {
+                  "text": "Open",
+                  "color": "red"
+                }
+              }
             }
           ],
           "thresholds": {
@@ -122,8 +134,12 @@
                 "value": null
               },
               {
-                "color": "red",
+                "color": "yellow",
                 "value": 1
+              },
+              {
+                "color": "red",
+                "value": 2
               }
             ]
           }
@@ -152,7 +168,7 @@
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "expr": "vod_circuit_open",
+          "expr": "vod_circuit_breaker_state",
           "refId": "A"
         }
       ],

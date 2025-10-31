@@ -62,6 +62,62 @@ In Jaeger UI:
 
 ## Metrics
 
+### Prometheus Setup
+
+vod-tender exposes Prometheus-compatible metrics at the `/metrics` endpoint. An example Prometheus configuration is provided in `prometheus/prometheus.yml`.
+
+#### Quick Start with Prometheus
+
+1. **Using the provided configuration:**
+
+   ```bash
+   # Start Prometheus with the provided config
+   prometheus --config.file=prometheus/prometheus.yml
+   ```
+
+2. **Docker Compose setup:**
+
+   Add Prometheus to your `docker-compose.yml`:
+
+   ```yaml
+   prometheus:
+     image: prom/prometheus:latest
+     container_name: vod-prometheus
+     restart: unless-stopped
+     ports:
+       - "9090:9090"
+     volumes:
+       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+       - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+       - prometheus_data:/prometheus
+     command:
+       - '--config.file=/etc/prometheus/prometheus.yml'
+       - '--storage.tsdb.path=/prometheus'
+       - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+       - '--web.console.templates=/usr/share/prometheus/consoles'
+     networks:
+       - web
+   ```
+
+3. **Configure the scrape target:**
+
+   Edit `prometheus/prometheus.yml` and update the `targets` under `scrape_configs`:
+
+   - **Local development:** `localhost:8080`
+   - **Docker Compose:** `vod-api:8080` (use the service name)
+   - **Production:** Your actual API hostname and port
+
+4. **Verify metrics collection:**
+
+   Access Prometheus UI at `http://localhost:9090` and check:
+   - **Status → Targets** to verify vod-tender API is being scraped
+   - **Graph** tab to query metrics like `vod_queue_depth`
+
+#### Configuration Files
+
+- **`prometheus/prometheus.yml`**: Main Prometheus configuration with scrape targets
+- **`prometheus/alerts.yml`**: Alerting rules for common failure scenarios
+
 ### Available Metrics
 
 #### VOD Processing
@@ -73,7 +129,8 @@ In Jaeger UI:
 - `vod_uploads_failed_total` - Failed uploads
 - `vod_processing_cycles_total` - Processing cycles executed
 - `vod_queue_depth` - Current unprocessed VOD count
-- `vod_circuit_open` - Circuit breaker state (1=open, 0=closed)
+- `vod_circuit_breaker_state` - Circuit breaker state (0=closed, 1=half-open, 2=open)
+- `vod_circuit_open` - **DEPRECATED**: Circuit breaker state (1=open, 0=closed). Use `vod_circuit_breaker_state` instead
 
 #### Duration Metrics
 
@@ -293,26 +350,122 @@ receivers:
 
 ### Grafana Setup
 
-The Grafana dashboard is located at `grafana/dashboards/vod-tender.json` and is automatically provisioned when using Docker Compose with Grafana.
+The Grafana dashboard is located at `grafana/dashboards/vod-tender.json` and provides comprehensive visualization of vod-tender metrics.
+
+#### Quick Start with Docker Compose
+
+Add Grafana to your `docker-compose.yml`:
+
+```yaml
+grafana:
+  image: grafana/grafana:latest
+  container_name: vod-grafana
+  restart: unless-stopped
+  ports:
+    - "3000:3000"
+  volumes:
+    - ./grafana/dashboards:/etc/grafana/dashboards:ro
+    - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    - grafana_data:/var/lib/grafana
+  environment:
+    - GF_SECURITY_ADMIN_PASSWORD=admin  # Change in production!
+    - GF_USERS_ALLOW_SIGN_UP=false
+  networks:
+    - web
+```
+
+The dashboard will be automatically provisioned at startup. Access Grafana at `http://localhost:3000` (default credentials: `admin/admin`).
+
+#### Manual Import to Existing Grafana
+
+If you have an existing Grafana instance:
+
+1. **Add Prometheus datasource:**
+   - Navigate to **Configuration → Data Sources**
+   - Click **Add data source**
+   - Select **Prometheus**
+   - Set URL to your Prometheus instance (e.g., `http://localhost:9090`)
+   - Click **Save & Test**
+
+2. **Import the dashboard:**
+   - Navigate to **Dashboards → Import**
+   - Click **Upload JSON file**
+   - Select `grafana/dashboards/vod-tender.json`
+   - Choose your Prometheus datasource
+   - Click **Import**
+
+3. **Configure dashboard settings:**
+   - Set **Refresh interval** to `30s` (recommended)
+   - Adjust time range as needed (default: Last 6 hours)
 
 ### Dashboard Panels
 
-1. **VOD Queue Depth** - Real-time queue size
-2. **Circuit Breaker State** - Current circuit breaker status
-3. **Download Rate** - Downloads started, succeeded, failed
-4. **Download Duration Percentiles** - p50, p95, p99 download times
-5. **Upload Rate** - Upload success/failure rates
-6. **Upload Duration Percentiles** - p50, p95, p99 upload times
-7. **Database Connection Pool** - Pool size vs. active connections
-8. **Chat Messages Recorded Rate** - Messages/second by channel
-9. **OAuth Token Refresh Rate** - Refresh attempts by provider and status
-10. **Helix API Call Rate** - API calls by endpoint and status
+The vod-tender dashboard includes the following panels:
 
-### Adding to Existing Grafana
+1. **VOD Queue Depth** (Gauge)
+   - Real-time count of unprocessed VODs
+   - Metric: `vod_queue_depth`
+   - Thresholds: Green (<50), Yellow (50-100), Red (>100)
 
-1. Import dashboard JSON from `grafana/dashboards/vod-tender.json`
-2. Configure Prometheus datasource
-3. Set refresh interval (recommended: 30s)
+2. **Circuit Breaker State** (Gauge)
+   - Current circuit breaker status
+   - Metric: `vod_circuit_breaker_state`
+   - Values: 0=closed (green), 1=half-open (yellow), 2=open (red)
+
+3. **Download Rate** (Time Series)
+   - Downloads started, succeeded, and failed per second
+   - Metrics: `rate(vod_downloads_started_total[5m])`, `rate(vod_downloads_succeeded_total[5m])`, `rate(vod_downloads_failed_total[5m])`
+
+4. **Download Duration Percentiles** (Time Series)
+   - p50, p95, p99 download times over 1-hour windows
+   - Metric: `histogram_quantile(0.95, rate(vod_download_duration_seconds_bucket[1h]))`
+
+5. **Upload Rate** (Time Series)
+   - Upload success and failure rates
+   - Metrics: `rate(vod_uploads_succeeded_total[5m])`, `rate(vod_uploads_failed_total[5m])`
+
+6. **Upload Duration Percentiles** (Time Series)
+   - p50, p95, p99 upload times
+   - Metric: `histogram_quantile(0.95, rate(vod_upload_duration_seconds_bucket[1h]))`
+
+7. **Database Connection Pool** (Time Series)
+   - Pool size vs. active connections
+   - Metrics: `database_connection_pool_size`, `database_connection_pool_in_use`
+
+8. **Chat Messages Recorded Rate** (Time Series)
+   - Messages recorded per second by channel
+   - Metric: `rate(chat_messages_recorded_total[5m])`
+
+9. **OAuth Token Refresh Rate** (Time Series)
+   - Token refresh attempts by provider and status
+   - Metric: `rate(oauth_token_refresh_total[5m])`
+
+10. **Helix API Call Rate** (Time Series)
+    - Twitch API calls by endpoint and status
+    - Metric: `rate(helix_api_calls_total[5m])`
+
+### Expected Metrics
+
+The dashboard expects the following metrics to be available from the `/metrics` endpoint:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `vod_queue_depth` | Gauge | Current unprocessed VOD count |
+| `vod_circuit_breaker_state` | Gauge | Circuit breaker state (0=closed, 1=half-open, 2=open) |
+| `vod_downloads_started_total` | Counter | Total downloads started |
+| `vod_downloads_succeeded_total` | Counter | Total successful downloads |
+| `vod_downloads_failed_total` | Counter | Total failed downloads |
+| `vod_download_duration_seconds` | Histogram | Download duration distribution |
+| `vod_uploads_succeeded_total` | Counter | Total successful uploads |
+| `vod_uploads_failed_total` | Counter | Total failed uploads |
+| `vod_upload_duration_seconds` | Histogram | Upload duration distribution |
+| `database_connection_pool_size` | Gauge | Maximum connection pool size |
+| `database_connection_pool_in_use` | Gauge | Active database connections |
+| `chat_messages_recorded_total` | Counter (with `channel` label) | Chat messages recorded |
+| `oauth_token_refresh_total` | Counter (with `provider`, `status` labels) | OAuth refresh attempts |
+| `helix_api_calls_total` | Counter (with `endpoint`, `status` labels) | Helix API calls |
+
+All metrics are implemented in `backend/telemetry/metrics.go` and automatically exposed at the `/metrics` endpoint when the API server starts.
 
 ## Performance Profiling
 

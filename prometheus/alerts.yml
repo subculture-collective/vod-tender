@@ -24,7 +24,7 @@ groups:
 
       # Circuit breaker open
       - alert: CircuitBreakerOpen
-        expr: vod_circuit_open == 1
+        expr: vod_circuit_breaker_state == 2
         for: 5m
         labels:
           severity: critical

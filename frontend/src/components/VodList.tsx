@@ -19,18 +19,28 @@ export default function VodList({ onVodSelect }: VodListProps) {
   const [vods, setVods] = useState<Vod[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [page, setPage] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const limit = 50 // Match backend default
 
   useEffect(() => {
     setLoading(true)
-    fetch(`${API_BASE_URL}/vods`)
+    const offset = page * limit
+    // Fetch limit + 1 to detect if there are more pages
+    fetch(`${API_BASE_URL}/vods?limit=${limit + 1}&offset=${offset}`)
       .then((res) => {
         if (!res.ok) throw new Error('Failed to fetch VODs')
         return res.json()
       })
-      .then(setVods)
+      .then((data: Vod[]) => {
+        // If we got more than limit items, there's a next page
+        setHasMore(data.length > limit)
+        // Only show limit items
+        setVods(data.slice(0, limit))
+      })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
-  }, [])
+  }, [page])
 
   if (loading) return <div className="p-4">Loading VODs...</div>
   if (error) return <div className="p-4 text-red-500">{error}</div>
@@ -88,6 +98,25 @@ export default function VodList({ onVodSelect }: VodListProps) {
             ))}
           </tbody>
         </table>
+      </div>
+      <div className="mt-4 flex justify-between items-center">
+        <button
+          onClick={() => setPage((p) => Math.max(0, p - 1))}
+          disabled={page === 0 || loading}
+          className="px-4 py-2 bg-indigo-600 text-white rounded disabled:bg-gray-400 disabled:cursor-not-allowed"
+        >
+          Previous
+        </button>
+        <span className="text-gray-600">
+          Page {page + 1}
+        </span>
+        <button
+          onClick={() => setPage((p) => p + 1)}
+          disabled={!hasMore || loading}
+          className="px-4 py-2 bg-indigo-600 text-white rounded disabled:bg-gray-400 disabled:cursor-not-allowed"
+        >
+          Next
+        </button>
       </div>
     </div>
   )

@@ -146,4 +146,72 @@ describe('VodList', () => {
     // onVodSelect should not be called when clicking YouTube link
     expect(onVodSelect).not.toHaveBeenCalled()
   })
+
+  it('renders pagination controls', async () => {
+    render(<VodList />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Test VOD 1')).toBeInTheDocument()
+    })
+
+    // Check for pagination buttons
+    expect(screen.getByText('Previous')).toBeInTheDocument()
+    expect(screen.getByText('Next')).toBeInTheDocument()
+    expect(screen.getByText('Page 1')).toBeInTheDocument()
+  })
+
+  it('disables Previous button on first page', async () => {
+    render(<VodList />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Test VOD 1')).toBeInTheDocument()
+    })
+
+    const previousButton = screen.getByText('Previous')
+    expect(previousButton).toBeDisabled()
+  })
+
+  it('disables Next button when no more pages available', async () => {
+    render(<VodList />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Test VOD 1')).toBeInTheDocument()
+    })
+
+    // Since we only have 2 VODs (component fetches limit+1=51, gets 2), Next should be disabled
+    const nextButton = screen.getByText('Next')
+    expect(nextButton).toBeDisabled()
+  })
+
+  it('enables Next button when more pages are available', async () => {
+    // Override to return 51 items (indicating there are more)
+    server.use(
+      http.get('/vods', ({ request }) => {
+        const url = new URL(request.url)
+        const limit = parseInt(url.searchParams.get('limit') || '50', 10)
+        const offset = parseInt(url.searchParams.get('offset') || '0', 10)
+        
+        // Generate 51 VODs to simulate having more pages
+        const manyVods = Array.from({ length: Math.min(limit, 51) }, (_, i) => ({
+          id: `${offset + i + 1}`,
+          title: `Test VOD ${offset + i + 1}`,
+          date: '2025-10-19T10:00:00Z',
+          processed: true,
+          youtube_url: 'https://youtube.com/watch?v=test1',
+        }))
+        
+        return HttpResponse.json(manyVods)
+      })
+    )
+
+    render(<VodList />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Test VOD 1')).toBeInTheDocument()
+    })
+
+    // Should have Next button enabled since we got 51 items (more than limit of 50)
+    const nextButton = screen.getByText('Next')
+    expect(nextButton).not.toBeDisabled()
+  })
 })

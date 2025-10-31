@@ -129,7 +129,8 @@ vod-tender exposes Prometheus-compatible metrics at the `/metrics` endpoint. An 
 - `vod_uploads_failed_total` - Failed uploads
 - `vod_processing_cycles_total` - Processing cycles executed
 - `vod_queue_depth` - Current unprocessed VOD count
-- `vod_circuit_open` - Circuit breaker state (1=open, 0=closed)
+- `vod_circuit_breaker_state` - Circuit breaker state (0=closed, 1=half-open, 2=open)
+- `vod_circuit_open` - **DEPRECATED**: Circuit breaker state (1=open, 0=closed). Use `vod_circuit_breaker_state` instead
 
 #### Duration Metrics
 

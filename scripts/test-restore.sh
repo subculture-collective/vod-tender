@@ -12,6 +12,11 @@
 #   S3_BUCKET - S3 bucket name (default: vod-tender-backups)
 #   POSTGRES_HOST - PostgreSQL host (default: localhost)
 #   POSTGRES_USER - PostgreSQL superuser (default: postgres)
+#   PGPASSWORD - PostgreSQL password (required for authentication)
+#                Alternative: configure ~/.pgpass file
+#
+# Note: Ensure PostgreSQL authentication is configured via PGPASSWORD
+#       environment variable or ~/.pgpass file before running this script.
 
 set -euo pipefail
 
@@ -25,6 +30,23 @@ RESTORE_LOG="/var/log/vod-tender/restore-drill-$(date +%Y%m%d).log"
 
 # Ensure log directory exists
 mkdir -p "$(dirname "$RESTORE_LOG")"
+
+# Cleanup function for trap handler
+cleanup_on_exit() {
+  local exit_code=$?
+  if [ -n "${TEST_DB_NAME:-}" ]; then
+    log "Cleaning up test database..."
+    psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -c "DROP DATABASE IF EXISTS ${TEST_DB_NAME};" 2>/dev/null || true
+  fi
+  if [ -n "${BACKUP_FILE:-}" ] && [ -f "$BACKUP_FILE" ]; then
+    log "Removing backup file..."
+    rm -f "$BACKUP_FILE"
+  fi
+  exit "$exit_code"
+}
+
+# Register cleanup handler
+trap cleanup_on_exit EXIT ERR
 
 # Logging functions
 log() {
@@ -52,19 +74,55 @@ fi
 log "Latest backup: $LATEST_BACKUP"
 
 BACKUP_FILE="/tmp/${LATEST_BACKUP}"
+set +e
 aws s3 cp "s3://${S3_BUCKET}/${S3_PREFIX}${LATEST_BACKUP}" "$BACKUP_FILE" 2>&1 | tee -a "$RESTORE_LOG"
+AWS_EXIT_CODE=${PIPESTATUS[0]}
+set -e
+if [ "$AWS_EXIT_CODE" -ne 0 ]; then
+  log "❌ FAILED: aws s3 cp failed with exit code $AWS_EXIT_CODE"
+  exit 1
+fi
 BACKUP_SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
 log "Downloaded: $BACKUP_FILE (${BACKUP_SIZE})"
 
 # Step 2: Create test database
 log_step "2/6" "Creating test database..."
+set +e
 psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -c "DROP DATABASE IF EXISTS ${TEST_DB_NAME};" 2>&1 | tee -a "$RESTORE_LOG"
+PSQL_EXIT_CODE=${PIPESTATUS[0]}
+set -e
+if [ "$PSQL_EXIT_CODE" -ne 0 ]; then
+  log "❌ FAILED: DROP DATABASE failed with exit code $PSQL_EXIT_CODE"
+  exit 1
+fi
+
+set +e
 psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -c "CREATE DATABASE ${TEST_DB_NAME};" 2>&1 | tee -a "$RESTORE_LOG"
+PSQL_EXIT_CODE=${PIPESTATUS[0]}
+set -e
+if [ "$PSQL_EXIT_CODE" -ne 0 ]; then
+  log "❌ FAILED: CREATE DATABASE failed with exit code $PSQL_EXIT_CODE"
+  exit 1
+fi
 
 # Step 3: Restore backup
 log_step "3/6" "Restoring backup to test database..."
 START_TIME=$(date +%s)
-zcat "$BACKUP_FILE" | psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" "$TEST_DB_NAME" 2>&1 | tee -a "$RESTORE_LOG"
+set +e
+(
+  set -o pipefail
+  zcat "$BACKUP_FILE" | psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" "$TEST_DB_NAME" 2>&1 | tee -a "$RESTORE_LOG"
+)
+RESTORE_STATUS=("${PIPESTATUS[@]}")
+set -e
+if [ "${RESTORE_STATUS[0]}" -ne 0 ]; then
+  log "❌ FAILED: zcat failed with exit code ${RESTORE_STATUS[0]}"
+  exit 1
+fi
+if [ "${RESTORE_STATUS[1]}" -ne 0 ]; then
+  log "❌ FAILED: psql restore failed with exit code ${RESTORE_STATUS[1]}"
+  exit 1
+fi
 END_TIME=$(date +%s)
 RESTORE_DURATION=$((END_TIME - START_TIME))
 log "Restore completed in ${RESTORE_DURATION} seconds"
@@ -84,9 +142,12 @@ echo "$TABLES" | tee -a "$RESTORE_LOG"
 
 # 4.2: Verify row counts
 log "Checking row counts..."
-VODS_COUNT=$(psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" "$TEST_DB_NAME" -At -c "SELECT COUNT(*) FROM vods;")
-CHAT_COUNT=$(psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" "$TEST_DB_NAME" -At -c "SELECT COUNT(*) FROM chat_messages;")
-OAUTH_COUNT=$(psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" "$TEST_DB_NAME" -At -c "SELECT COUNT(*) FROM oauth_tokens;")
+VODS_COUNT=$(psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" "$TEST_DB_NAME" -At -c "SELECT COUNT(*) FROM vods;" 2>/dev/null || echo "0")
+VODS_COUNT=${VODS_COUNT:-0}
+CHAT_COUNT=$(psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" "$TEST_DB_NAME" -At -c "SELECT COUNT(*) FROM chat_messages;" 2>/dev/null || echo "0")
+CHAT_COUNT=${CHAT_COUNT:-0}
+OAUTH_COUNT=$(psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" "$TEST_DB_NAME" -At -c "SELECT COUNT(*) FROM oauth_tokens;" 2>/dev/null || echo "0")
+OAUTH_COUNT=${OAUTH_COUNT:-0}
 
 log "Row counts:"
 log "  vods: ${VODS_COUNT}"
@@ -126,6 +187,8 @@ log "Orphaned chat messages: ${ORPHANED_CHATS}"
 
 # Step 6: Cleanup
 log_step "6/6" "Cleaning up..."
+# Disable trap handler before manual cleanup
+trap - EXIT ERR
 psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -c "DROP DATABASE ${TEST_DB_NAME};" 2>&1 | tee -a "$RESTORE_LOG"
 rm "$BACKUP_FILE"
 

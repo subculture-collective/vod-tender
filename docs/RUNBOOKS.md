@@ -1239,9 +1239,11 @@ Use this checklist when performing monthly restore drills:
 
 ```bash
 # Run restore drill in Docker Compose environment
+# Note: Script should be available in the container at /scripts/test-restore.sh
 docker compose exec postgres bash -c '
   apt-get update && apt-get install -y awscli
-  /opt/vod-tender/bin/test-restore.sh
+  export PGPASSWORD="$POSTGRES_PASSWORD"
+  /scripts/test-restore.sh
 '
 ```
 
@@ -1249,6 +1251,8 @@ docker compose exec postgres bash -c '
 
 ```bash
 # Run restore drill in Kubernetes
+# Option 1: Mount script from ConfigMap (recommended for production)
+kubectl create configmap restore-script --from-file=scripts/test-restore.sh -n vod-tender
 kubectl run restore-drill \
   --image=postgres:16-alpine \
   --restart=Never \
@@ -1256,9 +1260,48 @@ kubectl run restore-drill \
   --namespace=vod-tender \
   --env="AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID" \
   --env="AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY" \
+  --env="PGPASSWORD=$DB_PASSWORD" \
+  --overrides='
+{
+  "spec": {
+    "containers": [{
+      "name": "restore-drill",
+      "image": "postgres:16-alpine",
+      "command": ["/bin/sh", "-c"],
+      "args": ["apk add --no-cache aws-cli bash && /scripts/test-restore.sh"],
+      "volumeMounts": [{
+        "name": "script",
+        "mountPath": "/scripts"
+      }]
+    }],
+    "volumes": [{
+      "name": "script",
+      "configMap": {
+        "name": "restore-script",
+        "defaultMode": 493
+      }
+    }]
+  }
+}'
+
+# Option 2: Build script into container image (most secure)
+# Add scripts/test-restore.sh to your Dockerfile and use that image
+
+# Option 3: Download from GitHub (development only - not recommended for production)
+# Security note: Downloading and executing scripts from external URLs
+# introduces supply chain risks. Verify checksums or use signed releases.
+kubectl run restore-drill \
+  --image=postgres:16-alpine \
+  --restart=Never \
+  --rm -it \
+  --namespace=vod-tender \
+  --env="AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID" \
+  --env="AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY" \
+  --env="PGPASSWORD=$DB_PASSWORD" \
   -- /bin/sh -c '
     apk add --no-cache aws-cli bash
-    # Download and run restore drill script
+    # WARNING: Downloading scripts from GitHub without verification is a security risk
+    # Only use this for development/testing. For production, use ConfigMap or bake into image.
     wget -O /tmp/test-restore.sh https://raw.githubusercontent.com/subculture-collective/vod-tender/main/scripts/test-restore.sh
     chmod +x /tmp/test-restore.sh
     /tmp/test-restore.sh

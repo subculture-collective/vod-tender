@@ -33,7 +33,7 @@ export default function VodList({ onVodSelect }: VodListProps) {
       .then(setVods)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
-  }, [page, limit])
+  }, [page])
 
   if (loading) return <div className="p-4">Loading VODs...</div>
   if (error) return <div className="p-4 text-red-500">{error}</div>

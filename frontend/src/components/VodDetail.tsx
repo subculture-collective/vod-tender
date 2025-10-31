@@ -139,10 +139,10 @@ export default function VodDetail({ vodId, onBack }: VodDetailProps) {
               </div>
               <div className="mt-3 text-sm">
                 <p className="text-red-600">
-                  <strong>Retry Guidance:</strong> The system will
-                  automatically retry this VOD after a cooldown period. If the
-                  issue persists, you can use the reprocess action from the VOD
-                  list to manually retry.
+                  <strong>Retry Guidance:</strong> The system will automatically
+                  retry this VOD after a cooldown period. If the issue persists,
+                  you can use the reprocess action from the VOD list to manually
+                  retry.
                 </p>
               </div>
             </div>

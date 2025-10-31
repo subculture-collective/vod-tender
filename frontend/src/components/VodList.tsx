@@ -107,9 +107,7 @@ export default function VodList({ onVodSelect }: VodListProps) {
         >
           Previous
         </button>
-        <span className="text-gray-600">
-          Page {page + 1}
-        </span>
+        <span className="text-gray-600">Page {page + 1}</span>
         <button
           onClick={() => setPage((p) => p + 1)}
           disabled={!hasMore || loading}

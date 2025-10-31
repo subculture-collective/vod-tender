@@ -190,16 +190,19 @@ describe('VodList', () => {
         const url = new URL(request.url)
         const limit = parseInt(url.searchParams.get('limit') || '50', 10)
         const offset = parseInt(url.searchParams.get('offset') || '0', 10)
-        
+
         // Generate 51 VODs to simulate having more pages
-        const manyVods = Array.from({ length: Math.min(limit, 51) }, (_, i) => ({
-          id: `${offset + i + 1}`,
-          title: `Test VOD ${offset + i + 1}`,
-          date: '2025-10-19T10:00:00Z',
-          processed: true,
-          youtube_url: 'https://youtube.com/watch?v=test1',
-        }))
-        
+        const manyVods = Array.from(
+          { length: Math.min(limit, 51) },
+          (_, i) => ({
+            id: `${offset + i + 1}`,
+            title: `Test VOD ${offset + i + 1}`,
+            date: '2025-10-19T10:00:00Z',
+            processed: true,
+            youtube_url: 'https://youtube.com/watch?v=test1',
+          })
+        )
+
         return HttpResponse.json(manyVods)
       })
     )
@@ -213,5 +216,114 @@ describe('VodList', () => {
     // Should have Next button enabled since we got 51 items (more than limit of 50)
     const nextButton = screen.getByText('Next')
     expect(nextButton).not.toBeDisabled()
+  })
+
+  it('navigates to next page when Next button is clicked', async () => {
+    // Setup handler to return different data based on offset
+    server.use(
+      http.get('/vods', ({ request }) => {
+        const url = new URL(request.url)
+        const offset = parseInt(url.searchParams.get('offset') || '0', 10)
+
+        if (offset === 0) {
+          // First page - return 51 items to indicate more pages
+          const vods = Array.from({ length: 51 }, (_, i) => ({
+            id: `${i + 1}`,
+            title: `Test VOD ${i + 1}`,
+            date: '2025-10-19T10:00:00Z',
+            processed: true,
+            youtube_url: null,
+          }))
+          return HttpResponse.json(vods)
+        } else {
+          // Second page - return fewer items
+          return HttpResponse.json([
+            {
+              id: '51',
+              title: 'Test VOD 51',
+              date: '2025-10-19T10:00:00Z',
+              processed: false,
+              youtube_url: null,
+            },
+          ])
+        }
+      })
+    )
+
+    render(<VodList />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Test VOD 1')).toBeInTheDocument()
+    })
+
+    // Click Next button
+    const nextButton = screen.getByText('Next')
+    nextButton.click()
+
+    // Wait for page 2 to load
+    await waitFor(() => {
+      expect(screen.getByText('Page 2')).toBeInTheDocument()
+    })
+
+    // Verify new data is shown
+    expect(screen.getByText('Test VOD 51')).toBeInTheDocument()
+  })
+
+  it('navigates to previous page when Previous button is clicked', async () => {
+    // Setup handler to return different data based on offset
+    server.use(
+      http.get('/vods', ({ request }) => {
+        const url = new URL(request.url)
+        const offset = parseInt(url.searchParams.get('offset') || '0', 10)
+
+        if (offset === 0) {
+          // First page
+          const vods = Array.from({ length: 51 }, (_, i) => ({
+            id: `${i + 1}`,
+            title: `Test VOD ${i + 1}`,
+            date: '2025-10-19T10:00:00Z',
+            processed: true,
+            youtube_url: null,
+          }))
+          return HttpResponse.json(vods)
+        } else {
+          // Second page
+          return HttpResponse.json([
+            {
+              id: '51',
+              title: 'Test VOD 51',
+              date: '2025-10-19T10:00:00Z',
+              processed: false,
+              youtube_url: null,
+            },
+          ])
+        }
+      })
+    )
+
+    render(<VodList />)
+
+    // Wait for first page to load
+    await waitFor(() => {
+      expect(screen.getByText('Test VOD 1')).toBeInTheDocument()
+    })
+
+    // Go to page 2
+    screen.getByText('Next').click()
+
+    await waitFor(() => {
+      expect(screen.getByText('Page 2')).toBeInTheDocument()
+    })
+
+    // Click Previous button
+    const previousButton = screen.getByText('Previous')
+    previousButton.click()
+
+    // Should be back on page 1
+    await waitFor(() => {
+      expect(screen.getByText('Page 1')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('Test VOD 1')).toBeInTheDocument()
   })
 })

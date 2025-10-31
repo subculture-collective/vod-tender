@@ -214,6 +214,15 @@ livenessProbe:
   failureThreshold: 3
 ```
 
+**Note**: These examples use `/healthz` for both probes, matching the existing K8s manifests. This provides a simple, consistent check that restarts pods on database failures. For stricter readiness requirements (e.g., remove from load balancer when circuit breaker is open), change the readiness probe to use `/readyz`:
+
+```yaml
+readinessProbe:
+  httpGet:
+    path: /readyz  # More comprehensive: DB, circuit breaker, credentials
+    port: 8080
+```
+
 **Frontend Deployment Probes**
 
 ```yaml

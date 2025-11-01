@@ -98,8 +98,20 @@ dev-setup: ## Complete development setup (start services + seed data)
 	@echo "Setting up complete development environment..."
 	@$(MAKE) up
 	@echo "Waiting for services to be ready..."
-	@sleep 5
-	@$(MAKE) db-seed
+	@POSTGRES_CONTAINER=$$(sh -c 'if [ -f .env ]; then . ./.env; printf "%s-postgres" "$${STACK_NAME:-vod}"; else printf "vod-postgres"; fi'); \
+	TIMEOUT=30; \
+	for i in $$(seq 1 $$TIMEOUT); do \
+	  if $(DC) exec -T postgres pg_isready -U vod >/dev/null 2>&1; then \
+	    echo "✓ Postgres is ready!"; \
+	    break; \
+	  fi; \
+	  if [ $$i -eq $$TIMEOUT ]; then \
+	    echo "ERROR: Postgres did not become ready after $$TIMEOUT seconds."; \
+	    exit 1; \
+	  fi; \
+	  sleep 1; \
+	done
+	@SEED_CONFIRM=yes $(MAKE) db-seed
 	@echo ""
 	@echo "✓ Development environment ready!"
 	@echo ""

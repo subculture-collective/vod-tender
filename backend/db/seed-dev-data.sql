@@ -1,7 +1,7 @@
 -- Seed data for local development
 -- This file provides sample VODs, chat messages, and configuration for testing
 -- Run with: psql -U vod -d vod -f backend/db/seed-dev-data.sql
--- Or use: make seed
+-- Or use: make db-seed
 
 BEGIN;
 

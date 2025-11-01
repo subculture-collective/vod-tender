@@ -187,7 +187,7 @@ scrape_configs:
     relabel_configs:
       # Only scrape vod-tender containers
       - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
-        regex: '(api|frontend)'
+        regex: '(^|-)(api|frontend)'
         action: keep
       
       # Extract service name
@@ -967,8 +967,9 @@ version: '3.8'
 
 services:
   # vod-tender API with JSON logging
+  # Note: In actual deployment, this references the build from ./backend/Dockerfile
   api:
-    image: vod-tender:latest
+    image: vod-tender:latest  # Simplified example; use actual image/build config
     environment:
       - LOG_FORMAT=json
       - LOG_LEVEL=info
@@ -1022,8 +1023,9 @@ version: '3.8'
 
 services:
   # vod-tender API with JSON logging
+  # Note: In actual deployment, this references the build from ./backend/Dockerfile
   api:
-    image: vod-tender:latest
+    image: vod-tender:latest  # Simplified example; use actual image/build config
     environment:
       - LOG_FORMAT=json
       - LOG_LEVEL=info

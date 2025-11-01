@@ -663,4 +663,4 @@ For comprehensive log aggregation and querying with Loki or ELK, see [LOGGING.md
 | `LOG_LEVEL` | `info` | Log level: `debug`, `info`, `warn`, `error` |
 | `LOG_FORMAT` | `text` | Log format: `text` or `json` |
 
-See [CONFIG.md](CONFIG.md) for full configuration documentation and [LOGGING.md](LOGGING.md) for log aggregation with Loki/ELK.
+See [CONFIG.md](CONFIG.md) for full configuration documentation. For log aggregation with Loki/ELK, see [LOGGING.md](LOGGING.md).

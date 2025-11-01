@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: GitHub Discussions
+    url: https://github.com/subculture-collective/vod-tender/discussions
+    about: Ask questions and discuss ideas with the community
+  - name: Security Issue
+    url: https://github.com/subculture-collective/vod-tender/security/advisories/new
+    about: Report security vulnerabilities privately

@@ -1,0 +1,81 @@
+name: Documentation Issue
+description: Report missing, incorrect, or unclear documentation
+title: "[Docs]: "
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve our documentation! Please describe what needs to be fixed or added.
+
+  - type: textarea
+    id: issue
+    attributes:
+      label: Documentation Issue
+      description: What's wrong with the current documentation?
+      placeholder: |
+        The documentation is missing...
+        The documentation is unclear about...
+        The documentation is incorrect regarding...
+    validations:
+      required: true
+
+  - type: input
+    id: location
+    attributes:
+      label: Location
+      description: Where is the documentation issue? (file path or URL)
+      placeholder: e.g., docs/CONFIG.md, README.md, https://github.com/...
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested Improvement
+      description: What would make the documentation better?
+      placeholder: |
+        Add a section about...
+        Clarify that...
+        Update the example to show...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Issue Type
+      description: What kind of documentation issue is this?
+      options:
+        - Missing information
+        - Incorrect information
+        - Unclear or confusing
+        - Outdated information
+        - Typo or formatting
+        - Example needed
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Any additional information that would be helpful
+      placeholder: |
+        I was trying to...
+        I expected to find...
+        It would be helpful if...
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      description: Please confirm the following
+      options:
+        - label: I have searched existing issues to ensure this is not a duplicate
+          required: true
+        - label: I have checked multiple documentation files to ensure this isn't documented elsewhere
+          required: true
+        - label: I am willing to submit a PR to fix this documentation issue (optional, but appreciated!)
+          required: false

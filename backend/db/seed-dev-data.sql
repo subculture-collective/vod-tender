@@ -172,6 +172,7 @@ INSERT INTO vods (
     );
 
 -- Insert sample chat messages for the completed VOD (seed-completed-001)
+-- Using COALESCE to ensure no NULL values for string fields
 INSERT INTO chat_messages (
     vod_id,
     username,
@@ -197,7 +198,7 @@ INSERT INTO chat_messages (
         'subscriber/12',
         '25:0-7',
         '#FF6347',
-        NULL, NULL, NULL,
+        '', '', '',
         '',
         NOW() - INTERVAL '2 days' + INTERVAL '10 seconds'
     ),
@@ -208,9 +209,9 @@ INSERT INTO chat_messages (
         NOW() - INTERVAL '2 days' + INTERVAL '45 seconds',
         45.0,
         'moderator/1,subscriber/24',
-        NULL,
+        '',
         '#00FF00',
-        NULL, NULL, NULL,
+        '', '', '',
         '',
         NOW() - INTERVAL '2 days' + INTERVAL '45 seconds'
     ),
@@ -221,9 +222,9 @@ INSERT INTO chat_messages (
         NOW() - INTERVAL '2 days' + INTERVAL '15 minutes',
         900.0,
         'subscriber/6',
-        NULL,
+        '',
         '#9B59B6',
-        NULL, NULL, NULL,
+        '', '', '',
         '',
         NOW() - INTERVAL '2 days' + INTERVAL '15 minutes'
     ),
@@ -234,9 +235,9 @@ INSERT INTO chat_messages (
         NOW() - INTERVAL '2 days' + INTERVAL '15 minutes 20 seconds',
         920.0,
         'subscriber/36',
-        NULL,
+        '',
         '#FFD700',
-        NULL, NULL, NULL,
+        '', '', '',
         '',
         NOW() - INTERVAL '2 days' + INTERVAL '15 minutes 20 seconds'
     ),
@@ -249,7 +250,7 @@ INSERT INTO chat_messages (
         'subscriber/12',
         '41:0-6',
         '#FF6347',
-        NULL, NULL, NULL,
+        '', '', '',
         '',
         NOW() - INTERVAL '2 days' + INTERVAL '32 minutes'
     ),
@@ -260,9 +261,9 @@ INSERT INTO chat_messages (
         NOW() - INTERVAL '2 days' + INTERVAL '30 minutes',
         1800.0,
         'bot/1',
-        NULL,
+        '',
         '#0000FF',
-        NULL, NULL, NULL,
+        '', '', '',
         '',
         NOW() - INTERVAL '2 days' + INTERVAL '30 minutes'
     ),
@@ -272,10 +273,10 @@ INSERT INTO chat_messages (
         'This is my first time watching, amazing content!',
         NOW() - INTERVAL '2 days' + INTERVAL '45 minutes',
         2700.0,
-        NULL,
-        NULL,
+        '',
+        '',
         '#808080',
-        NULL, NULL, NULL,
+        '', '', '',
         '',
         NOW() - INTERVAL '2 days' + INTERVAL '45 minutes'
     ),
@@ -286,9 +287,9 @@ INSERT INTO chat_messages (
         NOW() - INTERVAL '2 days' + INTERVAL '45 minutes 15 seconds',
         2715.0,
         'moderator/1,subscriber/24',
-        NULL,
+        '',
         '#00FF00',
-        NULL,
+        '',
         'lucky_viewer',
         'This is my first time watching, amazing content!',
         '',
@@ -301,9 +302,9 @@ INSERT INTO chat_messages (
         NOW() - INTERVAL '2 days' + INTERVAL '1 hour',
         3600.0,
         'subscriber/18',
-        NULL,
+        '',
         '#FF1493',
-        NULL, NULL, NULL,
+        '', '', '',
         '',
         NOW() - INTERVAL '2 days' + INTERVAL '1 hour'
     ),
@@ -314,9 +315,9 @@ INSERT INTO chat_messages (
         NOW() - INTERVAL '2 days' + INTERVAL '1 hour 15 minutes',
         4500.0,
         'subscriber/12',
-        NULL,
+        '',
         '#FF6347',
-        NULL, NULL, NULL,
+        '', '', '',
         '',
         NOW() - INTERVAL '2 days' + INTERVAL '1 hour 15 minutes'
     ),
@@ -327,9 +328,9 @@ INSERT INTO chat_messages (
         NOW() - INTERVAL '2 days' + INTERVAL '1 hour 15 minutes 30 seconds',
         4530.0,
         'subscriber/6',
-        NULL,
+        '',
         '#9B59B6',
-        NULL,
+        '',
         'viewer123',
         'How many attempts did this boss take in previous streams?',
         '',
@@ -344,7 +345,7 @@ INSERT INTO chat_messages (
         'subscriber/3',
         '88:30-32',
         '#FF8C00',
-        NULL, NULL, NULL,
+        '', '', '',
         '',
         NOW() - INTERVAL '2 days' + INTERVAL '1 hour 45 minutes'
     ),
@@ -355,9 +356,9 @@ INSERT INTO chat_messages (
         NOW() - INTERVAL '2 days' + INTERVAL '1 hour 55 minutes',
         6900.0,
         'subscriber/36',
-        NULL,
+        '',
         '#FFD700',
-        NULL, NULL, NULL,
+        '', '', '',
         '',
         NOW() - INTERVAL '2 days' + INTERVAL '1 hour 55 minutes'
     ),
@@ -370,7 +371,7 @@ INSERT INTO chat_messages (
         'subscriber/9',
         '25:5-12,25:13-20,25:21-28',
         '#FF0000',
-        NULL, NULL, NULL,
+        '', '', '',
         '',
         NOW() - INTERVAL '2 days' + INTERVAL '1 hour 58 minutes'
     ),
@@ -383,12 +384,13 @@ INSERT INTO chat_messages (
         'subscriber/1',
         '100:0-3,100:4-7,100:8-11',
         '#FFFFFF',
-        NULL, NULL, NULL,
+        '', '', '',
         '',
         NOW() - INTERVAL '2 days' + INTERVAL '2 hours 30 seconds'
     );
 
 -- Insert some KV entries for testing circuit breaker and stats
+-- Using ON CONFLICT to allow reloading seed data multiple times
 INSERT INTO kv (channel, key, value, updated_at) VALUES
     ('', 'circuit_state', 'closed', NOW() - INTERVAL '1 hour'),
     ('', 'circuit_failures', '0', NOW() - INTERVAL '1 hour'),
@@ -396,7 +398,10 @@ INSERT INTO kv (channel, key, value, updated_at) VALUES
     ('', 'avg_download_ms', '45000', NOW() - INTERVAL '30 minutes'),
     ('', 'avg_upload_ms', '120000', NOW() - INTERVAL '30 minutes'),
     ('', 'last_catalog_refresh', (NOW() - INTERVAL '3 hours')::text, NOW() - INTERVAL '3 hours'),
-    ('', 'seed_data_loaded', 'true', NOW());
+    ('', 'seed_data_loaded', 'true', NOW())
+ON CONFLICT (channel, key) DO UPDATE SET
+    value = EXCLUDED.value,
+    updated_at = EXCLUDED.updated_at;
 
 COMMIT;
 

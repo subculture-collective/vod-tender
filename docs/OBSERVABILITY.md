@@ -624,6 +624,8 @@ grep 'corr=abc-123-def' logs.txt
 2. Search Jaeger UI with tag: `correlation_id=abc-123-def`
 3. View full request trace with spans
 
+For comprehensive log aggregation and querying with Loki or ELK, see [LOGGING.md](LOGGING.md).
+
 ## Best Practices
 
 ### Development
@@ -661,4 +663,4 @@ grep 'corr=abc-123-def' logs.txt
 | `LOG_LEVEL` | `info` | Log level: `debug`, `info`, `warn`, `error` |
 | `LOG_FORMAT` | `text` | Log format: `text` or `json` |
 
-See [CONFIG.md](CONFIG.md) for full configuration documentation.
+See [CONFIG.md](CONFIG.md) for full configuration documentation and [LOGGING.md](LOGGING.md) for log aggregation with Loki/ELK.

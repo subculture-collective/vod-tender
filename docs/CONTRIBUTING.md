@@ -1,5 +1,7 @@
 # Contributing Guide
 
+> **Note**: This is a quick reference guide focused on commit conventions and workflows. For comprehensive contributing guidelines, see the [main CONTRIBUTING.md](../CONTRIBUTING.md) in the repository root.
+
 ## Quick Start
 
 1. Fork and clone the repository

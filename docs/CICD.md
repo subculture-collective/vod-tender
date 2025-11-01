@@ -68,22 +68,31 @@ The CI/CD pipeline is organized into five main workflows:
 
 ### 2. Release Workflow (`release.yml`)
 
-**Triggers:** Push of version tags (`v*`)
+**Triggers:** 
+- Push to `main` branch (triggers semantic-release)
+- Push of version tags matching `v*` pattern (manual releases)
 
-**Steps:**
+**Jobs:**
 
-1. Extract version from tag (e.g., `v1.2.3` → `1.2.3`)
-2. Build multi-arch container images (linux/amd64, linux/arm64)
-3. Push to GitHub Container Registry (ghcr.io)
-4. Sign images with cosign (keyless)
-5. Generate SBOM in SPDX format
-6. Build cross-platform binaries:
-   - linux/amd64
-   - linux/arm64
-   - darwin/amd64
-   - darwin/arm64
-7. Generate changelog from commits
-8. Create GitHub Release with artifacts
+1. **semantic-release** (runs on push to main):
+   - Analyzes commits using conventional commits
+   - Determines version bump (major/minor/patch)
+   - Creates git tag automatically
+   - Updates CHANGELOG.md
+   - Triggers release job if new version published
+
+2. **release** (runs on semantic-release OR manual tag):
+   - Extracts version from semantic-release output or git tag
+   - Builds multi-arch container images (linux/amd64, linux/arm64)
+   - Pushes to GitHub Container Registry (ghcr.io)
+   - Signs images with cosign (keyless)
+   - Generates SBOM files using Syft (SPDX JSON format)
+   - Builds cross-platform binaries:
+     - linux/amd64, linux/arm64
+     - darwin/amd64, darwin/arm64
+   - Generates changelog from CHANGELOG.md
+   - Creates/updates GitHub Release with all artifacts
+   - Uploads SBOM files as workflow artifacts (90-day retention)
 
 **Container Images:**
 
@@ -98,7 +107,12 @@ The CI/CD pipeline is organized into five main workflows:
 
 - Backend binaries (4 platforms)
 - SHA256 checksums
-- SBOM files (SPDX JSON)
+- SBOM files (SPDX JSON format):
+  - `sbom-backend.spdx.json` - Backend container SBOM
+  - `sbom-frontend.spdx.json` - Frontend container SBOM
+  - Generated using Syft from Anchore
+  - Attached to GitHub Release
+  - Available as workflow artifacts
 
 **Image Signing:**
 Uses Sigstore cosign for keyless signing. Signatures can be verified with:
@@ -224,6 +238,30 @@ The workflow includes placeholder commands that should be replaced with actual d
 
 ### Making a Release
 
+The project supports two release workflows:
+
+#### Option 1: Automatic Releases (Recommended)
+
+Releases are automatically created when code is merged to `main` using semantic-release:
+
+1. **Use conventional commits** in your PRs:
+   - `feat:` → minor version bump (new features)
+   - `fix:` → patch version bump (bug fixes)
+   - `BREAKING CHANGE:` in commit body → major version bump
+   - Other types (`docs:`, `chore:`, etc.) → no release
+
+2. **Merge PR to main** - semantic-release will:
+   - Analyze commits to determine version bump
+   - Create a git tag automatically
+   - Generate changelog from commits
+   - Trigger the release workflow
+
+3. **Monitor the release workflow** in Actions tab
+
+#### Option 2: Manual Releases
+
+For manual releases or re-running a release workflow:
+
 1. **Ensure all tests pass on main branch**
 2. **Create and push a version tag:**
 
@@ -233,12 +271,25 @@ The workflow includes placeholder commands that should be replaced with actual d
    ```
 
 3. **Monitor the release workflow** in Actions tab
-4. **Verify the release** appears in the Releases page with:
-   - Release notes (changelog)
-   - Container images
-   - Binaries for all platforms
-   - SBOM files
-   - Signed images
+
+#### Release Artifacts
+
+Both workflows produce the same artifacts:
+
+- **Container images** (ghcr.io):
+  - `backend:$VERSION` (and `:latest`, `:$SHA`)
+  - `frontend:$VERSION` (and `:latest`, `:$SHA`)
+  - Multi-arch: linux/amd64, linux/arm64
+  - Signed with cosign (keyless)
+- **SBOM files** (SPDX JSON format):
+  - `sbom-backend.spdx.json`
+  - `sbom-frontend.spdx.json`
+  - Generated with Syft
+- **Backend binaries** (4 platforms):
+  - linux/amd64, linux/arm64
+  - darwin/amd64, darwin/arm64
+- **Checksums** (`checksums.txt`)
+- **Release notes** (generated from CHANGELOG.md)
 
 ### Deploying to Staging
 

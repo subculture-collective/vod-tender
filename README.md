@@ -331,6 +331,18 @@ Simple CORS is enabled for dev (Access-Control-Allow-Origin: \*). For production
 - Avoid enabling `YTDLP_VERBOSE=1` when passing cookies; secrets may leak in verbose output.
 - Container images are automatically scanned for vulnerabilities using Trivy in CI. Builds fail on CRITICAL/HIGH severity issues. Scan reports are available as CI artifacts.
 
+## Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on:
+
+- Setting up your development environment
+- Code style and conventions
+- Testing requirements
+- Submitting pull requests
+- Reporting bugs and requesting features
+
+By participating in this project, you agree to abide by our [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## Feature ideas
 
 - indexed chat

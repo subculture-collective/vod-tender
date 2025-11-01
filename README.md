@@ -8,11 +8,38 @@ Small Go service that discovers Twitch VODs for a channel, downloads them with y
 
 ## Quick start
 
-### Using Docker Compose (Recommended)
+### Complete Local Development Setup (Recommended for New Developers)
+
+Get a fully functional environment with sample data in 5 minutes:
+
+```bash
+# 1. Clone and enter directory
+git clone https://github.com/subculture-collective/vod-tender.git
+cd vod-tender
+
+# 2. Copy environment file
+cp backend/.env.example backend/.env
+
+# 3. Start services and load sample data
+make dev-setup
+```
+
+**That's it!** You now have:
+- PostgreSQL with 7 sample VODs and chat messages
+- Backend API on http://localhost:8080
+- Frontend on http://localhost:3000
+- Jaeger tracing on http://localhost:16686
+
+📖 **New to the project?** See the [Complete Local Development Guide](docs/LOCAL_DEV_GUIDE.md) for a detailed walkthrough.
+
+### Using Docker Compose
 
 ```bash
 # Start all services (Postgres, API, Frontend)
 make up
+
+# Load sample data for development
+make db-seed
 
 # View logs
 make logs
@@ -21,11 +48,11 @@ make logs
 make down
 ```
 
-### Local Development
+### For Go/Node.js Development
 
 **Prerequisites:**
-- Go 1.24+
-- Node.js 20+
+- Go 1.21+
+- Node.js 18+
 - golangci-lint (for linting)
 
 **Setup:**
@@ -191,6 +218,7 @@ Chat recorder starts only when Twitch creds are present. Auto mode can start the
 
 Full configuration reference and operational guidance:
 
+- **Local Development**: `docs/LOCAL_DEV_GUIDE.md` - Complete setup guide with sample data
 - Architecture: `docs/ARCHITECTURE.md`
 - Configuration: `docs/CONFIG.md`
 - Operations / Runbook: `docs/OPERATIONS.md`

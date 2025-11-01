@@ -1,6 +1,6 @@
 # Minimal Makefile for vod-tender
 
-.PHONY: help lint lint-backend lint-frontend lint-fix lint-fix-backend lint-fix-frontend test test-backend test-frontend build build-backend build-frontend up dcu down restart ps logs logs-backend logs-frontend logs-db db-reset migrate-install migrate-create migrate-up migrate-down migrate-status migrate-force k8s-validate helm-validate
+.PHONY: help lint lint-backend lint-frontend lint-fix lint-fix-backend lint-fix-frontend test test-backend test-frontend build build-backend build-frontend up dcu down restart ps logs logs-backend logs-frontend logs-db db-reset db-seed dev-setup migrate-install migrate-create migrate-up migrate-down migrate-status migrate-force k8s-validate helm-validate
 
 .DEFAULT_GOAL := help
 
@@ -89,6 +89,29 @@ db-reset: ## Drop and recreate the Postgres database for this stack
 	DB_NAME_CMD=': "$${POSTGRES_DB:?}"; : "$${POSTGRES_USER:?}"; psql -U "$$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS \"$$POSTGRES_DB\" WITH (FORCE);" -c "CREATE DATABASE \"$$POSTGRES_DB\";"'; \
 	( $(DC) exec -T postgres bash -lc "set -e; $$DB_NAME_CMD" ) || ( echo "compose exec failed, trying docker exec on $$POSTGRES_CONTAINER"; docker start $$POSTGRES_CONTAINER >/dev/null 2>&1 || true; docker exec -i $$POSTGRES_CONTAINER bash -lc "set -e; $$DB_NAME_CMD" ); \
 	echo "Database reset completed."
+
+db-seed: ## Load sample development data into the database
+	@echo "Loading seed data..."
+	@./scripts/seed-dev-data.sh
+
+dev-setup: ## Complete development setup (start services + seed data)
+	@echo "Setting up complete development environment..."
+	@$(MAKE) up
+	@echo "Waiting for services to be ready..."
+	@sleep 5
+	@$(MAKE) db-seed
+	@echo ""
+	@echo "✓ Development environment ready!"
+	@echo ""
+	@echo "Services:"
+	@echo "  • API: http://localhost:8080"
+	@echo "  • Frontend: http://localhost:3000"
+	@echo "  • Jaeger: http://localhost:16686"
+	@echo ""
+	@echo "Quick commands:"
+	@echo "  • View VODs: curl http://localhost:8080/vods | jq"
+	@echo "  • View status: curl http://localhost:8080/status | jq"
+	@echo "  • View logs: make logs"
 
 # Database Migrations
 # Install migrate CLI tool for local development

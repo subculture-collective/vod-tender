@@ -150,3 +150,6 @@ backend/vod-tender
 backend/backend
 backend/cmd/migrate-tokens/migrate-tokens
 backend/cmd/healthcheck/healthcheck
+cookies.txt
+secrets/twithch-cookies.json
+client_secret.json 

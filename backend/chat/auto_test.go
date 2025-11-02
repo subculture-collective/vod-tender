@@ -49,7 +49,7 @@ func TestReconciliation_ExactTimeMatch(t *testing.T) {
 	db := testutil.SetupTestDB(t)
 	ctx := context.Background()
 	channel := "test_exact_match"
-	
+
 	// Cleanup test data
 	t.Cleanup(func() {
 		_, _ = db.ExecContext(context.Background(), `DELETE FROM chat_messages WHERE channel=$1`, channel)
@@ -59,7 +59,7 @@ func TestReconciliation_ExactTimeMatch(t *testing.T) {
 	// Create placeholder VOD with timestamp
 	streamStart := time.Date(2024, 10, 15, 14, 30, 0, 0, time.UTC)
 	placeholderID := "live-1729000000" // doesn't matter for this test
-	_, err := db.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at) 
+	_, err := db.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at)
 		VALUES ($1, $2, $3, $4, $5, NOW())`, channel, placeholderID, "LIVE Stream", streamStart, 0)
 	if err != nil {
 		t.Fatalf("failed to insert placeholder VOD: %v", err)
@@ -78,7 +78,7 @@ func TestReconciliation_ExactTimeMatch(t *testing.T) {
 
 	for _, msg := range chatMessages {
 		absTime := streamStart.Add(time.Duration(msg.relTimestamp * float64(time.Second)))
-		_, err := db.ExecContext(ctx, `INSERT INTO chat_messages (channel, vod_id, username, message, abs_timestamp, rel_timestamp) 
+		_, err := db.ExecContext(ctx, `INSERT INTO chat_messages (channel, vod_id, username, message, abs_timestamp, rel_timestamp)
 			VALUES ($1, $2, $3, $4, $5, $6)`, channel, placeholderID, msg.username, msg.message, absTime, msg.relTimestamp)
 		if err != nil {
 			t.Fatalf("failed to insert chat message: %v", err)
@@ -101,7 +101,7 @@ func TestReconciliation_ExactTimeMatch(t *testing.T) {
 	}
 
 	// Insert real VOD
-	_, _ = tx.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at) 
+	_, _ = tx.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at)
 		VALUES ($1, $2, $3, $4, $5, NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, channel, realVOD.ID, realVOD.Title, realVOD.Date, realVOD.Duration)
 
 	// Since dates match exactly, no timestamp shift needed
@@ -141,7 +141,7 @@ func TestReconciliation_ExactTimeMatch(t *testing.T) {
 	// Verify timestamps were not shifted
 	for i, expected := range chatMessages {
 		var relTime float64
-		err := db.QueryRowContext(ctx, `SELECT rel_timestamp FROM chat_messages WHERE channel=$1 AND vod_id=$2 AND username=$3`, 
+		err := db.QueryRowContext(ctx, `SELECT rel_timestamp FROM chat_messages WHERE channel=$1 AND vod_id=$2 AND username=$3`,
 			channel, realVODID, expected.username).Scan(&relTime)
 		if err != nil {
 			t.Fatalf("failed to get rel_timestamp for message %d: %v", i, err)
@@ -166,7 +166,7 @@ func TestReconciliation_TimeOffsetPositive(t *testing.T) {
 	db := testutil.SetupTestDB(t)
 	ctx := context.Background()
 	channel := "test_offset_positive"
-	
+
 	// Cleanup test data
 	t.Cleanup(func() {
 		_, _ = db.ExecContext(context.Background(), `DELETE FROM chat_messages WHERE channel=$1`, channel)
@@ -176,7 +176,7 @@ func TestReconciliation_TimeOffsetPositive(t *testing.T) {
 	// Create placeholder VOD at 14:30:00
 	streamStart := time.Date(2024, 10, 15, 14, 30, 0, 0, time.UTC)
 	placeholderID := "live-1729001000"
-	_, err := db.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at) 
+	_, err := db.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at)
 		VALUES ($1, $2, $3, $4, $5, NOW())`, channel, placeholderID, "LIVE Stream", streamStart, 0)
 	if err != nil {
 		t.Fatalf("failed to insert placeholder VOD: %v", err)
@@ -194,7 +194,7 @@ func TestReconciliation_TimeOffsetPositive(t *testing.T) {
 
 	for _, msg := range chatMessages {
 		absTime := streamStart.Add(time.Duration(msg.relTimestamp * float64(time.Second)))
-		_, err := db.ExecContext(ctx, `INSERT INTO chat_messages (channel, vod_id, username, message, abs_timestamp, rel_timestamp) 
+		_, err := db.ExecContext(ctx, `INSERT INTO chat_messages (channel, vod_id, username, message, abs_timestamp, rel_timestamp)
 			VALUES ($1, $2, $3, $4, $5, $6)`, channel, placeholderID, msg.username, "test message", absTime, msg.relTimestamp)
 		if err != nil {
 			t.Fatalf("failed to insert chat message: %v", err)
@@ -212,7 +212,7 @@ func TestReconciliation_TimeOffsetPositive(t *testing.T) {
 	}
 
 	// Insert real VOD
-	_, _ = tx.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at) 
+	_, _ = tx.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at)
 		VALUES ($1, $2, $3, $4, $5, NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, channel, realVODID, "Archived Stream", realVODStart, 3600)
 
 	// Calculate delta (positive means real VOD started later)
@@ -223,7 +223,7 @@ func TestReconciliation_TimeOffsetPositive(t *testing.T) {
 	}
 
 	// Shift timestamps: subtract delta from rel_timestamp
-	_, err = tx.ExecContext(ctx, `UPDATE chat_messages SET rel_timestamp=rel_timestamp - $1 WHERE channel=$2 AND vod_id=$3`, 
+	_, err = tx.ExecContext(ctx, `UPDATE chat_messages SET rel_timestamp=rel_timestamp - $1 WHERE channel=$2 AND vod_id=$3`,
 		delta, channel, placeholderID)
 	if err != nil {
 		tx.Rollback()
@@ -257,7 +257,7 @@ func TestReconciliation_TimeOffsetPositive(t *testing.T) {
 
 	for i, expected := range expectedShiftedTimestamps {
 		var relTime float64
-		err := db.QueryRowContext(ctx, `SELECT rel_timestamp FROM chat_messages WHERE channel=$1 AND vod_id=$2 AND username=$3`, 
+		err := db.QueryRowContext(ctx, `SELECT rel_timestamp FROM chat_messages WHERE channel=$1 AND vod_id=$2 AND username=$3`,
 			channel, realVODID, chatMessages[i].username).Scan(&relTime)
 		if err != nil {
 			t.Fatalf("failed to get rel_timestamp for message %d: %v", i, err)
@@ -273,7 +273,7 @@ func TestReconciliation_TimeOffsetNegative(t *testing.T) {
 	db := testutil.SetupTestDB(t)
 	ctx := context.Background()
 	channel := "test_offset_negative"
-	
+
 	// Cleanup test data
 	t.Cleanup(func() {
 		_, _ = db.ExecContext(context.Background(), `DELETE FROM chat_messages WHERE channel=$1`, channel)
@@ -283,7 +283,7 @@ func TestReconciliation_TimeOffsetNegative(t *testing.T) {
 	// Create placeholder VOD at 14:30:00
 	streamStart := time.Date(2024, 10, 15, 14, 30, 0, 0, time.UTC)
 	placeholderID := "live-1729002000"
-	_, err := db.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at) 
+	_, err := db.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at)
 		VALUES ($1, $2, $3, $4, $5, NOW())`, channel, placeholderID, "LIVE Stream", streamStart, 0)
 	if err != nil {
 		t.Fatalf("failed to insert placeholder VOD: %v", err)
@@ -300,7 +300,7 @@ func TestReconciliation_TimeOffsetNegative(t *testing.T) {
 
 	for _, msg := range chatMessages {
 		absTime := streamStart.Add(time.Duration(msg.relTimestamp * float64(time.Second)))
-		_, err := db.ExecContext(ctx, `INSERT INTO chat_messages (channel, vod_id, username, message, abs_timestamp, rel_timestamp) 
+		_, err := db.ExecContext(ctx, `INSERT INTO chat_messages (channel, vod_id, username, message, abs_timestamp, rel_timestamp)
 			VALUES ($1, $2, $3, $4, $5, $6)`, channel, placeholderID, msg.username, "test message", absTime, msg.relTimestamp)
 		if err != nil {
 			t.Fatalf("failed to insert chat message: %v", err)
@@ -317,7 +317,7 @@ func TestReconciliation_TimeOffsetNegative(t *testing.T) {
 		t.Fatalf("failed to begin transaction: %v", err)
 	}
 
-	_, _ = tx.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at) 
+	_, _ = tx.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at)
 		VALUES ($1, $2, $3, $4, $5, NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, channel, realVODID, "Archived Stream", realVODStart, 3600)
 
 	delta := realVODStart.Sub(streamStart).Seconds()
@@ -327,7 +327,7 @@ func TestReconciliation_TimeOffsetNegative(t *testing.T) {
 	}
 
 	// Shift timestamps (subtracting negative delta adds to timestamp)
-	_, err = tx.ExecContext(ctx, `UPDATE chat_messages SET rel_timestamp=rel_timestamp - $1 WHERE channel=$2 AND vod_id=$3`, 
+	_, err = tx.ExecContext(ctx, `UPDATE chat_messages SET rel_timestamp=rel_timestamp - $1 WHERE channel=$2 AND vod_id=$3`,
 		delta, channel, placeholderID)
 	if err != nil {
 		tx.Rollback()
@@ -358,7 +358,7 @@ func TestReconciliation_TimeOffsetNegative(t *testing.T) {
 
 	for i, expected := range expectedShiftedTimestamps {
 		var relTime float64
-		err := db.QueryRowContext(ctx, `SELECT rel_timestamp FROM chat_messages WHERE channel=$1 AND vod_id=$2 AND username=$3`, 
+		err := db.QueryRowContext(ctx, `SELECT rel_timestamp FROM chat_messages WHERE channel=$1 AND vod_id=$2 AND username=$3`,
 			channel, realVODID, chatMessages[i].username).Scan(&relTime)
 		if err != nil {
 			t.Fatalf("failed to get rel_timestamp for message %d: %v", i, err)
@@ -374,7 +374,7 @@ func TestReconciliation_MultipleVODsInWindow(t *testing.T) {
 	db := testutil.SetupTestDB(t)
 	ctx := context.Background()
 	channel := "test_multiple_vods"
-	
+
 	// Cleanup test data
 	t.Cleanup(func() {
 		_, _ = db.ExecContext(context.Background(), `DELETE FROM chat_messages WHERE channel=$1`, channel)
@@ -385,14 +385,14 @@ func TestReconciliation_MultipleVODsInWindow(t *testing.T) {
 	placeholderID := "live-1729003000"
 
 	// Insert placeholder
-	_, err := db.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at) 
+	_, err := db.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at)
 		VALUES ($1, $2, $3, $4, $5, NOW())`, channel, placeholderID, "LIVE Stream", streamStart, 0)
 	if err != nil {
 		t.Fatalf("failed to insert placeholder: %v", err)
 	}
 
 	// Insert a chat message
-	_, err = db.ExecContext(ctx, `INSERT INTO chat_messages (channel, vod_id, username, message, abs_timestamp, rel_timestamp) 
+	_, err = db.ExecContext(ctx, `INSERT INTO chat_messages (channel, vod_id, username, message, abs_timestamp, rel_timestamp)
 		VALUES ($1, $2, $3, $4, $5, $6)`, channel, placeholderID, "testuser", "hello", streamStart.Add(10*time.Second), 10.0)
 	if err != nil {
 		t.Fatalf("failed to insert chat message: %v", err)
@@ -449,7 +449,7 @@ func TestReconciliation_NoMatchingVOD(t *testing.T) {
 	db := testutil.SetupTestDB(t)
 	ctx := context.Background()
 	channel := "test_no_match"
-	
+
 	// Cleanup test data
 	t.Cleanup(func() {
 		_, _ = db.ExecContext(context.Background(), `DELETE FROM chat_messages WHERE channel=$1`, channel)
@@ -460,14 +460,14 @@ func TestReconciliation_NoMatchingVOD(t *testing.T) {
 	placeholderID := "live-1729004000"
 
 	// Insert placeholder
-	_, err := db.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at) 
+	_, err := db.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at)
 		VALUES ($1, $2, $3, $4, $5, NOW())`, channel, placeholderID, "LIVE Stream", streamStart, 0)
 	if err != nil {
 		t.Fatalf("failed to insert placeholder: %v", err)
 	}
 
 	// Insert chat messages
-	_, err = db.ExecContext(ctx, `INSERT INTO chat_messages (channel, vod_id, username, message, abs_timestamp, rel_timestamp) 
+	_, err = db.ExecContext(ctx, `INSERT INTO chat_messages (channel, vod_id, username, message, abs_timestamp, rel_timestamp)
 		VALUES ($1, $2, $3, $4, $5, $6)`, channel, placeholderID, "testuser", "hello", streamStart, 0.0)
 	if err != nil {
 		t.Fatalf("failed to insert chat message: %v", err)
@@ -520,7 +520,7 @@ func TestReconciliation_WithMockHelixAPI(t *testing.T) {
 	ctx := context.Background()
 	channel := "test_mock_helix"
 	mockServer := testutil.NewMockTwitchServer(t)
-	
+
 	// Cleanup test data
 	t.Cleanup(func() {
 		_, _ = db.ExecContext(context.Background(), `DELETE FROM chat_messages WHERE channel=$1`, channel)
@@ -531,14 +531,14 @@ func TestReconciliation_WithMockHelixAPI(t *testing.T) {
 	placeholderID := "live-1729005000"
 
 	// Insert placeholder
-	_, err := db.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at) 
+	_, err := db.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at)
 		VALUES ($1, $2, $3, $4, $5, NOW())`, channel, placeholderID, "LIVE Stream", streamStart, 0)
 	if err != nil {
 		t.Fatalf("failed to insert placeholder: %v", err)
 	}
 
 	// Insert chat message
-	_, err = db.ExecContext(ctx, `INSERT INTO chat_messages (channel, vod_id, username, message, abs_timestamp, rel_timestamp) 
+	_, err = db.ExecContext(ctx, `INSERT INTO chat_messages (channel, vod_id, username, message, abs_timestamp, rel_timestamp)
 		VALUES ($1, $2, $3, $4, $5, $6)`, channel, placeholderID, "viewer1", "test chat", streamStart.Add(30*time.Second), 30.0)
 	if err != nil {
 		t.Fatalf("failed to insert chat message: %v", err)
@@ -574,7 +574,7 @@ func TestReconciliation_WithMockHelixAPI(t *testing.T) {
 	// 4. Update chat messages and delete placeholder
 
 	// For this test, we verify the mock server is set up correctly
-	req, _ := http.NewRequest(http.MethodGet, mockServer.URL+"/helix/videos", nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, mockServer.URL+"/helix/videos", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("failed to call mock server: %v", err)
@@ -604,7 +604,7 @@ func TestReconciliation_EmptyPlaceholder(t *testing.T) {
 	db := testutil.SetupTestDB(t)
 	ctx := context.Background()
 	channel := "test_empty_placeholder"
-	
+
 	// Cleanup test data
 	t.Cleanup(func() {
 		_, _ = db.ExecContext(context.Background(), `DELETE FROM chat_messages WHERE channel=$1`, channel)
@@ -615,7 +615,7 @@ func TestReconciliation_EmptyPlaceholder(t *testing.T) {
 	placeholderID := "live-1729006000"
 
 	// Insert placeholder with no chat messages
-	_, err := db.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at) 
+	_, err := db.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at)
 		VALUES ($1, $2, $3, $4, $5, NOW())`, channel, placeholderID, "LIVE Stream", streamStart, 0)
 	if err != nil {
 		t.Fatalf("failed to insert placeholder: %v", err)
@@ -630,13 +630,13 @@ func TestReconciliation_EmptyPlaceholder(t *testing.T) {
 		t.Fatalf("failed to begin transaction: %v", err)
 	}
 
-	_, _ = tx.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at) 
+	_, _ = tx.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at)
 		VALUES ($1, $2, $3, $4, $5, NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, channel, realVODID, "Archived Stream", realVODStart, 3600)
 
 	delta := realVODStart.Sub(streamStart).Seconds()
-	
+
 	// Even with no messages, shift query should succeed (affects 0 rows)
-	_, err = tx.ExecContext(ctx, `UPDATE chat_messages SET rel_timestamp=rel_timestamp - $1 WHERE channel=$2 AND vod_id=$3`, 
+	_, err = tx.ExecContext(ctx, `UPDATE chat_messages SET rel_timestamp=rel_timestamp - $1 WHERE channel=$2 AND vod_id=$3`,
 		delta, channel, placeholderID)
 	if err != nil {
 		tx.Rollback()
@@ -684,7 +684,7 @@ func TestReconciliation_ConcurrentMessages(t *testing.T) {
 	db := testutil.SetupTestDB(t)
 	ctx := context.Background()
 	channel := "test_concurrent_msgs"
-	
+
 	// Cleanup test data
 	t.Cleanup(func() {
 		_, _ = db.ExecContext(context.Background(), `DELETE FROM chat_messages WHERE channel=$1`, channel)
@@ -694,7 +694,7 @@ func TestReconciliation_ConcurrentMessages(t *testing.T) {
 	streamStart := time.Date(2024, 10, 15, 14, 30, 0, 0, time.UTC)
 	placeholderID := "live-1729007000"
 
-	_, err := db.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at) 
+	_, err := db.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at)
 		VALUES ($1, $2, $3, $4, $5, NOW())`, channel, placeholderID, "LIVE Stream", streamStart, 0)
 	if err != nil {
 		t.Fatalf("failed to insert placeholder: %v", err)
@@ -706,7 +706,7 @@ func TestReconciliation_ConcurrentMessages(t *testing.T) {
 		relTime := float64(i * 10) // every 10 seconds
 		absTime := streamStart.Add(time.Duration(relTime * float64(time.Second)))
 		username := fmt.Sprintf("user%03d", i) // create unique usernames for all messages
-		_, err := db.ExecContext(ctx, `INSERT INTO chat_messages (channel, vod_id, username, message, abs_timestamp, rel_timestamp) 
+		_, err := db.ExecContext(ctx, `INSERT INTO chat_messages (channel, vod_id, username, message, abs_timestamp, rel_timestamp)
 			VALUES ($1, $2, $3, $4, $5, $6)`, channel, placeholderID, username, "message", absTime, relTime)
 		if err != nil {
 			t.Fatalf("failed to insert chat message %d: %v", i, err)
@@ -722,12 +722,12 @@ func TestReconciliation_ConcurrentMessages(t *testing.T) {
 		t.Fatalf("failed to begin transaction: %v", err)
 	}
 
-	_, _ = tx.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at) 
+	_, _ = tx.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at)
 		VALUES ($1, $2, $3, $4, $5, NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, channel, realVODID, "Archived Stream", realVODStart, 7200)
 
 	delta := realVODStart.Sub(streamStart).Seconds()
 
-	result, err := tx.ExecContext(ctx, `UPDATE chat_messages SET rel_timestamp=rel_timestamp - $1 WHERE channel=$2 AND vod_id=$3`, 
+	result, err := tx.ExecContext(ctx, `UPDATE chat_messages SET rel_timestamp=rel_timestamp - $1 WHERE channel=$2 AND vod_id=$3`,
 		delta, channel, placeholderID)
 	if err != nil {
 		tx.Rollback()

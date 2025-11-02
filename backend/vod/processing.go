@@ -89,7 +89,7 @@ func StartVODProcessingJob(ctx context.Context, dbc *sql.DB, channel string) {
 func processOnce(ctx context.Context, dbc *sql.DB, channel string) error {
 	ctx, span := telemetry.StartSpan(ctx, "vod-processing", "processOnce")
 	defer span.End()
-	
+
 	_, _ = dbc.ExecContext(ctx, `INSERT INTO kv (channel,key,value,updated_at) VALUES ($1,'job_vod_process_last', to_char(NOW() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'), NOW())
 		ON CONFLICT(channel,key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, channel)
 	var state, until string
@@ -201,6 +201,20 @@ func processOnce(ctx context.Context, dbc *sql.DB, channel string) error {
 	_ = dbc.QueryRowContext(ctx, `SELECT COUNT(1) FROM vods WHERE channel=$1 AND COALESCE(processed,false)=false`, channel).Scan(&queueDepth)
 	slog.Debug("processing cycle queue depth", slog.Int("queue_depth", queueDepth), slog.String("component", "vod_process"), slog.String("channel", channel))
 	telemetry.SetQueueDepth(queueDepth)
+	// Global upload throttling: hard cap uploads per 24h window (all VODs).
+	uploadDailyLimit := 10
+	if s := os.Getenv("UPLOAD_DAILY_LIMIT"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			uploadDailyLimit = n
+		}
+	}
+	var uploaded24 int
+	_ = dbc.QueryRowContext(ctx, `SELECT COUNT(1) FROM vods WHERE channel=$1 AND youtube_url IS NOT NULL AND updated_at > (NOW() - INTERVAL '24 hours')`, channel).Scan(&uploaded24)
+	if uploaded24 >= uploadDailyLimit {
+		slog.Info("global upload throttled for 24h window", slog.Int("uploaded24h", uploaded24), slog.Int("limit", uploadDailyLimit), slog.String("channel", channel))
+		return nil
+	}
+
 	// Backfill upload throttling: limit back-catalog uploads per 24h window.
 	// Define back-catalog as VODs older than RETAIN_KEEP_NEWER_THAN_DAYS (default 7 days).
 	backfillDays := 7
@@ -272,7 +286,7 @@ func processOnce(ctx context.Context, dbc *sql.DB, channel string) error {
 		}
 		return nil
 	}
-	
+
 	// Add span attributes for selected VOD
 	span.SetAttributes(
 		attribute.String("vod.id", id),
@@ -280,17 +294,17 @@ func processOnce(ctx context.Context, dbc *sql.DB, channel string) error {
 		attribute.String("vod.date", date.Format(time.RFC3339)),
 		attribute.Int("queue_depth", queueDepth),
 	)
-	
+
 	logger := slog.Default().With(slog.String("vod_id", id), slog.String("component", "vod_process"))
 	if corr := ctx.Value(struct{ string }{"corr"}); corr != nil {
 		logger = logger.With(slog.Any("corr", corr))
 	}
 	logger.Info("processing candidate selected", slog.String("title", title), slog.Time("date", date), slog.Int("queue_depth", queueDepth))
-	
+
 	// Metrics
 	telemetry.ProcessingCycles.Inc()
 	procStart := time.Now()
-	
+
 	// Acquire download slot (blocks if max concurrent downloads reached)
 	if logger.Enabled(ctx, slog.LevelDebug) {
 		logger.Debug("waiting for download slot",
@@ -305,7 +319,7 @@ func processOnce(ctx context.Context, dbc *sql.DB, channel string) error {
 	}
 	defer releaseDownloadSlot()
 	logger.Debug("download slot acquired", slog.Int("active_downloads", GetActiveDownloads()))
-	
+
 	// Download with span
 	dlStart := time.Now()
 	ctx, downloadSpan := telemetry.StartSpan(ctx, "vod-processing", "download",
@@ -315,18 +329,18 @@ func processOnce(ctx context.Context, dbc *sql.DB, channel string) error {
 	filePath, err := downloader.Download(ctx, dbc, id, dataDir)
 	dlDur := time.Since(dlStart)
 	downloadSpan.SetAttributes(attribute.Int64("download.duration_ms", dlDur.Milliseconds()))
-	
+
 	if err != nil {
 		telemetry.RecordError(downloadSpan, err)
 		downloadSpan.End()
-		
+
 		// Check if download was canceled (user-initiated or timeout)
 		if ctx.Err() != nil {
 			logger.Info("download canceled", slog.Any("reason", ctx.Err()))
 			// Don't treat cancellation as a failure or trip circuit breaker
 			return nil
 		}
-		
+
 		lower := strings.ToLower(err.Error())
 		// Expected/auth-required: skip retries and do not trip circuit
 		if strings.Contains(lower, "subscriber-only") || strings.Contains(lower, "must be logged into") || strings.Contains(lower, "login required") {
@@ -343,11 +357,11 @@ func processOnce(ctx context.Context, dbc *sql.DB, channel string) error {
 		telemetry.UpdateCircuitGauge(true)
 		return nil
 	}
-	
+
 	telemetry.SetSpanSuccess(downloadSpan)
 	downloadSpan.SetAttributes(attribute.String("download.path", filePath))
 	downloadSpan.End()
-	
+
 	telemetry.DownloadsSucceeded.Inc()
 	telemetry.DownloadDuration.Observe(dlDur.Seconds())
 	logger.Info("download complete", slog.String("path", filePath), slog.Duration("download_duration", dlDur))
@@ -381,14 +395,14 @@ func processOnce(ctx context.Context, dbc *sql.DB, channel string) error {
 		// Load any custom description set by user
 		var customDesc string
 		_ = dbc.QueryRowContext(ctx, `SELECT COALESCE(description,'') FROM vods WHERE twitch_vod_id=$1`, id).Scan(&customDesc)
-		
+
 		// Start upload span
 		uploadCtx, uploadSpan := telemetry.StartSpan(ctx, "vod-processing", "upload",
 			attribute.String("vod.id", id),
 			attribute.String("vod.title", title),
 			attribute.String("upload.path", filePath),
 		)
-		
+
 		for attempt := 0; attempt < maxUp; attempt++ {
 			if attempt > 0 {
 				backoff := base * time.Duration(1<<attempt)
@@ -421,25 +435,25 @@ func processOnce(ctx context.Context, dbc *sql.DB, channel string) error {
 				break
 			}
 		}
-		
+
 		uploadSpan.SetAttributes(attribute.Int64("upload.duration_ms", upDur.Milliseconds()))
-		
+
 		if ytURL == "" {
 			// Exhausted attempts; persist error and increment retries so global cooldown/limit logic applies
 			logger.Error("upload exhausted retries", slog.Any("err", lastErr))
 			telemetry.RecordError(uploadSpan, lastErr)
 			uploadSpan.End()
-			
+
 			_, _ = dbc.ExecContext(ctx, `UPDATE vods SET processing_error=$1, download_retries = COALESCE(download_retries,0)+1, updated_at=NOW() WHERE twitch_vod_id=$2`,
 				fmt.Sprintf("upload: %v", lastErr), id)
 			telemetry.UploadsFailed.Inc()
 			return nil
 		}
-		
+
 		telemetry.SetSpanSuccess(uploadSpan)
 		uploadSpan.SetAttributes(attribute.String("upload.youtube_url", ytURL))
 		uploadSpan.End()
-		
+
 		// Record YouTube URL and mark processed now
 		_, _ = dbc.ExecContext(ctx, `UPDATE vods SET youtube_url=$1, processed=TRUE, processing_error=NULL, updated_at=NOW() WHERE twitch_vod_id=$2`, ytURL, id)
 	}
@@ -484,13 +498,13 @@ func processOnce(ctx context.Context, dbc *sql.DB, channel string) error {
 		telemetry.ProcessingStepDuration.WithLabelValues("download").Observe(dlDur.Seconds())
 		telemetry.ProcessingStepDuration.WithLabelValues("total").Observe(totalDur.Seconds())
 	}
-	
+
 	updateMovingAvg(ctx, dbc, channel, "avg_download_ms", float64(dlDur.Milliseconds()))
 	if upDur > 0 {
 		updateMovingAvg(ctx, dbc, channel, "avg_upload_ms", float64(upDur.Milliseconds()))
 	}
 	updateMovingAvg(ctx, dbc, channel, "avg_total_ms", float64(totalDur.Milliseconds()))
-	
+
 	// Set final span attributes
 	span.SetAttributes(
 		attribute.Int64("download.duration_ms", dlDur.Milliseconds()),
@@ -499,7 +513,7 @@ func processOnce(ctx context.Context, dbc *sql.DB, channel string) error {
 		attribute.String("youtube_url", ytURL),
 	)
 	telemetry.SetSpanSuccess(span)
-	
+
 	logger.Info("processed vod", slog.String("youtube_url", ytURL), slog.Duration("download_duration", dlDur), slog.Duration("upload_duration", upDur), slog.Duration("total_duration", totalDur), slog.Int("queue_depth", queueDepth-1))
 	telemetry.SetQueueDepth(queueDepth - 1)
 	telemetry.UpdateCircuitGauge(false)

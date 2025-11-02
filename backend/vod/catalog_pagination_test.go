@@ -13,9 +13,10 @@ import (
 // Test helper functions for catalog pagination tests
 
 // insertVOD inserts a VOD with idempotent ON CONFLICT DO NOTHING
+//nolint:unparam // channel kept for helper consistency and future reuse across tests
 func insertVOD(ctx context.Context, db *sql.DB, channel string, vod VOD) error {
 	_, err := db.ExecContext(ctx,
-		`INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at) 
+		`INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at)
 		 VALUES ($1,$2,$3,$4,$5,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`,
 		channel, vod.ID, vod.Title, vod.Date, vod.Duration)
 	return err
@@ -24,7 +25,7 @@ func insertVOD(ctx context.Context, db *sql.DB, channel string, vod VOD) error {
 // upsertKVCursor inserts or updates a catalog_after cursor in the kv table
 func upsertKVCursor(ctx context.Context, db *sql.DB, channel, cursor string) error {
 	_, err := db.ExecContext(ctx,
-		`INSERT INTO kv (channel, key, value, updated_at) 
+		`INSERT INTO kv (channel, key, value, updated_at)
 		 VALUES ($1, 'catalog_after', $2, NOW())
 		 ON CONFLICT(channel, key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`,
 		channel, cursor)

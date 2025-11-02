@@ -25,10 +25,11 @@ make dev-setup
 ```
 
 **That's it!** You now have:
+
 - PostgreSQL with 7 sample VODs and chat messages
-- Backend API on http://localhost:8080
-- Frontend on http://localhost:3000
-- Jaeger tracing on http://localhost:16686
+- Backend API on <http://localhost:8080>
+- Frontend on <http://localhost:3000>
+- Jaeger tracing on <http://localhost:16686>
 
 📖 **New to the project?** See the [Complete Local Development Guide](docs/LOCAL_DEV_GUIDE.md) for a detailed walkthrough.
 
@@ -51,6 +52,7 @@ make down
 ### For Go/Node.js Development
 
 **Prerequisites:**
+
 - Go 1.21+
 - Node.js 18+
 - golangci-lint (for linting)
@@ -101,15 +103,15 @@ make lint-frontend
 
 All common development tasks can be run from the repository root using `make`:
 
-| Command | Description |
-|---------|-------------|
-| `make build` | Build backend and frontend |
-| `make test` | Run all tests |
-| `make lint` | Run all linters |
-| `make lint-fix` | Auto-fix linting issues |
-| `make up` | Start Docker Compose stack |
-| `make logs` | View logs from all services |
-| `make help` | Show all available targets |
+| Command         | Description                 |
+| --------------- | --------------------------- |
+| `make build`    | Build backend and frontend  |
+| `make test`     | Run all tests               |
+| `make lint`     | Run all linters             |
+| `make lint-fix` | Auto-fix linting issues     |
+| `make up`       | Start Docker Compose stack  |
+| `make logs`     | View logs from all services |
+| `make help`     | Show all available targets  |
 
 ### Linting
 
@@ -283,35 +285,35 @@ For Kubernetes, map the same containers to Deployments and expose `/metrics` to 
   - Optional: install aria2c for faster and more robust downloads.
   - ffmpeg is recommended for muxing and may be required by yt-dlp.
 
-  ### Backups
+    ### Backups
 
   - Automatic: `vod-backup` runs `pg_dump` daily into volume `pgbackups`.
   - Manual one-off:
 
-  ```bash
-  docker compose run --rm backup sh -lc '/scripts/backup.sh /backups'
-  ```
+    ```bash
+    docker compose run --rm backup sh -lc '/scripts/backup.sh /backups'
+    ```
 
   - Copy backups to host:
 
-  ```bash
-  docker run --rm -v vod-tender_pgbackups:/src -v "$PWD":/dst alpine sh -lc 'cp -av /src/* /dst/'
-  ```
+    ```bash
+    docker run --rm -v vod-tender_pgbackups:/src -v "$PWD":/dst alpine sh -lc 'cp -av /src/* /dst/'
+    ```
 
   - Restore into running Postgres:
 
-  ```bash
-  zcat /path/to/vod_YYYYMMDD_HHMMSS.sql.gz | docker exec -i vod-postgres psql -U vod -d vod
-  ```
+    ```bash
+    zcat /path/to/vod_YYYYMMDD_HHMMSS.sql.gz | docker exec -i vod-postgres psql -U vod -d vod
+    ```
 
-  ### Caddy routing
+    ### Caddy routing
 
-  Routes assumed by the compose and Caddyfile:
+    Routes assumed by the compose and Caddyfile:
 
   - Frontend: <https://vod-tender.onnwee.me> → `vod-frontend:80`
   - API: <https://vod-api.onnwee.me> → `vod-api:8080`
 
-  Ensure `caddy` container is attached to the shared `web` network.
+    Ensure `caddy` container is attached to the shared `web` network.
 
 ## YouTube upload configuration
 

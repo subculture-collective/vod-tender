@@ -1,8 +1,4 @@
 /** @type {import('tailwindcss').Config} */
-export default {
-    content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
-    theme: {
-        extend: {},
-    },
-    plugins: [],
-};
+// Tailwind CSS v4 uses CSS-first configuration; no config needed for basic usage.
+// Remove legacy "content" to avoid conflicts with the v4 PostCSS plugin.
+export default {}

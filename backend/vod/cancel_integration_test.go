@@ -3,6 +3,7 @@ package vod
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -39,7 +40,7 @@ func TestCancelIntegrationWithDB(t *testing.T) {
 	_, _ = db.Exec(`DELETE FROM vods WHERE twitch_vod_id=$1`, testID)
 
 	// Insert a test VOD
-	_, err = db.Exec(`INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at) 
+	_, err = db.Exec(`INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at)
 		VALUES ($1, $2, $3, NOW(), 100, NOW())`, channel, testID, "Test VOD for Cancel")
 	if err != nil {
 		t.Fatal(err)
@@ -65,14 +66,14 @@ func TestCancelIntegrationWithDB(t *testing.T) {
 	downloadErr := make(chan error, 1)
 	go func() {
 		// Set download state to "downloading" before starting
-		_, _ = db.Exec(`UPDATE vods SET download_state=$1, download_bytes=$2, download_total=$3, progress_updated_at=NOW() 
+		_, _ = db.Exec(`UPDATE vods SET download_state=$1, download_bytes=$2, download_total=$3, progress_updated_at=NOW()
 			WHERE twitch_vod_id=$4`, "downloading", 5000, 100000, testID)
 
 		_, err := mock.Download(ctx, db, testID, "/tmp")
 
 		// Simulate what downloadVOD does on cancel
 		if ctx.Err() != nil {
-			_, _ = db.ExecContext(context.Background(), `UPDATE vods SET download_state=$1, download_bytes=0, download_total=0, progress_updated_at=NOW() 
+			_, _ = db.ExecContext(context.Background(), `UPDATE vods SET download_state=$1, download_bytes=0, download_total=0, progress_updated_at=NOW()
 				WHERE twitch_vod_id=$2`, "canceled", testID)
 		}
 
@@ -85,7 +86,7 @@ func TestCancelIntegrationWithDB(t *testing.T) {
 	// Verify initial state
 	var downloadState string
 	var downloadBytes, downloadTotal int64
-	err = db.QueryRow(`SELECT COALESCE(download_state, ''), COALESCE(download_bytes, 0), COALESCE(download_total, 0) 
+	err = db.QueryRow(`SELECT COALESCE(download_state, ''), COALESCE(download_bytes, 0), COALESCE(download_total, 0)
 		FROM vods WHERE twitch_vod_id=$1`, testID).Scan(&downloadState, &downloadBytes, &downloadTotal)
 	if err != nil {
 		t.Fatal(err)
@@ -109,7 +110,7 @@ func TestCancelIntegrationWithDB(t *testing.T) {
 	// Wait for download to finish
 	select {
 	case err := <-downloadErr:
-		if err != context.Canceled {
+		if !errors.Is(err, context.Canceled) {
 			t.Errorf("Expected context.Canceled, got %v", err)
 		}
 	case <-time.After(2 * time.Second):
@@ -120,7 +121,7 @@ func TestCancelIntegrationWithDB(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify final state
-	err = db.QueryRow(`SELECT COALESCE(download_state, ''), COALESCE(download_bytes, 0), COALESCE(download_total, 0) 
+	err = db.QueryRow(`SELECT COALESCE(download_state, ''), COALESCE(download_bytes, 0), COALESCE(download_total, 0)
 		FROM vods WHERE twitch_vod_id=$1`, testID).Scan(&downloadState, &downloadBytes, &downloadTotal)
 	if err != nil {
 		t.Fatal(err)
@@ -181,14 +182,14 @@ func TestCancelDoesNotTripCircuitBreaker(t *testing.T) {
 	_, _ = db.Exec(`DELETE FROM kv WHERE channel=$1 AND key LIKE 'circuit%'`, channel)
 
 	// Set circuit breaker to closed state
-	_, err = db.Exec(`INSERT INTO kv (channel, key, value, updated_at) 
+	_, err = db.Exec(`INSERT INTO kv (channel, key, value, updated_at)
 		VALUES ($1, 'circuit_state', 'closed', NOW())
 		ON CONFLICT(channel, key) DO UPDATE SET value='closed', updated_at=NOW()`, channel)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = db.Exec(`INSERT INTO kv (channel, key, value, updated_at) 
+	_, err = db.Exec(`INSERT INTO kv (channel, key, value, updated_at)
 		VALUES ($1, 'circuit_failures', '0', NOW())
 		ON CONFLICT(channel, key) DO UPDATE SET value='0', updated_at=NOW()`, channel)
 	if err != nil {
@@ -261,7 +262,7 @@ func TestCancelDoesNotIncrementRetries(t *testing.T) {
 	_, _ = db.Exec(`DELETE FROM vods WHERE twitch_vod_id=$1`, testID)
 
 	// Insert a test VOD with an initial retry count
-	_, err = db.Exec(`INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, download_retries, created_at) 
+	_, err = db.Exec(`INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, download_retries, created_at)
 		VALUES ($1, $2, $3, NOW(), 100, 2, NOW())`, channel, testID, "Test VOD Retries")
 	if err != nil {
 		t.Fatal(err)

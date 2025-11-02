@@ -19,6 +19,8 @@ This project adheres to the [Contributor Covenant Code of Conduct](./CODE_OF_CON
 
 ## Getting Started
 
+> **🚀 New to the project?** Check out the [Local Development Guide](docs/LOCAL_DEV_GUIDE.md) for a complete step-by-step walkthrough with sample data that gets you up and running in 5 minutes!
+
 ### Prerequisites
 
 - **Go**: 1.21+ (see `go.mod` for exact version)
@@ -29,6 +31,26 @@ This project adheres to the [Contributor Covenant Code of Conduct](./CODE_OF_CON
 - **PostgreSQL**: 14+ (via Docker Compose)
 
 ### Initial Setup
+
+**Quick Start (Recommended for New Contributors):**
+
+```bash
+# 1. Fork and clone
+git clone https://github.com/YOUR_USERNAME/vod-tender.git
+cd vod-tender
+
+# 2. Copy environment file
+cp backend/.env.example backend/.env
+
+# 3. Start everything with sample data
+make dev-setup
+```
+
+This gets you a fully functional environment with sample VODs and chat messages in under 5 minutes!
+
+For detailed instructions and troubleshooting, see the [Local Development Guide](docs/LOCAL_DEV_GUIDE.md).
+
+**Manual Setup (Alternative):**
 
 1. **Fork the repository** on GitHub
 
@@ -45,7 +67,7 @@ This project adheres to the [Contributor Covenant Code of Conduct](./CODE_OF_CON
    git remote add upstream https://github.com/subculture-collective/vod-tender.git
    ```
 
-4. **Install dependencies**:
+4. **Install dependencies** (only needed for local development without Docker):
 
    ```bash
    # Backend
@@ -61,7 +83,7 @@ This project adheres to the [Contributor Covenant Code of Conduct](./CODE_OF_CON
 
    ```bash
    cp backend/.env.example backend/.env
-   # Edit backend/.env with your Twitch credentials
+   # Edit backend/.env with your Twitch credentials (optional for sample data)
    ```
 
 6. **Start development environment**:
@@ -70,7 +92,13 @@ This project adheres to the [Contributor Covenant Code of Conduct](./CODE_OF_CON
    make up
    ```
 
-7. **Verify setup**:
+7. **Load sample data** (optional but recommended):
+
+   ```bash
+   make db-seed
+   ```
+
+8. **Verify setup**:
 
    ```bash
    # Check services
@@ -78,6 +106,9 @@ This project adheres to the [Contributor Covenant Code of Conduct](./CODE_OF_CON
    
    # Check API health
    curl http://localhost:8080/healthz
+   
+   # View sample VODs
+   curl http://localhost:8080/vods | jq
    
    # Check frontend
    open http://localhost:3000

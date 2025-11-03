@@ -45,7 +45,7 @@
     "globals": "^16.4.0",
     "happy-dom": "^20.0.7",
     "husky": "^9.1.7",
-    "lint-staged": "^16.2.4",
+    "lint-staged": "^16.2.6",
     "msw": "^2.11.5",
     "postcss": "^8.4.49",
     "prettier": "^3.6.2",

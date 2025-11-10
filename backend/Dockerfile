@@ -26,7 +26,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
  && go build -trimpath -ldflags="-s -w" -o /out/migrate-tokens ./cmd/migrate-tokens
 
 # Fetch yt-dlp and static ffmpeg (saves ~400MB vs apt package)
-FROM debian:bookworm-slim@sha256:78d2f66e0fec9e5a39fb2c72ea5e052b548df75602b5215ed01a17171529f706 AS media
+FROM debian:bookworm-slim@sha256:936abff852736f951dab72d91a1b6337cf04217b2a77a5eaadc7c0f2f1ec1758 AS media
 RUN set -eux; \
 	apt-get update; \
 	DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -51,7 +51,7 @@ RUN set -eux; \
 
 # --- Runtime stage ---
 # Pin debian with digest for reproducible builds
-FROM debian:bookworm-slim@sha256:78d2f66e0fec9e5a39fb2c72ea5e052b548df75602b5215ed01a17171529f706 AS runtime
+FROM debian:bookworm-slim@sha256:936abff852736f951dab72d91a1b6337cf04217b2a77a5eaadc7c0f2f1ec1758 AS runtime
 WORKDIR /app
 
 # Only install minimal runtime deps (ca-certificates for HTTPS, python3 for yt-dlp)

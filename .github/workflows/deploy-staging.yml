@@ -18,7 +18,7 @@ jobs:
       url: https://staging.vod-tender.example.com
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Deploy to staging
         run: |

@@ -28,7 +28,7 @@ jobs:
                   go test -bench=. -benchmem -run=^$ ./... | tee benchmark-results.txt
 
             - name: Upload benchmark results
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@v6
               with:
                   name: benchmark-results
                   path: backend/benchmark-results.txt
@@ -81,7 +81,7 @@ jobs:
 
             - name: Upload benchmark baseline
               if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@v6
               with:
                   name: benchmark-baseline
                   path: backend/benchmark-baseline.txt
@@ -139,7 +139,7 @@ jobs:
                   fi
 
             - name: Upload coverage to artifact
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@v6
               with:
                   name: coverage-report
                   path: |
@@ -185,7 +185,7 @@ jobs:
                   echo "2. Use a SARIF viewer or upload to https://sarifweb.azurewebsites.net/" >> $GITHUB_STEP_SUMMARY
 
             - name: Upload scorecard results
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@v6
               with:
                   name: ossf-scorecard-results
                   path: results.sarif

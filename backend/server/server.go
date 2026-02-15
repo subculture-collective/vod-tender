@@ -56,7 +56,22 @@ func NewMux(db *sql.DB) http.Handler {
 	authCfg := loadAuthConfig()
 	rateLimiterCfg := loadRateLimiterConfig()
 	corsCfg := loadCORSConfig()
-	rateLimiter := newIPRateLimiter(context.Background(), rateLimiterCfg)
+	
+	// Create rate limiter based on configuration
+	var rateLimiter RateLimiter
+	if rateLimiterCfg.backend == "postgres" {
+		slog.Info("initializing distributed rate limiter", slog.String("backend", "postgres"))
+		pgLimiter, err := newPostgresRateLimiter(context.Background(), db, rateLimiterCfg)
+		if err != nil {
+			slog.Error("failed to create postgres rate limiter, falling back to memory", slog.Any("error", err))
+			rateLimiter = newIPRateLimiter(context.Background(), rateLimiterCfg)
+		} else {
+			rateLimiter = pgLimiter
+		}
+	} else {
+		slog.Info("initializing in-memory rate limiter", slog.String("backend", "memory"))
+		rateLimiter = newIPRateLimiter(context.Background(), rateLimiterCfg)
+	}
 
 	mux := http.NewServeMux()
 

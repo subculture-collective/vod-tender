@@ -117,11 +117,12 @@ func main() {
 	// This ensures smooth transition and zero-downtime upgrades.
 	//
 	// See docs/MIGRATIONS.md for detailed migration architecture.
-	slog.Info("running database migrations", slog.String("component", "db_migrate"))
+	const migrateComponent = "db_migrate"
+	slog.Info("running database migrations", slog.String("component", migrateComponent))
 	if err := db.RunMigrations(database); err != nil {
 		slog.Warn("versioned migrations failed, attempting fallback to legacy embedded SQL",
 			slog.Any("err", err),
-			slog.String("component", "db_migrate"))
+			slog.String("component", migrateComponent))
 		// Fallback to embedded SQL migration for backward compatibility with pre-migration deployments
 		migrationCtx := context.Background()
 		if err := db.Migrate(migrationCtx, database); err != nil {
@@ -129,10 +130,10 @@ func main() {
 			os.Exit(1)
 		}
 		slog.Info("legacy embedded SQL migration completed successfully (consider migrating to versioned migrations)",
-			slog.String("component", "db_migrate"))
+			slog.String("component", migrateComponent))
 	} else {
 		slog.Info("versioned migrations completed successfully",
-			slog.String("component", "db_migrate"))
+			slog.String("component", migrateComponent))
 	}
 
 	// Root context with graceful shutdown

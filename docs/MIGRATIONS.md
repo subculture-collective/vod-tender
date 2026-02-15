@@ -72,8 +72,8 @@ Both systems provide equivalent schema coverage:
 - `oauth_tokens` — Encrypted OAuth tokens (Twitch, YouTube)
 - `kv` — Key-value store for circuit breaker, EMAs, etc.
 
-#### Tables (Only in embedded SQL - needs migration)
-- ~~`rate_limit_requests` — Distributed rate limiting across API replicas~~
+#### Recently Migrated Tables
+- `rate_limit_requests` — Distributed rate limiting across API replicas
   - ✅ **Migrated in 000003_add_rate_limiter.up.sql**
 
 #### Indices
@@ -523,10 +523,12 @@ CI tests prevent this:
 - `TestRunMigrations` verifies versioned migrations create correct schema
 - Both should produce equivalent schema (minus rate_limit_requests table currently)
 
-If drift occurs, fix by:
+If drift occurs, document it here and fix by:
 1. Updating versioned migrations to match desired schema
 2. Ensuring embedded SQL remains backward compatible
 3. Adding deprecation notice
+
+**Current Status**: Schema is in sync. Both systems produce equivalent schema as of version 3 (rate_limiter table migrated).
 
 ### How do I handle secrets in migrations?
 

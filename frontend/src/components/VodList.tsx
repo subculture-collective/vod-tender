@@ -174,7 +174,7 @@ export default function VodList({ onVodSelect }: VodListProps) {
                       Processed
                     </span>
                   ) : (
-                    <span className="text-yellow-600" aria-label="Status: Pending">
+                    <span className="text-yellow-700" aria-label="Status: Pending">
                       Pending
                     </span>
                   )}

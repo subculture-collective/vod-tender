@@ -120,7 +120,9 @@ func main() {
 	const migrateComponent = "db_migrate"
 	slog.Info("running database migrations", slog.String("component", migrateComponent))
 	if err := db.RunMigrations(database); err != nil {
-		slog.Warn("versioned migrations failed, attempting fallback to legacy embedded SQL",
+		// Log as Warn (not Error) because this is expected for old deployments
+		// without schema_migrations table. The fallback below will handle it.
+		slog.Warn("versioned migrations failed, attempting fallback to legacy embedded SQL (this is expected for old deployments)",
 			slog.Any("err", err),
 			slog.String("component", migrateComponent))
 		// Fallback to embedded SQL migration for backward compatibility with pre-migration deployments

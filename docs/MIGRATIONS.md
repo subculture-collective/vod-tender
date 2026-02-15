@@ -521,14 +521,14 @@ Not yet. It provides fallback for deployments without `schema_migrations` table.
 CI tests prevent this:
 - `TestMigrationsIdempotent` verifies embedded SQL is idempotent
 - `TestRunMigrations` verifies versioned migrations create correct schema
-- Both should produce equivalent schema (minus rate_limit_requests table currently)
+- Both should produce equivalent schema
 
-If drift occurs, document it here and fix by:
+**Current Status (as of v3)**: Schema is in sync. Both systems produce equivalent schema.
+
+If drift occurs in the future, document it here and fix by:
 1. Updating versioned migrations to match desired schema
 2. Ensuring embedded SQL remains backward compatible
 3. Adding deprecation notice
-
-**Current Status**: Schema is in sync. Both systems produce equivalent schema as of version 3 (rate_limiter table migrated).
 
 ### How do I handle secrets in migrations?
 

@@ -137,7 +137,7 @@ func loadRateLimiterConfig() *rateLimiterConfig {
 // RateLimiter is an interface for rate limiting implementations
 type RateLimiter interface {
 	// allow checks if a request from the given IP should be allowed
-	allow(ip string) bool
+	allow(ctx context.Context, ip string) bool
 }
 
 // ipRateLimiter implements a simple in-memory sliding window rate limiter per IP
@@ -195,7 +195,7 @@ func (rl *ipRateLimiter) cleanup() {
 }
 
 // allow checks if a request from the given IP should be allowed
-func (rl *ipRateLimiter) allow(ip string) bool {
+func (rl *ipRateLimiter) allow(ctx context.Context, ip string) bool {
 	if !rl.cfg.enabled {
 		return true
 	}
@@ -248,30 +248,11 @@ func newPostgresRateLimiter(ctx context.Context, db *sql.DB, cfg *rateLimiterCon
 		cfg: cfg,
 	}
 
-	// Create rate limit table if not exists
-	if err := limiter.initTable(ctx); err != nil {
-		return nil, fmt.Errorf("init rate limit table: %w", err)
-	}
-
+	// Table creation is handled by db.Migrate() in backend/db/db.go
 	// Start cleanup goroutine to remove stale entries
 	go limiter.cleanupLoop(ctx)
 
 	return limiter, nil
-}
-
-// initTable creates the rate_limit_requests table if it doesn't exist
-func (rl *postgresRateLimiter) initTable(ctx context.Context) error {
-	query := `
-		CREATE TABLE IF NOT EXISTS rate_limit_requests (
-			id BIGSERIAL PRIMARY KEY,
-			ip TEXT NOT NULL,
-			request_time TIMESTAMPTZ NOT NULL
-		);
-		CREATE INDEX IF NOT EXISTS idx_rate_limit_ip_time ON rate_limit_requests(ip, request_time);
-		CREATE INDEX IF NOT EXISTS idx_rate_limit_time ON rate_limit_requests(request_time);
-	`
-	_, err := rl.db.ExecContext(ctx, query)
-	return err
 }
 
 // cleanupLoop periodically removes expired entries from the database
@@ -301,18 +282,18 @@ func (rl *postgresRateLimiter) cleanup(ctx context.Context) {
 }
 
 // allow checks if a request from the given IP should be allowed using Postgres
-func (rl *postgresRateLimiter) allow(ip string) bool {
+func (rl *postgresRateLimiter) allow(ctx context.Context, ip string) bool {
 	if !rl.cfg.enabled {
 		return true
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), rateLimitDBTimeout)
+	ctx, cancel := context.WithTimeout(ctx, rateLimitDBTimeout)
 	defer cancel()
 
 	now := time.Now()
 	cutoff := now.Add(-rl.cfg.window)
 
-	// Use a transaction to ensure atomic check-and-insert
+	// Use a transaction with advisory lock to ensure atomic check-and-insert
 	tx, err := rl.db.BeginTx(ctx, nil)
 	if err != nil {
 		slog.Error("rate limit: failed to begin transaction", slog.Any("error", err))
@@ -320,6 +301,15 @@ func (rl *postgresRateLimiter) allow(ip string) bool {
 		return true
 	}
 	defer tx.Rollback()
+
+	// Acquire advisory lock for this IP to ensure atomicity across concurrent requests
+	// Using hashtext to convert IP string to integer for pg_advisory_xact_lock
+	_, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, ip)
+	if err != nil {
+		slog.Error("rate limit: failed to acquire advisory lock", slog.Any("error", err))
+		// Fail open - allow request if lock acquisition fails
+		return true
+	}
 
 	// Count recent requests within the window
 	var count int
@@ -348,7 +338,7 @@ func (rl *postgresRateLimiter) allow(ip string) bool {
 		return true
 	}
 
-	// Commit the transaction
+	// Commit the transaction (releases the advisory lock automatically)
 	if err := tx.Commit(); err != nil {
 		slog.Error("rate limit: failed to commit transaction", slog.Any("error", err))
 		// Fail open - allow request if commit fails
@@ -376,7 +366,7 @@ func rateLimitMiddleware(next http.Handler, limiter RateLimiter) http.Handler {
 			ip = host
 		}
 
-		if !limiter.allow(ip) {
+		if !limiter.allow(r.Context(), ip) {
 			w.Header().Set("Retry-After", "60")
 			http.Error(w, "Too Many Requests - rate limit exceeded", http.StatusTooManyRequests)
 			slog.Warn("rate limit exceeded", slog.String("ip", ip), slog.String("path", r.URL.Path))

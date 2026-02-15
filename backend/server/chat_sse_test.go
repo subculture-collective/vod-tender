@@ -53,7 +53,7 @@ func (f *flushableRecorder) FlushCount() int {
 // TestChatSSE_SpeedAccuracy validates timing accuracy at different playback speeds
 func TestChatSSE_SpeedAccuracy(t *testing.T) {
 	db := testutil.SetupTestDB(t)
-	handler := NewMux(db)
+	handler := NewMux(context.Background(), db)
 
 	// Setup: Insert test VOD and chat messages with known timing
 	vodID := "test-vod-speed-" + generateRandomID()
@@ -179,7 +179,7 @@ func TestChatSSE_SpeedAccuracy(t *testing.T) {
 // TestChatSSE_Backpressure validates handling of large message volumes
 func TestChatSSE_Backpressure(t *testing.T) {
 	db := testutil.SetupTestDB(t)
-	handler := NewMux(db)
+	handler := NewMux(context.Background(), db)
 
 	vodID := "test-vod-backpressure-" + generateRandomID()
 	baseTime := time.Now().UTC()
@@ -253,7 +253,7 @@ func TestChatSSE_Backpressure(t *testing.T) {
 // TestChatSSE_CancellationHandling validates proper context cancellation
 func TestChatSSE_CancellationHandling(t *testing.T) {
 	db := testutil.SetupTestDB(t)
-	handler := NewMux(db)
+	handler := NewMux(context.Background(), db)
 
 	vodID := "test-vod-cancel-" + generateRandomID()
 	baseTime := time.Now().UTC()
@@ -345,7 +345,7 @@ monitorLoop:
 // TestChatSSE_SSEFormat validates proper SSE event formatting
 func TestChatSSE_SSEFormat(t *testing.T) {
 	db := testutil.SetupTestDB(t)
-	handler := NewMux(db)
+	handler := NewMux(context.Background(), db)
 
 	vodID := "test-vod-format-" + generateRandomID()
 	baseTime := time.Now().UTC()
@@ -437,7 +437,7 @@ func TestChatSSE_SSEFormat(t *testing.T) {
 // TestChatSSE_EmptyVOD validates behavior with no chat messages
 func TestChatSSE_EmptyVOD(t *testing.T) {
 	db := testutil.SetupTestDB(t)
-	handler := NewMux(db)
+	handler := NewMux(context.Background(), db)
 
 	vodID := "test-vod-empty-" + generateRandomID()
 	baseTime := time.Now().UTC()
@@ -484,7 +484,7 @@ func TestChatSSE_EmptyVOD(t *testing.T) {
 // TestChatSSE_InvalidSpeed validates speed parameter handling
 func TestChatSSE_InvalidSpeed(t *testing.T) {
 	db := testutil.SetupTestDB(t)
-	handler := NewMux(db)
+	handler := NewMux(context.Background(), db)
 
 	vodID := "test-vod-speed-invalid-" + generateRandomID()
 	baseTime := time.Now().UTC()

@@ -51,7 +51,8 @@ var getVodSensitiveEndpointPattern = sync.OnceValue(func() *regexp.Regexp {
 })
 
 // NewMux returns the HTTP handler with all routes.
-func NewMux(db *sql.DB) http.Handler {
+// The provided context is used for rate limiter cleanup goroutines lifecycle.
+func NewMux(ctx context.Context, db *sql.DB) http.Handler {
 	// Load middleware configurations
 	authCfg := loadAuthConfig()
 	rateLimiterCfg := loadRateLimiterConfig()
@@ -61,16 +62,16 @@ func NewMux(db *sql.DB) http.Handler {
 	var rateLimiter RateLimiter
 	if rateLimiterCfg.backend == "postgres" {
 		slog.Info("initializing distributed rate limiter", slog.String("backend", "postgres"))
-		pgLimiter, err := newPostgresRateLimiter(context.Background(), db, rateLimiterCfg)
+		pgLimiter, err := newPostgresRateLimiter(ctx, db, rateLimiterCfg)
 		if err != nil {
 			slog.Error("failed to create postgres rate limiter, falling back to memory", slog.Any("error", err))
-			rateLimiter = newIPRateLimiter(context.Background(), rateLimiterCfg)
+			rateLimiter = newIPRateLimiter(ctx, rateLimiterCfg)
 		} else {
 			rateLimiter = pgLimiter
 		}
 	} else {
 		slog.Info("initializing in-memory rate limiter", slog.String("backend", "memory"))
-		rateLimiter = newIPRateLimiter(context.Background(), rateLimiterCfg)
+		rateLimiter = newIPRateLimiter(ctx, rateLimiterCfg)
 	}
 
 	mux := http.NewServeMux()
@@ -730,7 +731,7 @@ func (r *statusRecorder) Flush() {
 func Start(ctx context.Context, db *sql.DB, addr string) error {
 	srv := &http.Server{
 		Addr:         addr,
-		Handler:      NewMux(db),
+		Handler:      NewMux(ctx, db),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,

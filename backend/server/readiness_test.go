@@ -30,7 +30,7 @@ func TestReadyzReady(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	rr := httptest.NewRecorder()
 
-	h := NewMux(db)
+	h := NewMux(context.Background(), db)
 	h.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -77,7 +77,7 @@ func TestReadyzNotReadyCircuitOpen(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	rr := httptest.NewRecorder()
 
-	h := NewMux(db)
+	h := NewMux(context.Background(), db)
 	h.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusServiceUnavailable {
@@ -116,7 +116,7 @@ func TestReadyzNotReadyMissingCredentials(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	rr := httptest.NewRecorder()
 
-	h := NewMux(db)
+	h := NewMux(context.Background(), db)
 	h.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusServiceUnavailable {

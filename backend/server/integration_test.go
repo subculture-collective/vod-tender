@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -63,7 +64,7 @@ func TestAdminEndpointsProtection(t *testing.T) {
 			t.Setenv("ADMIN_PASSWORD", "secret123")
 			t.Setenv("ADMIN_TOKEN", "test-token-12345")
 
-			handler := NewMux(db)
+			handler := NewMux(context.Background(), db)
 
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
 			if tt.basicAuth {
@@ -93,7 +94,7 @@ func TestRateLimitingOnAdminEndpoints(t *testing.T) {
 	t.Setenv("RATE_LIMIT_WINDOW_SECONDS", "60")
 	t.Setenv("ADMIN_TOKEN", "test-token")
 
-	handler := NewMux(db)
+	handler := NewMux(context.Background(), db)
 
 	// Make 3 requests (should all succeed)
 	for i := 1; i <= 3; i++ {
@@ -172,7 +173,7 @@ func TestCORSRestricted(t *testing.T) {
 				t.Setenv("CORS_ALLOWED_ORIGINS", tt.allowedOrigins)
 			}
 
-			handler := NewMux(db)
+			handler := NewMux(context.Background(), db)
 
 			req := httptest.NewRequest(http.MethodGet, "/status", nil)
 			req.Header.Set("Origin", tt.requestOrigin)
@@ -201,7 +202,7 @@ func TestPublicEndpointsUnprotected(t *testing.T) {
 	t.Setenv("ADMIN_USERNAME", "admin")
 	t.Setenv("ADMIN_PASSWORD", "secret")
 
-	handler := NewMux(db)
+	handler := NewMux(context.Background(), db)
 
 	// These endpoints should work without auth
 	publicEndpoints := []string{
@@ -236,7 +237,7 @@ func TestRateLimitingPathMatching(t *testing.T) {
 	t.Setenv("RATE_LIMIT_REQUESTS_PER_IP", "1")
 	t.Setenv("RATE_LIMIT_WINDOW_SECONDS", "60")
 
-	handler := NewMux(db)
+	handler := NewMux(context.Background(), db)
 
 	tests := []struct {
 		name                 string

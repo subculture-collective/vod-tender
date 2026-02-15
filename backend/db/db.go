@@ -193,6 +193,14 @@ func migratePostgres(ctx context.Context, db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_vods_channel_date ON vods(channel, date DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_vods_channel_processed ON vods(channel, processed, priority DESC, date ASC)`,
 		`CREATE INDEX IF NOT EXISTS idx_chat_messages_channel_vod ON chat_messages(channel, vod_id)`,
+		// Rate limiter table for distributed rate limiting across multiple API replicas
+		`CREATE TABLE IF NOT EXISTS rate_limit_requests (
+			id BIGSERIAL PRIMARY KEY,
+			ip TEXT NOT NULL,
+			request_time TIMESTAMPTZ NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_rate_limit_ip_time ON rate_limit_requests(ip, request_time)`,
+		`CREATE INDEX IF NOT EXISTS idx_rate_limit_time ON rate_limit_requests(request_time)`,
 	}
 	for i, s := range stmts {
 		if _, err := db.ExecContext(ctx, s); err != nil {

@@ -46,7 +46,7 @@ func TestAdminVodPriorityEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mux := NewMux(db)
+	mux := NewMux(context.Background(), db)
 
 	t.Run("update priority", func(t *testing.T) {
 		reqBody := map[string]any{
@@ -196,7 +196,7 @@ func TestStatusEndpointEnhancements(t *testing.T) {
 		ON CONFLICT (twitch_vod_id) DO UPDATE SET priority=0, processed=false`,
 		channel)
 
-	mux := NewMux(db)
+	mux := NewMux(context.Background(), db)
 
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	w := httptest.NewRecorder()

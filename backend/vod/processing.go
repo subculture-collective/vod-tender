@@ -28,7 +28,7 @@ type Downloader interface {
 
 // Uploader abstracts upload destination behavior.
 type Uploader interface {
-	Upload(ctx context.Context, path, title string, date time.Time) (string, error)
+	Upload(ctx context.Context, dbc *sql.DB, path, title string, date time.Time) (string, error)
 }
 
 // default implementations wrap existing functions.
@@ -40,8 +40,8 @@ func (ytDLPDownloader) Download(ctx context.Context, dbc *sql.DB, id, dataDir st
 
 type youtubeUploader struct{}
 
-func (youtubeUploader) Upload(ctx context.Context, path, title string, date time.Time) (string, error) {
-	return uploadToYouTube(ctx, path, title, date)
+func (youtubeUploader) Upload(ctx context.Context, dbc *sql.DB, path, title string, date time.Time) (string, error) {
+	return uploadToYouTube(ctx, dbc, path, title, date)
 }
 
 // vodCustomDescKey is an unexported type used as a context key for custom VOD descriptions.
@@ -417,7 +417,7 @@ func processOnce(ctx context.Context, dbc *sql.DB, channel string) error {
 			if customDesc != "" {
 				uploadCtx = context.WithValue(uploadCtx, vodCustomDescKey{}, customDesc)
 			}
-			url, err := uploader.Upload(uploadCtx, filePath, title, date)
+			url, err := uploader.Upload(uploadCtx, dbc, filePath, title, date)
 			if err == nil {
 				upDur = time.Since(upStart)
 				ytURL = url
@@ -541,22 +541,8 @@ func updateMovingAvg(ctx context.Context, db *sql.DB, channel, key string, newVa
 }
 
 // uploadToYouTube uploads the given video file using stored OAuth token.
-func uploadToYouTube(ctx context.Context, path, title string, date time.Time) (string, error) {
-	dsn := os.Getenv("DB_DSN")
-	if dsn == "" {
-		//nolint:gosec // G101: Default DSN for local development in Docker Compose, not production credentials
-		dsn = "postgres://vod:vod@postgres:5432/vod?sslmode=disable"
-	}
-	adb, err := sql.Open("pgx", dsn)
-	if err != nil {
-		return "", err
-	}
-	defer func() {
-		if err := adb.Close(); err != nil {
-			slog.Warn("failed to close auxiliary database connection", slog.Any("err", err))
-		}
-	}()
-	ts := &db.TokenStoreAdapter{DB: adb}
+func uploadToYouTube(ctx context.Context, dbc *sql.DB, path, title string, date time.Time) (string, error) {
+	ts := &db.TokenStoreAdapter{DB: dbc}
 	cfg, _ := config.Load()
 	yts := youtubeapi.New(cfg, ts)
 	svc, err := yts.Client(ctx)

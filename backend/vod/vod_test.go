@@ -79,7 +79,7 @@ func TestDownloaderInterface(t *testing.T) {
 
 type mockUploaderTest struct{}
 
-func (m *mockUploaderTest) Upload(ctx context.Context, path, title string, date time.Time) (string, error) {
+func (m *mockUploaderTest) Upload(ctx context.Context, dbc *sql.DB, path, title string, date time.Time) (string, error) {
 	return "https://youtube.com/watch?v=123", nil
 }
 

@@ -113,16 +113,18 @@ func main() {
 	// 2. Fallback: embedded SQL (db.Migrate) for backward compatibility
 	//
 	// New deployments use versioned migrations with proper version tracking.
-	// Old deployments without schema_migrations table fall back to embedded SQL.
+	// Legacy deployments with schema drift fall back to embedded SQL.
 	// This ensures smooth transition and zero-downtime upgrades.
 	//
 	// See docs/MIGRATIONS.md for detailed migration architecture.
 	const migrateComponent = "db_migrate"
 	slog.Info("running database migrations", slog.String("component", migrateComponent))
 	if err := db.RunMigrations(database); err != nil {
-		// Log as Warn (not Error) because this is expected for old deployments
-		// without schema_migrations table. The fallback below will handle it.
-		slog.Warn("versioned migrations failed, falling back to legacy embedded SQL",
+		// Log as Error because migration failures can indicate serious issues
+		// (for example, dirty state or missing migration files). We still attempt
+		// a best-effort fallback for legacy deployments without schema_migrations
+		// table by running the embedded SQL migrator below.
+		slog.Error("versioned migrations failed; attempting legacy embedded SQL fallback",
 			slog.Any("err", err),
 			slog.String("component", migrateComponent))
 		// Fallback to embedded SQL migration for backward compatibility with pre-migration deployments

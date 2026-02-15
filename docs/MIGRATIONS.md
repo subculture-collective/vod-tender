@@ -73,13 +73,13 @@ Both systems provide equivalent schema coverage:
 - `kv` — Key-value store for circuit breaker, EMAs, etc.
 
 #### Tables (Only in embedded SQL - needs migration)
-- `rate_limit_requests` — Distributed rate limiting across API replicas
-  - **Action needed**: Create migration `000003_add_rate_limiter.up.sql`
+- ~~`rate_limit_requests` — Distributed rate limiting across API replicas~~
+  - ✅ **Migrated in 000003_add_rate_limiter.up.sql**
 
 #### Indices
-- **Versioned migrations**: Basic indices (vods, chat, channels) + performance indices
-- **Embedded SQL**: Same indices plus rate limiter indices
-- **Action needed**: Include rate limiter indices when migrating that table
+- **Versioned migrations**: Basic indices (vods, chat, channels) + performance indices + rate limiter indices
+- **Embedded SQL**: Same indices
+- ✅ **No action needed**: Schema coverage is complete
 
 ### Schema Drift Prevention
 
@@ -476,10 +476,18 @@ Added optimizations:
 - `idx_chat_messages_abs_timestamp` — Time-based chat queries
 - `idx_vods_channel_processed_priority` — VOD processing queue optimization
 
+### Version 3: Rate Limiter Table (000003_add_rate_limiter)
+
+Added distributed rate limiting support:
+- `rate_limit_requests` — Stores request timestamps per IP for sliding window rate limiting
+- `idx_rate_limit_ip_time` — Efficient lookups by IP and time window
+- `idx_rate_limit_time` — Time-based cleanup of old entries
+
+This completes the migration of schema from embedded SQL to versioned migrations. All tables and indices are now covered.
+
 ### Future Migrations
 
-Planned additions:
-- **000003_add_rate_limiter**: Migrate `rate_limit_requests` table from embedded SQL
+All core schema is now covered by versioned migrations. Future additions will be added as new migrations following the established pattern.
 
 ## Related Documentation
 

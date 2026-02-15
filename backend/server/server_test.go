@@ -39,7 +39,7 @@ func TestHealthzOK(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rr := httptest.NewRecorder()
 
-	h := NewMux(db)
+	h := NewMux(context.Background(), db)
 	h.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {

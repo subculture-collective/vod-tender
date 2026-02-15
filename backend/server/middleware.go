@@ -1,9 +1,9 @@
-// Package server middleware for authentication and rate limiting
 package server
 
 import (
 	"context"
 	"crypto/subtle"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"net"
@@ -12,6 +12,17 @@ import (
 	"strings"
 	"sync"
 	"time"
+)
+
+const (
+	// Rate limiter cleanup configuration
+	// cleanupMultiplier determines how long to keep stale entries before cleanup.
+	// Entries older than cleanupMultiplier * window are removed to prevent unbounded growth.
+	cleanupMultiplier = 2
+
+	// rateLimitDBTimeout is the maximum time to wait for database operations in the
+	// distributed rate limiter. This prevents slow database queries from blocking requests.
+	rateLimitDBTimeout = 2 * time.Second
 )
 
 // authConfig holds authentication configuration loaded from environment
@@ -86,6 +97,7 @@ type rateLimiterConfig struct {
 	enabled       bool
 	requestsPerIP int           // Max requests per IP per window
 	window        time.Duration // Time window for rate limiting
+	backend       string        // Backend type: "memory" or "postgres"
 }
 
 // loadRateLimiterConfig reads rate limiter configuration from environment
@@ -93,6 +105,12 @@ func loadRateLimiterConfig() *rateLimiterConfig {
 	enabled := os.Getenv("RATE_LIMIT_ENABLED") != "0" // Enabled by default
 	requestsPerIP := 10                               // Default: 10 requests per window
 	window := 1 * time.Minute                         // Default: 1 minute window
+	backend := os.Getenv("RATE_LIMIT_BACKEND")        // Backend: "memory" (default) or "postgres"
+
+	// Default to memory backend for single-instance deployments
+	if backend == "" {
+		backend = "memory"
+	}
 
 	// Allow environment override
 	if v := os.Getenv("RATE_LIMIT_REQUESTS_PER_IP"); v != "" {
@@ -112,10 +130,17 @@ func loadRateLimiterConfig() *rateLimiterConfig {
 		enabled:       enabled,
 		requestsPerIP: requestsPerIP,
 		window:        window,
+		backend:       backend,
 	}
 }
 
-// ipRateLimiter implements a simple sliding window rate limiter per IP
+// RateLimiter is an interface for rate limiting implementations
+type RateLimiter interface {
+	// allow checks if a request from the given IP should be allowed
+	allow(ctx context.Context, ip string) bool
+}
+
+// ipRateLimiter implements a simple in-memory sliding window rate limiter per IP
 type ipRateLimiter struct {
 	mu       sync.Mutex
 	visitors map[string]*visitor
@@ -127,7 +152,7 @@ type visitor struct {
 	lastClean time.Time
 }
 
-// newIPRateLimiter creates a new rate limiter
+// newIPRateLimiter creates a new in-memory rate limiter
 func newIPRateLimiter(ctx context.Context, cfg *rateLimiterConfig) *ipRateLimiter {
 	limiter := &ipRateLimiter{
 		visitors: make(map[string]*visitor),
@@ -162,15 +187,15 @@ func (rl *ipRateLimiter) cleanup() {
 
 	now := time.Now()
 	for ip, v := range rl.visitors {
-		// Remove if no requests in the last 2 windows
-		if now.Sub(v.lastClean) > rl.cfg.window*2 {
+		// Remove if no requests in the last cleanupMultiplier windows
+		if now.Sub(v.lastClean) > rl.cfg.window*cleanupMultiplier {
 			delete(rl.visitors, ip)
 		}
 	}
 }
 
 // allow checks if a request from the given IP should be allowed
-func (rl *ipRateLimiter) allow(ip string) bool {
+func (rl *ipRateLimiter) allow(ctx context.Context, ip string) bool {
 	if !rl.cfg.enabled {
 		return true
 	}
@@ -210,8 +235,121 @@ func (rl *ipRateLimiter) allow(ip string) bool {
 	return true
 }
 
+// postgresRateLimiter implements a distributed rate limiter using Postgres
+type postgresRateLimiter struct {
+	db  *sql.DB
+	cfg *rateLimiterConfig
+}
+
+// newPostgresRateLimiter creates a new Postgres-backed rate limiter
+func newPostgresRateLimiter(ctx context.Context, db *sql.DB, cfg *rateLimiterConfig) (*postgresRateLimiter, error) {
+	limiter := &postgresRateLimiter{
+		db:  db,
+		cfg: cfg,
+	}
+
+	// Table creation is handled by db.Migrate() in backend/db/db.go
+	// Start cleanup goroutine to remove stale entries
+	go limiter.cleanupLoop(ctx)
+
+	return limiter, nil
+}
+
+// cleanupLoop periodically removes expired entries from the database
+func (rl *postgresRateLimiter) cleanupLoop(ctx context.Context) {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			rl.cleanup(ctx)
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// cleanup removes requests older than cleanupMultiplier * window
+func (rl *postgresRateLimiter) cleanup(ctx context.Context) {
+	cutoff := time.Now().Add(-rl.cfg.window * cleanupMultiplier)
+	_, err := rl.db.ExecContext(ctx,
+		`DELETE FROM rate_limit_requests WHERE request_time < $1`,
+		cutoff)
+	if err != nil {
+		slog.Warn("rate limit cleanup failed", slog.Any("error", err))
+	}
+}
+
+// allow checks if a request from the given IP should be allowed using Postgres
+func (rl *postgresRateLimiter) allow(ctx context.Context, ip string) bool {
+	if !rl.cfg.enabled {
+		return true
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, rateLimitDBTimeout)
+	defer cancel()
+
+	now := time.Now()
+	cutoff := now.Add(-rl.cfg.window)
+
+	// Use a transaction with advisory lock to ensure atomic check-and-insert
+	tx, err := rl.db.BeginTx(ctx, nil)
+	if err != nil {
+		slog.Error("rate limit: failed to begin transaction", slog.Any("error", err))
+		// Fail open - allow request if DB is having issues
+		return true
+	}
+	defer tx.Rollback()
+
+	// Acquire advisory lock for this IP to ensure atomicity across concurrent requests
+	// Using hashtext to convert IP string to integer for pg_advisory_xact_lock
+	_, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, ip)
+	if err != nil {
+		slog.Error("rate limit: failed to acquire advisory lock", slog.Any("error", err))
+		// Fail open - allow request if lock acquisition fails
+		return true
+	}
+
+	// Count recent requests within the window
+	var count int
+	err = tx.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM rate_limit_requests 
+		 WHERE ip = $1 AND request_time > $2`,
+		ip, cutoff).Scan(&count)
+	if err != nil {
+		slog.Error("rate limit: failed to count requests", slog.Any("error", err))
+		// Fail open - allow request if DB query fails
+		return true
+	}
+
+	// If at or over limit, deny the request
+	if count >= rl.cfg.requestsPerIP {
+		return false
+	}
+
+	// Insert the new request
+	_, err = tx.ExecContext(ctx,
+		`INSERT INTO rate_limit_requests (ip, request_time) VALUES ($1, $2)`,
+		ip, now)
+	if err != nil {
+		slog.Error("rate limit: failed to insert request", slog.Any("error", err))
+		// Fail open - allow request if insert fails
+		return true
+	}
+
+	// Commit the transaction (releases the advisory lock automatically)
+	if err := tx.Commit(); err != nil {
+		slog.Error("rate limit: failed to commit transaction", slog.Any("error", err))
+		// Fail open - allow request if commit fails
+		return true
+	}
+
+	return true
+}
+
 // rateLimitMiddleware applies rate limiting to sensitive endpoints
-func rateLimitMiddleware(next http.Handler, limiter *ipRateLimiter) http.Handler {
+func rateLimitMiddleware(next http.Handler, limiter RateLimiter) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Extract IP from request (handle X-Forwarded-For for proxies)
 		ip := r.RemoteAddr
@@ -228,7 +366,7 @@ func rateLimitMiddleware(next http.Handler, limiter *ipRateLimiter) http.Handler
 			ip = host
 		}
 
-		if !limiter.allow(ip) {
+		if !limiter.allow(r.Context(), ip) {
 			w.Header().Set("Retry-After", "60")
 			http.Error(w, "Too Many Requests - rate limit exceeded", http.StatusTooManyRequests)
 			slog.Warn("rate limit exceeded", slog.String("ip", ip), slog.String("path", r.URL.Path))

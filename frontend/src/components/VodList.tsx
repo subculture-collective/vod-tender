@@ -161,7 +161,6 @@ export default function VodList({ onVodSelect }: VodListProps) {
                     : undefined
                 }
                 tabIndex={onVodSelect ? 0 : undefined}
-                role="button"
                 aria-label={`View details for ${vod.title}`}
               >
                 <td className="px-4 py-2 font-medium">{vod.title}</td>

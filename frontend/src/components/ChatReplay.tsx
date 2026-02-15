@@ -216,9 +216,10 @@ export default function ChatReplay({ vodId }: ChatReplayProps) {
                   <img
                     key={j}
                     src={`https://static-cdn.jtvnw.net/badges/v1/${b.set}${b.version}/1`}
-                    alt={`${b.set} badge`}
+                    alt={b.set}
                     className="inline h-5 w-5 align-text-bottom"
                     title={b.set}
+                    aria-hidden="true"
                   />
                 ))}
               </span>

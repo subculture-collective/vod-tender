@@ -362,6 +362,34 @@ query := fmt.Sprintf("SELECT * FROM vods WHERE id = '%s'", vodID)
 rows, err := db.Query(query)
 ```
 
+**Database Migrations**:
+
+For schema changes, always use versioned migrations (golang-migrate):
+
+```bash
+# Create a new migration
+make migrate-create name=add_user_column
+
+# This creates:
+# backend/db/migrations/000XXX_add_user_column.up.sql
+# backend/db/migrations/000XXX_add_user_column.down.sql
+
+# Write both up and down migrations, then test
+make migrate-up      # Apply migration
+make migrate-down    # Test rollback
+make migrate-up      # Test idempotency
+```
+
+**Migration Best Practices**:
+- ✅ **DO** use versioned migrations in `backend/db/migrations/`
+- ✅ **DO** make migrations idempotent (use `IF NOT EXISTS`/`IF EXISTS`)
+- ✅ **DO** wrap DDL in `BEGIN`/`COMMIT` transactions
+- ✅ **DO** test both up and down migrations
+- ❌ **DON'T** modify `db.Migrate()` in `db.go` (legacy fallback only)
+- ❌ **DON'T** make breaking schema changes without migration path
+
+See [`docs/MIGRATIONS.md`](docs/MIGRATIONS.md) for complete migration guide.
+
 ### TypeScript/React Conventions
 
 **Code Style**:

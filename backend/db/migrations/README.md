@@ -2,7 +2,13 @@
 
 This directory contains versioned database migrations for vod-tender using [golang-migrate](https://github.com/golang-migrate/migrate).
 
-## Migration Files
+**📖 Full Documentation**: See [`docs/MIGRATIONS.md`](../../../docs/MIGRATIONS.md) for comprehensive migration architecture, best practices, and troubleshooting.
+
+## Quick Start
+
+This is the **canonical migration system** for vod-tender. All new schema changes should be created as versioned migrations here.
+
+### Migration Files
 
 Migrations follow a naming convention:
 ```
@@ -16,14 +22,16 @@ Examples:
 
 ## Running Migrations
 
-### In Application
+### In Application (Automatic)
 
 Migrations run automatically when the application starts via `db.RunMigrations()` in `main.go`.
 
-The application will:
-1. Try to run versioned migrations from this directory
-2. Fall back to legacy `db.Migrate()` if versioned migrations fail
+**Execution order**:
+1. Try to run versioned migrations from this directory (primary)
+2. If versioned migrations fail → fall back to legacy `db.Migrate()` in `db.go` (backward compatibility)
 3. Log migration status and version
+
+**Note**: The legacy embedded SQL in `db.Migrate()` is for backward compatibility only. New schema changes should always use versioned migrations.
 
 ### Using Makefile (Development)
 
@@ -155,9 +163,21 @@ Migrations are located automatically using `getMigrationsPath()` which searches:
 - `migrations` (when running from backend/db/)
 - `backend/db/migrations` (when running from repo root)
 
-### Legacy Migration Compatibility
+### Dual Migration System (Important)
 
-The old `db.Migrate()` function is still available as a fallback. New deployments should use `db.RunMigrations()`.
+vod-tender has two migration approaches for backward compatibility:
+
+1. **golang-migrate** (this directory) — **Use this for all new migrations**
+   - Versioned migrations with rollback capability
+   - Tracked in `schema_migrations` table
+   - Canonical approach going forward
+
+2. **Embedded SQL** (`db.Migrate()` in `db.go`) — **Legacy fallback only**
+   - Idempotent schema setup for old deployments
+   - No version tracking or rollback
+   - **Do not modify for new schema changes**
+
+See [`docs/MIGRATIONS.md`](../../../docs/MIGRATIONS.md) for detailed explanation of the dual system and migration strategy.
 
 ## Testing
 

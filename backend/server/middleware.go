@@ -14,6 +14,17 @@ import (
 	"time"
 )
 
+const (
+	// Rate limiter cleanup configuration
+	// cleanupMultiplier determines how long to keep stale entries before cleanup.
+	// Entries older than cleanupMultiplier * window are removed to prevent unbounded growth.
+	cleanupMultiplier = 2
+
+	// rateLimitDBTimeout is the maximum time to wait for database operations in the
+	// distributed rate limiter. This prevents slow database queries from blocking requests.
+	rateLimitDBTimeout = 2 * time.Second
+)
+
 // authConfig holds authentication configuration loaded from environment
 type authConfig struct {
 	adminUsername string
@@ -176,8 +187,8 @@ func (rl *ipRateLimiter) cleanup() {
 
 	now := time.Now()
 	for ip, v := range rl.visitors {
-		// Remove if no requests in the last 2 windows
-		if now.Sub(v.lastClean) > rl.cfg.window*2 {
+		// Remove if no requests in the last cleanupMultiplier windows
+		if now.Sub(v.lastClean) > rl.cfg.window*cleanupMultiplier {
 			delete(rl.visitors, ip)
 		}
 	}
@@ -278,9 +289,9 @@ func (rl *postgresRateLimiter) cleanupLoop(ctx context.Context) {
 	}
 }
 
-// cleanup removes requests older than 2x the window
+// cleanup removes requests older than cleanupMultiplier * window
 func (rl *postgresRateLimiter) cleanup(ctx context.Context) {
-	cutoff := time.Now().Add(-rl.cfg.window * 2)
+	cutoff := time.Now().Add(-rl.cfg.window * cleanupMultiplier)
 	_, err := rl.db.ExecContext(ctx,
 		`DELETE FROM rate_limit_requests WHERE request_time < $1`,
 		cutoff)
@@ -295,7 +306,7 @@ func (rl *postgresRateLimiter) allow(ip string) bool {
 		return true
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), rateLimitDBTimeout)
 	defer cancel()
 
 	now := time.Now()

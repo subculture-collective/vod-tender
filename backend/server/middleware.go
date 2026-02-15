@@ -252,10 +252,11 @@ func newPostgresRateLimiter(ctx context.Context, db *sql.DB, cfg *rateLimiterCon
 func (rl *postgresRateLimiter) initTable(ctx context.Context) error {
 	query := `
 		CREATE TABLE IF NOT EXISTS rate_limit_requests (
+			id BIGSERIAL PRIMARY KEY,
 			ip TEXT NOT NULL,
-			request_time TIMESTAMPTZ NOT NULL,
-			PRIMARY KEY (ip, request_time)
+			request_time TIMESTAMPTZ NOT NULL
 		);
+		CREATE INDEX IF NOT EXISTS idx_rate_limit_ip_time ON rate_limit_requests(ip, request_time);
 		CREATE INDEX IF NOT EXISTS idx_rate_limit_time ON rate_limit_requests(request_time);
 	`
 	_, err := rl.db.ExecContext(ctx, query)
@@ -328,8 +329,7 @@ func (rl *postgresRateLimiter) allow(ip string) bool {
 
 	// Insert the new request
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO rate_limit_requests (ip, request_time) VALUES ($1, $2)
-		 ON CONFLICT (ip, request_time) DO NOTHING`,
+		`INSERT INTO rate_limit_requests (ip, request_time) VALUES ($1, $2)`,
 		ip, now)
 	if err != nil {
 		slog.Error("rate limit: failed to insert request", slog.Any("error", err))

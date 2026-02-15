@@ -826,15 +826,15 @@ func TestVodSensitiveEndpointPattern(t *testing.T) {
 }
 
 func getTestDB(t *testing.T) *sql.DB {
-dsn := os.Getenv("TEST_PG_DSN")
-if dsn == "" {
-t.Skip("TEST_PG_DSN not set; skipping postgres rate limiter test")
-}
-db, err := sql.Open("pgx", dsn)
-if err != nil {
-t.Fatalf("failed to open test database: %v", err)
-}
-return db
+	dsn := os.Getenv("TEST_PG_DSN")
+	if dsn == "" {
+		t.Skip("TEST_PG_DSN not set; skipping postgres rate limiter test")
+	}
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("failed to open test database: %v", err)
+	}
+	return db
 }
 
 func TestPostgresRateLimiter(t *testing.T) {

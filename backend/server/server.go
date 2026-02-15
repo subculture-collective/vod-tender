@@ -626,32 +626,11 @@ func NewMux(db *sql.DB) http.Handler {
 			handleChatJSON(w, r, db, vodID)
 		case tail == "chat/stream":
 			handleChatSSE(w, r, db, vodID)
-		case tail == "chat/import":
-			handleVodChatImport(w, r, db, vodID)
 		case tail == "description":
 			handleVodDescription(w, r, db, vodID)
 		default:
 			http.NotFound(w, r)
 		}
-	})
-
-	// Admin convenience: /admin/vod/chat/import?id=<vodID>
-	mux.HandleFunc("/admin/vod/chat/import", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost && r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		vodID := r.URL.Query().Get("id")
-		if vodID == "" {
-			http.Error(w, "missing id", 400)
-			return
-		}
-		if err := vodpkg.ImportChat(r.Context(), db, vodID); err != nil {
-			http.Error(w, err.Error(), 500)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "vod_id": vodID})
 	})
 
 	// Create a selective middleware wrapper that applies auth and rate limiting to admin endpoints
@@ -1005,24 +984,6 @@ func handleChatSSE(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID str
 		flusher.Flush()
 		prev = m.Rel
 	}
-}
-
-// handleVodChatImport triggers chat replay import for a given VOD
-func handleVodChatImport(w http.ResponseWriter, r *http.Request, db *sql.DB, vodID string) {
-	if r.Method != http.MethodPost && r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if vodID == "" {
-		http.Error(w, "missing vod id", http.StatusBadRequest)
-		return
-	}
-	if err := vodpkg.ImportChat(r.Context(), db, vodID); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "vod_id": vodID})
 }
 
 func parseFloat64Query(r *http.Request, key string, def float64) float64 {

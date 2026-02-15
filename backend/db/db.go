@@ -71,9 +71,11 @@ func Connect() (*sql.DB, error) {
 // the versioned migration system (golang-migrate). New schema changes should be created as
 // versioned migrations in db/migrations/ directory.
 //
-// This function is used as a fallback when:
-// 1. The schema_migrations table doesn't exist (old deployment)
-// 2. Versioned migrations fail for any reason
+// This function is used as a fallback primarily when:
+// 1. Versioned migrations cannot be applied cleanly against an existing/legacy schema
+//    (for example, when expected columns or indices are missing or the schema has drifted).
+// 2. The versioned migration files cannot be loaded or executed (for example, embed/fs issues
+//    or malformed SQL in a migration).
 //
 // Execution order in main.go:
 // 1. db.RunMigrations() - Try versioned migrations first (canonical)

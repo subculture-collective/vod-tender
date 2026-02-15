@@ -30,12 +30,12 @@ When the application starts (`backend/main.go`), migrations run in this order:
 ```go
 1. db.RunMigrations() — Try golang-migrate versioned migrations first
 2. If step 1 fails → db.Migrate() — Fallback to legacy embedded SQL
-3. Log success/failure and continue startup
+3. Log outcome; if both steps fail, abort startup (process exits with non-zero status)
 ```
 
 This approach ensures:
 - New deployments use versioned migrations with full tracking
-- Old deployments without `schema_migrations` table fall back gracefully
+- Legacy deployments with schema drift fall back gracefully
 - Smooth transition from legacy to versioned migrations
 - Zero-downtime upgrades for existing instances
 

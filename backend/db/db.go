@@ -66,9 +66,26 @@ func Connect() (*sql.DB, error) {
 }
 
 // Migrate applies idempotent schema changes for all required tables and indices.
+//
+// DEPRECATED: This function provides backward compatibility for deployments that predate
+// the versioned migration system (golang-migrate). New schema changes should be created as
+// versioned migrations in db/migrations/ directory.
+//
+// This function is used as a fallback when:
+// 1. The schema_migrations table doesn't exist (old deployment)
+// 2. Versioned migrations fail for any reason
+//
+// Execution order in main.go:
+// 1. db.RunMigrations() - Try versioned migrations first (canonical)
+// 2. db.Migrate() - Fallback if step 1 fails (backward compatibility)
+//
+// See docs/MIGRATIONS.md for full migration architecture and guidance.
 func Migrate(ctx context.Context, db *sql.DB) error { return migratePostgres(ctx, db) }
 
 func migratePostgres(ctx context.Context, db *sql.DB) error {
+	// LEGACY MIGRATION SYSTEM - For backward compatibility only
+	// New schema changes should be added as versioned migrations in db/migrations/
+	// See docs/MIGRATIONS.md for guidance.
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS vods (
 			id SERIAL PRIMARY KEY,

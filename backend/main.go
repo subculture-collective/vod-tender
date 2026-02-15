@@ -108,20 +108,31 @@ func main() {
 		}
 	}()
 	
-	// Run versioned database migrations using golang-migrate
-	// Falls back to old idempotent Migrate() if versioned migrations fail
+	// Run database migrations using dual-system approach:
+	// 1. Primary: versioned migrations (golang-migrate) from db/migrations/
+	// 2. Fallback: embedded SQL (db.Migrate) for backward compatibility
+	//
+	// New deployments use versioned migrations with proper version tracking.
+	// Old deployments without schema_migrations table fall back to embedded SQL.
+	// This ensures smooth transition and zero-downtime upgrades.
+	//
+	// See docs/MIGRATIONS.md for detailed migration architecture.
 	slog.Info("running database migrations", slog.String("component", "db_migrate"))
 	if err := db.RunMigrations(database); err != nil {
-		slog.Error("versioned migrations failed, attempting fallback to legacy migration", slog.Any("err", err))
-		// Fallback to old migration system for backward compatibility
+		slog.Warn("versioned migrations failed, attempting fallback to legacy embedded SQL",
+			slog.Any("err", err),
+			slog.String("component", "db_migrate"))
+		// Fallback to embedded SQL migration for backward compatibility with pre-migration deployments
 		migrationCtx := context.Background()
 		if err := db.Migrate(migrationCtx, database); err != nil {
-			slog.Error("failed to migrate db", slog.Any("err", err))
+			slog.Error("failed to migrate db (both versioned and embedded SQL failed)", slog.Any("err", err))
 			os.Exit(1)
 		}
-		slog.Info("legacy migration completed successfully")
+		slog.Info("legacy embedded SQL migration completed successfully (consider migrating to versioned migrations)",
+			slog.String("component", "db_migrate"))
 	} else {
-		slog.Info("versioned migrations completed successfully")
+		slog.Info("versioned migrations completed successfully",
+			slog.String("component", "db_migrate"))
 	}
 
 	// Root context with graceful shutdown

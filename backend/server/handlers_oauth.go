@@ -45,9 +45,7 @@ func (h *Handlers) HandleTwitchOAuthStart(w http.ResponseWriter, r *http.Request
 		return
 	}
 	st := hex.EncodeToString(b)
-	h.stateMu.Lock()
-	h.stateStore[st] = time.Now().Add(10 * time.Minute)
-	h.stateMu.Unlock()
+	h.addOAuthState(st, time.Now().Add(10*time.Minute))
 	authURL, err := twitchapi.BuildAuthorizeURL(cfg.TwitchClientID, cfg.TwitchRedirectURI, cfg.TwitchScopes, st)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -109,9 +107,7 @@ func (h *Handlers) HandleYouTubeOAuthStart(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	st := hex.EncodeToString(b)
-	h.stateMu.Lock()
-	h.stateStore[st] = time.Now().Add(10 * time.Minute)
-	h.stateMu.Unlock()
+	h.addOAuthState(st, time.Now().Add(10*time.Minute))
 	// Build auth URL manually (reuse youtubeapi oauth config)
 	ts := &oauthTokenStore{db: h.db}
 	yts := youtubeapi.New(cfg, ts)

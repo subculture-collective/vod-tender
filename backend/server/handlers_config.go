@@ -56,7 +56,16 @@ func (h *Handlers) HandleConfig(w http.ResponseWriter, r *http.Request) {
 			if !safeKeys[k] {
 				continue
 			}
-			_, _ = h.db.ExecContext(r.Context(), `INSERT INTO kv (key,value,updated_at) VALUES ($1,$2,NOW()) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, "cfg:"+k, strings.TrimSpace(v))
+			if _, err := h.db.ExecContext(
+				r.Context(),
+				`INSERT INTO kv (key,value,updated_at) VALUES ($1,$2,NOW()) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`,
+				"cfg:"+k,
+				strings.TrimSpace(v),
+			); err != nil {
+				slog.Error("failed to update config", slog.String("key", k), slog.Any("err", err))
+				http.Error(w, "failed to update config", http.StatusInternalServerError)
+				return
+			}
 		}
 		w.WriteHeader(http.StatusNoContent)
 	default:

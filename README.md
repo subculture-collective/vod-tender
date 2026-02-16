@@ -228,6 +228,7 @@ Full configuration reference and operational guidance:
 - Observability: `docs/OBSERVABILITY.md`
 - CI/CD Pipeline: `docs/CICD.md`
 - CI/CD Quick Reference: `docs/CICD-QUICK-REFERENCE.md`
+- **Changelog**: [`CHANGELOG.md`](CHANGELOG.md) - Release history and notable changes
 
 ## End-to-end overview
 
@@ -368,10 +369,14 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 - Setting up your development environment
 - Code style and conventions
 - Testing requirements
+- Commit message format (Conventional Commits)
+- Changelog maintenance (automated via semantic-release)
 - Submitting pull requests
 - Reporting bugs and requesting features
 
 By participating in this project, you agree to abide by our [Code of Conduct](CODE_OF_CONDUCT.md).
+
+For release history and notable changes, see [CHANGELOG.md](CHANGELOG.md).
 
 ## Feature ideas
 

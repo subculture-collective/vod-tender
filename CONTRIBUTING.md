@@ -691,46 +691,85 @@ Follow [Semantic Versioning](https://semver.org/):
 
 ### Release Workflow
 
-1. **Create release branch**:
+**Automated Releases (Recommended):**
+
+The project uses [semantic-release](https://semantic-release.gitbook.io/semantic-release/) for fully automated releases. When PRs are merged to `main` with [Conventional Commits](https://www.conventionalcommits.org/):
+
+1. **semantic-release analyzes commits** since last release
+2. **Determines next version** based on commit types (feat/fix/BREAKING)
+3. **Updates CHANGELOG.md** with categorized changes
+4. **Creates Git tag** (e.g., `v1.2.0`)
+5. **Publishes GitHub Release** with release notes
+6. **Builds and publishes Docker images** to GitHub Container Registry
+7. **Generates SBOMs** and signs images with cosign
+
+**Manual Releases (Fallback):**
+
+For manual releases or hotfixes, use the `scripts/create-release.sh` helper:
+
+```bash
+# Create and push release tag
+./scripts/create-release.sh v1.2.1
+
+# This will:
+# - Run tests
+# - Create annotated tag
+# - Optionally push to trigger release workflow
+```
+
+**Manual release steps:**
+
+1. **Ensure CHANGELOG.md is up to date** with manual entries if needed
+
+2. **Create annotated tag**:
 
    ```bash
-   git checkout -b release/v1.2.0
-   ```
-
-2. **Update version**:
-   - Update `version` in relevant files
-   - Update CHANGELOG.md
-
-3. **Create PR**: `release/v1.2.0` → `main`
-
-4. **Merge and tag**:
-
-   ```bash
-   git checkout main
-   git pull origin main
    git tag -a v1.2.0 -m "Release v1.2.0"
    git push origin v1.2.0
    ```
 
-5. **Create GitHub Release**:
-   - Navigate to Releases
-   - Draft new release
-   - Select tag v1.2.0
-   - Add release notes from CHANGELOG
-   - Publish release
+3. **GitHub Actions workflow** (`.github/workflows/release.yml`) will:
+   - Build multi-platform binaries (linux/darwin, amd64/arm64)
+   - Build and push Docker images
+   - Generate checksums and SBOMs
+   - Create GitHub Release with assets
+   - Sign images with cosign
 
-6. **Announce**:
-   - Post in discussions
-   - Update documentation
-   - Notify users (if breaking changes)
+4. **Verify release**:
+   - Check [Actions workflow](https://github.com/subculture-collective/vod-tender/actions/workflows/release.yml)
+   - Review [GitHub Releases](https://github.com/subculture-collective/vod-tender/releases)
+
+5. **Announce**:
+   - Post in [discussions](https://github.com/subculture-collective/vod-tender/discussions)
+   - Update documentation if needed
+   - Notify users of breaking changes
 
 ### Changelog
 
-Maintain CHANGELOG.md following [Keep a Changelog](https://keepachangelog.com/):
+The project uses **automated changelog generation** via [semantic-release](https://semantic-release.gitbook.io/semantic-release/) which updates `CHANGELOG.md` automatically based on [Conventional Commits](https://www.conventionalcommits.org/).
+
+**How it works:**
+
+1. **Commit with conventional format** (see [Commit Message Format](#making-changes) above)
+2. **Semantic-release analyzes commits** on merge to `main`
+3. **CHANGELOG.md is auto-updated** with categorized changes
+4. **Version is auto-incremented** following semver rules
+
+**Changelog categories** (from `.releaserc.json`):
+
+- `feat:` → **Features** section
+- `fix:` → **Bug Fixes** section
+- `perf:` → **Performance Improvements** section
+- `refactor:` → **Code Refactoring** section
+- `docs:` → **Documentation** section
+- `revert:` → **Reverts** section
+- Breaking changes → triggers MAJOR version bump
+
+**Manual changelog updates:**
+
+For changes not captured by commits (e.g., manual hotfixes, retroactive entries), edit `CHANGELOG.md` following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format:
 
 ```markdown
-# Changelog
-
 ## [1.2.0] - 2025-10-20
 
 ### Added
@@ -747,6 +786,30 @@ Maintain CHANGELOG.md following [Keep a Changelog](https://keepachangelog.com/):
 
 ### Security
 - Patched SQL injection vulnerability in admin endpoints
+```
+
+**Guidelines:**
+
+- Use **present tense** ("Add feature" not "Added feature")
+- Be **concise but descriptive** (link to PR/issue for details)
+- Group related changes under appropriate category
+- Include PR/issue numbers: `(#123)`
+- For breaking changes, document migration path in entry
+
+**Example commit → changelog flow:**
+
+```bash
+# Commit
+git commit -m "feat(vod): add download priority queue
+
+Implements priority-based VOD processing to handle high-value
+streams first. Priority is determined by view count and recency.
+
+Closes #123"
+
+# After merge to main, semantic-release automatically adds to CHANGELOG.md:
+# ### Features
+# - **vod:** add download priority queue ([abc1234](link)) ([#123](link))
 ```
 
 ## Getting Help

@@ -13,7 +13,7 @@ require (
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/joho/godotenv v1.5.1
 	github.com/prometheus/client_golang v1.20.4
-	golang.org/x/oauth2 v0.32.0
+	golang.org/x/oauth2 v0.35.0
 	golang.org/x/sync v0.16.0 // indirect
 	google.golang.org/api v0.246.0
 )

@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"log/slog"
@@ -14,6 +16,20 @@ import (
 	"github.com/onnwee/vod-tender/backend/twitchapi"
 	"github.com/onnwee/vod-tender/backend/youtubeapi"
 )
+
+// oauthTokenStore adapts the DB to youtubeapi.TokenStore interface
+type oauthTokenStore struct{ db *sql.DB }
+
+func (o *oauthTokenStore) UpsertOAuthToken(ctx context.Context, provider string, accessToken string, refreshToken string, expiry time.Time, raw string) error {
+	// Use dbpkg.UpsertOAuthToken which handles encryption automatically
+	return dbpkg.UpsertOAuthToken(ctx, o.db, provider, accessToken, refreshToken, expiry, raw, "")
+}
+func (o *oauthTokenStore) GetOAuthToken(ctx context.Context, provider string) (accessToken string, refreshToken string, expiry time.Time, raw string, err error) {
+	// Use dbpkg.GetOAuthToken which handles decryption automatically
+	access, refresh, exp, scope, dbErr := dbpkg.GetOAuthToken(ctx, o.db, provider)
+	return access, refresh, exp, scope, dbErr
+}
+
 
 // HandleTwitchOAuthStart initiates the Twitch OAuth flow by redirecting to Twitch.
 func (h *Handlers) HandleTwitchOAuthStart(w http.ResponseWriter, r *http.Request) {

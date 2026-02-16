@@ -27,16 +27,14 @@ describe('ChatReplay', () => {
   })
 
   it('displays user badges', async () => {
-    render(<ChatReplay vodId="1" />)
+    const { container } = render(<ChatReplay vodId="1" />)
 
     await waitFor(() => {
       expect(screen.getByText('testuser1:')).toBeInTheDocument()
     })
 
-    // Check for badge images (broadcaster and subscriber)
-    const badges = screen.getAllByRole('img', {
-      name: /broadcaster|subscriber/i,
-    })
+    // Check for badge images (using querySelector since they have aria-hidden="true")
+    const badges = container.querySelectorAll('img[alt="broadcaster"], img[alt="subscriber"]')
     expect(badges.length).toBeGreaterThan(0)
   })
 

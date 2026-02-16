@@ -141,13 +141,15 @@ export default function ChatReplay({ vodId }: ChatReplayProps) {
 
   return (
     <div className="bg-gray-100 rounded p-2 mt-6">
-      <div className="flex items-center gap-2 mb-2">
-        <span className="font-semibold">Chat Replay</span>
+      <div className="flex items-center gap-2 mb-2" role="toolbar" aria-label="Chat replay controls">
+        <span className="font-semibold" id="chat-replay-title">Chat Replay</span>
         <button
           className={`px-2 py-1 rounded text-xs ${
             replay ? 'bg-indigo-600 text-white' : 'bg-white border'
           }`}
           onClick={() => setReplay((v: boolean) => !v)}
+          aria-pressed={replay}
+          aria-label={replay ? 'Switch to static chat view' : 'Switch to live replay mode'}
         >
           {replay ? 'Live' : 'Static'}
         </button>
@@ -182,12 +184,24 @@ export default function ChatReplay({ vodId }: ChatReplayProps) {
           }
         />
       </div>
-      {loading && <div className="text-xs text-gray-500">Loading chat...</div>}
-      {error && <div className="text-xs text-red-500">{error}</div>}
+      {loading && (
+        <div className="text-xs text-gray-500" role="status" aria-live="polite">
+          Loading chat...
+        </div>
+      )}
+      {error && (
+        <div className="text-xs text-red-500" role="alert">
+          {error}
+        </div>
+      )}
       <div
         ref={containerRef}
         className="h-64 overflow-y-auto bg-white rounded border p-2 text-sm font-mono"
         style={{ fontSize: '0.92em' }}
+        role="log"
+        aria-live={live ? 'polite' : 'off'}
+        aria-labelledby="chat-replay-title"
+        aria-atomic="false"
       >
         {messages.map((msg, i) => {
           const badges = parseBadges(msg.badges)
@@ -203,6 +217,7 @@ export default function ChatReplay({ vodId }: ChatReplayProps) {
                     alt={b.set}
                     className="inline h-5 w-5 align-text-bottom"
                     title={b.set}
+                    aria-hidden="true"
                   />
                 ))}
               </span>
@@ -222,7 +237,11 @@ export default function ChatReplay({ vodId }: ChatReplayProps) {
             </div>
           )
         })}
-        {live && <div className="text-xs text-gray-400">[live]</div>}
+        {live && (
+          <div className="text-xs text-gray-400" role="status">
+            [live]
+          </div>
+        )}
       </div>
     </div>
   )

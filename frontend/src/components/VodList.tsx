@@ -22,10 +22,12 @@ export default function VodList({ onVodSelect }: VodListProps) {
   const [error, setError] = useState<string | null>(null)
   const [page, setPage] = useState(0)
   const [hasMore, setHasMore] = useState(false)
+  const [retryCount, setRetryCount] = useState(0)
   const limit = 50 // Match backend default
 
   useEffect(() => {
     setLoading(true)
+    setError(null)
     const offset = page * limit
     // Fetch limit + 1 to detect if there are more pages
     fetch(`${API_BASE_URL}/vods?limit=${limit + 1}&offset=${offset}`)
@@ -41,7 +43,7 @@ export default function VodList({ onVodSelect }: VodListProps) {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
-  }, [page])
+  }, [page, retryCount])
 
   if (loading) return <VodListSkeleton />
   
@@ -75,10 +77,7 @@ export default function VodList({ onVodSelect }: VodListProps) {
           </div>
         </div>
         <button
-          onClick={() => {
-            setError(null)
-            setPage(0)
-          }}
+          onClick={() => setRetryCount((prev) => prev + 1)}
           className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
           aria-label="Retry loading VODs"
         >
@@ -165,15 +164,17 @@ export default function VodList({ onVodSelect }: VodListProps) {
               >
                 <td className="px-4 py-2 font-medium">{vod.title}</td>
                 <td className="px-4 py-2">
-                  {new Date(vod.date).toLocaleString()}
+                  <time dateTime={vod.date}>
+                    {new Date(vod.date).toLocaleString()}
+                  </time>
                 </td>
                 <td className="px-4 py-2">
                   {vod.processed ? (
-                    <span className="text-green-600" aria-label="Status: Processed">
+                    <span className="text-green-600">
                       Processed
                     </span>
                   ) : (
-                    <span className="text-yellow-700" aria-label="Status: Pending">
+                    <span className="text-yellow-700">
                       Pending
                     </span>
                   )}
@@ -191,7 +192,7 @@ export default function VodList({ onVodSelect }: VodListProps) {
                       YouTube
                     </a>
                   ) : (
-                    <span className="text-gray-400" aria-label="No YouTube link">
+                    <span className="text-gray-400">
                       —
                     </span>
                   )}

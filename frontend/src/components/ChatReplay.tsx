@@ -164,7 +164,6 @@ export default function ChatReplay({ vodId }: ChatReplayProps) {
             setSpeed(Number(e.target.value))
           }
           disabled={!replay}
-          aria-label="Chat replay speed"
         >
           <option value={0.5}>0.5x</option>
           <option value={1.0}>1x</option>
@@ -183,7 +182,6 @@ export default function ChatReplay({ vodId }: ChatReplayProps) {
           onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
             setFrom(Number(e.target.value))
           }
-          aria-label="Start position in seconds"
         />
       </div>
       {loading && (

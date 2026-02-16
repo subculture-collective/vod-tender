@@ -29,6 +29,7 @@ export default function VodDetail({ vodId, onBack }: VodDetailProps) {
   const [progress, setProgress] = useState<Progress | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [retryCount, setRetryCount] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -39,6 +40,7 @@ export default function VodDetail({ vodId, onBack }: VodDetailProps) {
 
       try {
         setLoading(true)
+        setError(null)
         const [vodData, progressData] = await Promise.all([
           fetch(`${API_BASE_URL}/vods/${vodId}`).then((r) => r.json()),
           fetch(`${API_BASE_URL}/vods/${vodId}/progress`).then((r) => r.json()),
@@ -75,7 +77,7 @@ export default function VodDetail({ vodId, onBack }: VodDetailProps) {
         clearTimeout(timeoutId)
       }
     }
-  }, [vodId])
+  }, [vodId, retryCount])
 
   if (loading) return <VodDetailSkeleton />
   
@@ -116,7 +118,7 @@ export default function VodDetail({ vodId, onBack }: VodDetailProps) {
           </div>
         </div>
         <button
-          onClick={() => setError(null)}
+          onClick={() => setRetryCount((prev) => prev + 1)}
           className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
           aria-label="Retry loading VOD details"
         >
@@ -161,11 +163,11 @@ export default function VodDetail({ vodId, onBack }: VodDetailProps) {
       </div>
       <div className="mb-4">
         {vod.processed ? (
-          <span className="text-green-600" aria-label="Status: Processed">
+          <span className="text-green-600">
             Processed
           </span>
         ) : (
-          <span className="text-yellow-700" aria-label="Status: Pending">
+          <span className="text-yellow-700">
             Pending
           </span>
         )}

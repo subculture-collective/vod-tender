@@ -43,6 +43,10 @@ type Config struct {
 	YTClientSecret string
 	YTRedirectURI  string
 	YTScopes       string
+
+	// YouTube upload policy (compliance guardrails)
+	YouTubeUploadEnabled   bool
+	YouTubeUploadOwnership string
 }
 
 // Load reads environment variables and applies defaults. It doesn't fail if Twitch creds are missing;
@@ -115,8 +119,19 @@ func Load() (*Config, error) {
 	if cfg.YTScopes == "" {
 		cfg.YTScopes = "https://www.googleapis.com/auth/youtube.upload"
 	}
+	cfg.YouTubeUploadEnabled = parseBoolEnv(os.Getenv("YOUTUBE_UPLOAD_ENABLED"))
+	cfg.YouTubeUploadOwnership = strings.ToLower(strings.TrimSpace(os.Getenv("YOUTUBE_UPLOAD_OWNERSHIP")))
 
 	return cfg, nil
+}
+
+func parseBoolEnv(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 // ValidateChatReady checks required fields when chat is enabled (manual recorder path).
@@ -125,4 +140,18 @@ func (c *Config) ValidateChatReady() error {
 		return fmt.Errorf("missing twitch env: require TWITCH_CHANNEL, TWITCH_BOT_USERNAME, TWITCH_OAUTH_TOKEN")
 	}
 	return nil
+}
+
+// ValidateYouTubeUploadPolicy enforces explicit operator ownership declaration
+// when YouTube upload is enabled.
+func (c *Config) ValidateYouTubeUploadPolicy() error {
+	if !c.YouTubeUploadEnabled {
+		return nil
+	}
+	switch c.YouTubeUploadOwnership {
+	case "self", "authorized":
+		return nil
+	default:
+		return fmt.Errorf("YOUTUBE_UPLOAD_ENABLED requires YOUTUBE_UPLOAD_OWNERSHIP=self|authorized")
+	}
 }

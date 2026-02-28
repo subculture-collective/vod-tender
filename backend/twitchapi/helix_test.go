@@ -337,7 +337,7 @@ func TestHelixClient_ListVideosEmptyPages(t *testing.T) {
 		ClientID:     "test-client-id",
 		ClientSecret: "test-secret",
 	}
-	ts.SetToken("test-token", time.Now().Add(1 * time.Hour))
+	ts.SetToken("test-token", time.Now().Add(1*time.Hour))
 
 	client := &HelixClient{
 		AppTokenSource: ts,
@@ -440,7 +440,7 @@ func TestHelixClient_ListVideosPaginationCursors(t *testing.T) {
 		ClientID:     "test-client-id",
 		ClientSecret: "test-secret",
 	}
-	ts.SetToken("test-token", time.Now().Add(1 * time.Hour))
+	ts.SetToken("test-token", time.Now().Add(1*time.Hour))
 
 	client := &HelixClient{
 		AppTokenSource: ts,
@@ -503,9 +503,7 @@ func TestHelixClient_ListVideosPaginationCursors(t *testing.T) {
 	}
 }
 
-// TestHelixClient_ListVideos429RateLimiting tests handling of 429 responses
-// Note: Current implementation doesn't check status codes, so this test
-// documents the expected behavior and current limitation
+// TestHelixClient_ListVideos429RateLimiting verifies retry behavior on 429 responses.
 func TestHelixClient_ListVideos429RateLimiting(t *testing.T) {
 	attemptCount := 0
 
@@ -514,9 +512,9 @@ func TestHelixClient_ListVideos429RateLimiting(t *testing.T) {
 
 		// First attempt: return 429
 		if attemptCount == 1 {
-			w.Header().Set("Retry-After", "2")
+			w.Header().Set("Retry-After", "0")
 			w.Header().Set("Ratelimit-Remaining", "0")
-			w.Header().Set("Ratelimit-Reset", fmt.Sprintf("%d", time.Now().Add(2*time.Second).Unix()))
+			w.Header().Set("Ratelimit-Reset", fmt.Sprintf("%d", time.Now().Add(1*time.Second).Unix()))
 			w.WriteHeader(http.StatusTooManyRequests)
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"error":   "Too Many Requests",
@@ -546,7 +544,7 @@ func TestHelixClient_ListVideos429RateLimiting(t *testing.T) {
 		ClientID:     "test-client-id",
 		ClientSecret: "test-secret",
 	}
-	ts.SetToken("test-token", time.Now().Add(1 * time.Hour))
+	ts.SetToken("test-token", time.Now().Add(1*time.Hour))
 
 	client := &HelixClient{
 		AppTokenSource: ts,
@@ -559,24 +557,264 @@ func TestHelixClient_ListVideos429RateLimiting(t *testing.T) {
 		},
 	}
 
-	// First call will get 429
-	_, _, err := client.ListVideos(context.Background(), "12345", "", 20)
+	videos, _, err := client.ListVideos(context.Background(), "12345", "", 20)
+	if err != nil {
+		t.Fatalf("ListVideos() unexpected error after 429 retry = %v", err)
+	}
+	if len(videos) != 1 {
+		t.Fatalf("expected 1 video after retry, got %d", len(videos))
+	}
+	if attemptCount != 2 {
+		t.Fatalf("expected 2 attempts (429 + success), got %d", attemptCount)
+	}
+}
 
-	// Current implementation doesn't check status codes
-	// It will try to decode the error response as a valid response
-	// This test documents that behavior - the implementation should be enhanced
-	// to properly handle 429 responses
+func TestHelixClient_GetUserID401RefreshRetry(t *testing.T) {
+	userAttempts := 0
+	tokenRequests := 0
 
-	// For now, we just verify the server was called
-	if attemptCount < 1 {
-		t.Error("Expected at least one attempt to fetch videos")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/oauth2/token":
+			tokenRequests++
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"access_token": "fresh-token",
+				"token_type":   "bearer",
+				"expires_in":   3600,
+			})
+			return
+		case "/helix/users":
+			userAttempts++
+			if userAttempts == 1 {
+				if got := r.Header.Get("Authorization"); got != "Bearer stale-token" {
+					t.Fatalf("first attempt auth = %q, want stale token", got)
+				}
+				w.WriteHeader(http.StatusUnauthorized)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "Unauthorized", "status": 401})
+				return
+			}
+			if got := r.Header.Get("Authorization"); got != "Bearer fresh-token" {
+				t.Fatalf("second attempt auth = %q, want refreshed token", got)
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"data": []map[string]string{{"id": "u-123"}},
+			})
+			return
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	rewrite := &http.Client{
+		Transport: &rewriteTransport{
+			Transport: http.DefaultTransport,
+			host:      server.URL,
+		},
 	}
 
-	// When 429 handling is implemented, this should be updated to:
-	// - Expect an error on the first call
-	// - Retry with backoff
-	// - Succeed on retry
-	_ = err // Currently we don't check the error as behavior is undefined
+	ts := &TokenSource{
+		ClientID:     "test-client-id",
+		ClientSecret: "test-secret",
+		HTTPClient:   rewrite,
+	}
+	ts.SetToken("stale-token", time.Now().Add(1*time.Hour))
+
+	client := &HelixClient{
+		AppTokenSource: ts,
+		ClientID:       "test-client-id",
+		HTTPClient:     rewrite,
+	}
+
+	userID, err := client.GetUserID(context.Background(), "testuser")
+	if err != nil {
+		t.Fatalf("GetUserID() unexpected error = %v", err)
+	}
+	if userID != "u-123" {
+		t.Fatalf("GetUserID() = %q, want u-123", userID)
+	}
+	if tokenRequests != 1 {
+		t.Fatalf("expected exactly one token refresh request, got %d", tokenRequests)
+	}
+	if userAttempts != 2 {
+		t.Fatalf("expected two /helix/users attempts, got %d", userAttempts)
+	}
+}
+
+func TestHelixClient_GetUserID401RefreshRetryOnFinalAttempt(t *testing.T) {
+	userAttempts := 0
+	tokenRequests := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/oauth2/token":
+			tokenRequests++
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"access_token": "fresh-token",
+				"token_type":   "bearer",
+				"expires_in":   3600,
+			})
+			return
+		case "/helix/users":
+			userAttempts++
+			if userAttempts < helixMaxRetries {
+				// Serve 5xx to exhaust all-but-last retry slots using the stale token.
+				if got := r.Header.Get("Authorization"); got != "Bearer stale-token" {
+					t.Errorf("attempt %d auth = %q, want stale token", userAttempts, got)
+				}
+				w.WriteHeader(http.StatusInternalServerError)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "temporary error", "status": 500})
+				return
+			} else if userAttempts == helixMaxRetries {
+				// Final retry with stale token should return 401 to trigger refresh.
+				if got := r.Header.Get("Authorization"); got != "Bearer stale-token" {
+					t.Errorf("final stale attempt auth = %q, want stale token", got)
+				}
+				w.WriteHeader(http.StatusUnauthorized)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "Unauthorized", "status": 401})
+				return
+			}
+			// Post-refresh attempt must use the freshly-obtained token.
+			if got := r.Header.Get("Authorization"); got != "Bearer fresh-token" {
+				t.Errorf("post-refresh attempt auth = %q, want fresh token", got)
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"data": []map[string]string{{"id": "u-456"}},
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	rewrite := &http.Client{
+		Transport: &rewriteTransport{
+			Transport: http.DefaultTransport,
+			host:      server.URL,
+		},
+	}
+
+	ts := &TokenSource{
+		ClientID:     "test-client-id",
+		ClientSecret: "test-secret",
+		HTTPClient:   rewrite,
+	}
+	ts.SetToken("stale-token", time.Now().Add(1*time.Hour))
+
+	client := &HelixClient{
+		AppTokenSource: ts,
+		ClientID:       "test-client-id",
+		HTTPClient:     rewrite,
+	}
+
+	userID, err := client.GetUserID(context.Background(), "testuser")
+	if err != nil {
+		t.Fatalf("GetUserID() unexpected error = %v", err)
+	}
+	if userID != "u-456" {
+		t.Fatalf("GetUserID() = %q, want u-456", userID)
+	}
+	if tokenRequests != 1 {
+		t.Fatalf("expected exactly one token refresh, got %d", tokenRequests)
+	}
+	// helixMaxRetries attempts with stale token (incl. the final 401) + 1 with fresh token.
+	expectedAttempts := helixMaxRetries + 1
+	if userAttempts != expectedAttempts {
+		t.Fatalf("expected %d /helix/users attempts, got %d", expectedAttempts, userAttempts)
+	}
+}
+
+func TestHelixClient_GetStreams(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/helix/streams" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if got := r.URL.Query().Get("user_login"); got != "livechannel" {
+			t.Fatalf("user_login=%q want livechannel", got)
+		}
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": []map[string]string{{
+				"title":      "Live Now",
+				"started_at": "2024-10-15T14:30:00Z",
+			}},
+		})
+	}))
+	defer server.Close()
+
+	ts := &TokenSource{ClientID: "test-client-id", ClientSecret: "test-secret"}
+	ts.SetToken("test-token", time.Now().Add(1*time.Hour))
+
+	client := &HelixClient{
+		AppTokenSource: ts,
+		ClientID:       "test-client-id",
+		HTTPClient: &http.Client{Transport: &rewriteTransport{
+			Transport: http.DefaultTransport,
+			host:      server.URL,
+		}},
+	}
+
+	streams, err := client.GetStreams(context.Background(), "livechannel")
+	if err != nil {
+		t.Fatalf("GetStreams() error = %v", err)
+	}
+	if len(streams) != 1 {
+		t.Fatalf("expected 1 stream, got %d", len(streams))
+	}
+	if streams[0].Title != "Live Now" {
+		t.Fatalf("stream title=%q want Live Now", streams[0].Title)
+	}
+}
+
+func TestHelixClient_ListVideos5xxRetry(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts == 1 {
+			w.WriteHeader(http.StatusBadGateway)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "bad gateway"})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": []map[string]string{{
+				"id":         "v-retry",
+				"title":      "Recovered",
+				"duration":   "1h",
+				"created_at": "2024-01-01T10:00:00Z",
+			}},
+			"pagination": map[string]string{},
+		})
+	}))
+	defer server.Close()
+
+	ts := &TokenSource{ClientID: "test-client-id", ClientSecret: "test-secret"}
+	ts.SetToken("test-token", time.Now().Add(1*time.Hour))
+
+	client := &HelixClient{
+		AppTokenSource: ts,
+		ClientID:       "test-client-id",
+		HTTPClient: &http.Client{Transport: &rewriteTransport{
+			Transport: http.DefaultTransport,
+			host:      server.URL,
+		}},
+	}
+
+	videos, _, err := client.ListVideos(context.Background(), "12345", "", 20)
+	if err != nil {
+		t.Fatalf("ListVideos() unexpected error after 5xx retry = %v", err)
+	}
+	if len(videos) != 1 {
+		t.Fatalf("expected 1 video, got %d", len(videos))
+	}
+	if attempts != 2 {
+		t.Fatalf("expected 2 attempts (5xx + success), got %d", attempts)
+	}
 }
 
 // TestHelixClient_ListVideosNoCursorOnLastPage ensures empty cursor on final page
@@ -602,7 +840,7 @@ func TestHelixClient_ListVideosNoCursorOnLastPage(t *testing.T) {
 		ClientID:     "test-client-id",
 		ClientSecret: "test-secret",
 	}
-	ts.SetToken("test-token", time.Now().Add(1 * time.Hour))
+	ts.SetToken("test-token", time.Now().Add(1*time.Hour))
 
 	client := &HelixClient{
 		AppTokenSource: ts,

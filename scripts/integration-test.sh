@@ -60,8 +60,6 @@ DB_USER=vod
 DB_PASSWORD=vod
 DB_HOST=postgres
 BACKEND_ENV_FILE=./backend/.env
-SECRETS_DIR=./secrets
-YTDLP_COOKIES_PATH=/run/cookies/twitch-cookies.txt
 EOF
     
     # Create backend .env file
@@ -72,9 +70,6 @@ HTTP_ADDR=:8080
 DB_DSN=postgres://vod:vod@postgres:5432/vod?sslmode=disable
 DATA_DIR=/data
 EOF
-    
-    # Create secrets directory
-    mkdir -p secrets
     
     pass "Environment setup complete"
 }

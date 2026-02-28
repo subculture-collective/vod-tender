@@ -32,7 +32,7 @@ RUN set -eux; \
 	DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 		ca-certificates curl xz-utils; \
 	# Download yt-dlp (pinned version) and verify checksum
-	YTDLP_VERSION="2026.02.04"; \\
+	YTDLP_VERSION="2026.02.04"; \
 	curl -L "https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/yt-dlp" -o /usr/local/bin/yt-dlp; \
 	curl -L "https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/SHA2-256SUMS" -o /tmp/SHA2-256SUMS; \
 	cd /usr/local/bin && grep "yt-dlp$" /tmp/SHA2-256SUMS | sha256sum -c; \

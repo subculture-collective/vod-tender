@@ -110,8 +110,8 @@ make lint-fix     # auto-fix linter issues
 
 - **Resume support**: `--continue` flag; progress persisted to DB before subprocess exits
 - **External downloader**: aria2c auto-enabled if present (`--external-downloader aria2c`)
-- **Cookies**: `YTDLP_COOKIES_PATH` env var → runtime copies to temp file, invokes `--cookies <temp>` (prevents yt-dlp from leaking secrets in logs)
-- **Verbose mode**: Avoid `YTDLP_VERBOSE=1` when cookies configured (sensitive data in stderr)
+- **Restricted VODs**: Subscriber-only/restricted VODs are treated as auth-required and skipped
+- **Verbose mode**: Use `YTDLP_VERBOSE=1` only for short debugging sessions (can produce very noisy logs)
 
 ### Database Patterns
 
@@ -145,6 +145,6 @@ make lint-fix     # auto-fix linter issues
 
 - **Forgetting backend/.env**: Stack won't start properly without Twitch credentials in `backend/.env`; copy from `backend/.env.example`
 - **Circuit breaker stuck open**: Check `/status` endpoint for `circuit_state`; manually reset via `docker compose exec postgres psql -U vod -d vod -c "UPDATE kv SET value='closed' WHERE key='circuit_state'"`
-- **yt-dlp auth failures**: Ensure cookies file is Netscape format in `./secrets/`, mounted to container at `/run/cookies/`, and `YTDLP_COOKIES_PATH=/run/cookies/twitch-cookies.txt` in `backend/.env`
+- **yt-dlp auth failures**: Subscriber-only/restricted Twitch VODs are not downloaded; confirm the source VOD is public/accessible
 - **Multi-instance port conflicts**: Each instance needs unique `API_PORT`/`FRONTEND_PORT` in root `.env`; DB conflicts if sharing Postgres without unique `DB_NAME`
 - **Container name collisions**: Different `STACK_NAME` values required when running multiple instances on same host

@@ -55,3 +55,48 @@ func TestValidateChatReadyWithDefaultChannel(t *testing.T) {
 		t.Errorf("expected error when TWITCH_CHANNEL is DefaultChannel (empty), but validation passed")
 	}
 }
+
+func TestValidateYouTubeUploadPolicyDisabled(t *testing.T) {
+	t.Setenv("YOUTUBE_UPLOAD_ENABLED", "0")
+	t.Setenv("YOUTUBE_UPLOAD_OWNERSHIP", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if err := cfg.ValidateYouTubeUploadPolicy(); err != nil {
+		t.Fatalf("expected disabled upload policy to pass validation, got: %v", err)
+	}
+}
+
+func TestValidateYouTubeUploadPolicyRequiresOwnership(t *testing.T) {
+	t.Setenv("YOUTUBE_UPLOAD_ENABLED", "1")
+	t.Setenv("YOUTUBE_UPLOAD_OWNERSHIP", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if err := cfg.ValidateYouTubeUploadPolicy(); err == nil {
+		t.Fatal("expected validation error when upload is enabled without ownership declaration")
+	}
+}
+
+func TestValidateYouTubeUploadPolicyAcceptedValues(t *testing.T) {
+	tests := []string{"self", "authorized", "SELF", " Authorized "}
+
+	for _, ownership := range tests {
+		t.Run(ownership, func(t *testing.T) {
+			t.Setenv("YOUTUBE_UPLOAD_ENABLED", "true")
+			t.Setenv("YOUTUBE_UPLOAD_OWNERSHIP", ownership)
+
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() error: %v", err)
+			}
+			if err := cfg.ValidateYouTubeUploadPolicy(); err != nil {
+				t.Fatalf("expected valid ownership %q, got error: %v", ownership, err)
+			}
+		})
+	}
+}

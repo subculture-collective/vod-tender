@@ -30,6 +30,19 @@ func (m mockUploader) Upload(ctx context.Context, dbc *sql.DB, path, title strin
 	return m.url, m.err
 }
 
+type spyUploader struct {
+	called *int
+	err    error
+	url    string
+}
+
+func (s spyUploader) Upload(ctx context.Context, dbc *sql.DB, path, title string, date time.Time) (string, error) {
+	if s.called != nil {
+		*s.called++
+	}
+	return s.url, s.err
+}
+
 // spyDownloader implements Downloader and increments a counter when invoked.
 type spyDownloader struct{ called *int }
 
@@ -66,6 +79,8 @@ func TestProcessOnceHappyPath(t *testing.T) {
 	if err := dbpkg.Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("YOUTUBE_UPLOAD_ENABLED", "1")
+	t.Setenv("YOUTUBE_UPLOAD_OWNERSHIP", "self")
 	channel := ""
 	_, _ = db.ExecContext(context.Background(), `INSERT INTO vods (channel,twitch_vod_id,title,date,duration_seconds,created_at) VALUES ($1,'123','Test',NOW(),60,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, channel)
 	oldD, oldU := downloader, uploader
@@ -82,6 +97,116 @@ func TestProcessOnceHappyPath(t *testing.T) {
 	_ = db.QueryRowContext(context.Background(), `SELECT processed,youtube_url FROM vods WHERE twitch_vod_id='123'`).Scan(&processed, &yt)
 	if !processed || yt == "" {
 		t.Fatalf("expected processed=true and youtube_url set got %v %s", processed, yt)
+	}
+}
+
+func TestProcessOnceUploadDisabledSkipsUpload(t *testing.T) {
+	dsn := os.Getenv("TEST_PG_DSN")
+	if dsn == "" {
+		t.Skip("TEST_PG_DSN not set")
+	}
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("failed to close db: %v", err)
+		}
+	}()
+	if err := dbpkg.Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YOUTUBE_UPLOAD_ENABLED", "0")
+	t.Setenv("YOUTUBE_UPLOAD_OWNERSHIP", "")
+
+	channel := "test-upload-disabled"
+	_, _ = db.ExecContext(context.Background(), `INSERT INTO vods (channel,twitch_vod_id,title,date,duration_seconds,created_at,processed)
+		VALUES ($1,'upload_disabled_vod','No Upload',NOW(),60,NOW(),FALSE)
+		ON CONFLICT (twitch_vod_id) DO UPDATE SET processed=FALSE, youtube_url=NULL, downloaded_path=NULL, processing_error=NULL`, channel)
+
+	var uploadCalls int
+	oldD, oldU := downloader, uploader
+	downloader = mockDownloader{path: "/tmp/upload_disabled_vod.mp4"}
+	uploader = spyUploader{called: &uploadCalls, url: "https://youtu.be/should-not-upload"}
+	defer func() { downloader, uploader = oldD, oldU }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := processOnce(ctx, db, channel); err != nil {
+		t.Fatal(err)
+	}
+
+	var processed bool
+	var yt string
+	var downloadedPath sql.NullString
+	_ = db.QueryRowContext(context.Background(), `SELECT processed, COALESCE(youtube_url,''), downloaded_path FROM vods WHERE twitch_vod_id='upload_disabled_vod'`).Scan(&processed, &yt, &downloadedPath)
+	if !processed {
+		t.Fatal("expected processed=true when upload is disabled")
+	}
+	if yt != "" {
+		t.Fatalf("expected youtube_url to remain empty, got %q", yt)
+	}
+	if !downloadedPath.Valid || downloadedPath.String == "" {
+		t.Fatalf("expected downloaded_path to be preserved when upload is skipped")
+	}
+	if uploadCalls != 0 {
+		t.Fatalf("expected uploader not to be called when upload disabled, called=%d", uploadCalls)
+	}
+}
+
+func TestProcessOnceSkipUploadFlag(t *testing.T) {
+	dsn := os.Getenv("TEST_PG_DSN")
+	if dsn == "" {
+		t.Skip("TEST_PG_DSN not set")
+	}
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("failed to close db: %v", err)
+		}
+	}()
+	if err := dbpkg.Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YOUTUBE_UPLOAD_ENABLED", "1")
+	t.Setenv("YOUTUBE_UPLOAD_OWNERSHIP", "authorized")
+
+	channel := "test-skip-upload"
+	_, _ = db.ExecContext(context.Background(), `INSERT INTO vods (channel,twitch_vod_id,title,date,duration_seconds,created_at,processed,skip_upload)
+		VALUES ($1,'skip_upload_vod','Skip Upload',NOW(),60,NOW(),FALSE,TRUE)
+		ON CONFLICT (twitch_vod_id) DO UPDATE SET processed=FALSE, youtube_url=NULL, downloaded_path=NULL, processing_error=NULL, skip_upload=TRUE`, channel)
+
+	var uploadCalls int
+	oldD, oldU := downloader, uploader
+	downloader = mockDownloader{path: "/tmp/skip_upload_vod.mp4"}
+	uploader = spyUploader{called: &uploadCalls, url: "https://youtu.be/should-not-upload"}
+	defer func() { downloader, uploader = oldD, oldU }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := processOnce(ctx, db, channel); err != nil {
+		t.Fatal(err)
+	}
+
+	var processed bool
+	var yt string
+	var downloadedPath sql.NullString
+	_ = db.QueryRowContext(context.Background(), `SELECT processed, COALESCE(youtube_url,''), downloaded_path FROM vods WHERE twitch_vod_id='skip_upload_vod'`).Scan(&processed, &yt, &downloadedPath)
+	if !processed {
+		t.Fatal("expected processed=true when skip_upload=true")
+	}
+	if yt != "" {
+		t.Fatalf("expected youtube_url to remain empty, got %q", yt)
+	}
+	if !downloadedPath.Valid || downloadedPath.String == "" {
+		t.Fatalf("expected downloaded_path to be preserved when skip_upload=true")
+	}
+	if uploadCalls != 0 {
+		t.Fatalf("expected uploader not to be called when skip_upload=true, called=%d", uploadCalls)
 	}
 }
 

@@ -516,7 +516,7 @@ docker exec vod-postgres psql -U vod -d vod -c "
    ```bash
    # Disable uploads temporarily
    # Update environment variable
-  # YOUTUBE_UPLOAD_ENABLED=0
+   # YOUTUBE_UPLOAD_ENABLED=0
    
    # Or remove YouTube credentials
    # This will skip upload step

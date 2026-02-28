@@ -66,9 +66,28 @@ func Connect() (*sql.DB, error) {
 }
 
 // Migrate applies idempotent schema changes for all required tables and indices.
+//
+// DEPRECATED: This function provides backward compatibility for deployments that predate
+// the versioned migration system (golang-migrate). New schema changes should be created as
+// versioned migrations in db/migrations/ directory.
+//
+// This function is used as a fallback primarily when:
+// 1. Versioned migrations cannot be applied cleanly against an existing/legacy schema
+//    (for example, when expected columns or indices are missing or the schema has drifted).
+// 2. The versioned migration files cannot be loaded or executed (for example, embed/fs issues
+//    or malformed SQL in a migration).
+//
+// Execution order in main.go:
+// 1. db.RunMigrations() - Try versioned migrations first (canonical)
+// 2. db.Migrate() - Fallback if step 1 fails (backward compatibility)
+//
+// See docs/MIGRATIONS.md for full migration architecture and guidance.
 func Migrate(ctx context.Context, db *sql.DB) error { return migratePostgres(ctx, db) }
 
 func migratePostgres(ctx context.Context, db *sql.DB) error {
+	// LEGACY MIGRATION SYSTEM - For backward compatibility only
+	// New schema changes should be added as versioned migrations in db/migrations/
+	// See docs/MIGRATIONS.md for guidance.
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS vods (
 			id SERIAL PRIMARY KEY,
@@ -193,6 +212,14 @@ func migratePostgres(ctx context.Context, db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_vods_channel_date ON vods(channel, date DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_vods_channel_processed ON vods(channel, processed, priority DESC, date ASC)`,
 		`CREATE INDEX IF NOT EXISTS idx_chat_messages_channel_vod ON chat_messages(channel, vod_id)`,
+		// Rate limiter table for distributed rate limiting across multiple API replicas
+		`CREATE TABLE IF NOT EXISTS rate_limit_requests (
+			id BIGSERIAL PRIMARY KEY,
+			ip TEXT NOT NULL,
+			request_time TIMESTAMPTZ NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_rate_limit_ip_time ON rate_limit_requests(ip, request_time)`,
+		`CREATE INDEX IF NOT EXISTS idx_rate_limit_time ON rate_limit_requests(request_time)`,
 	}
 	for i, s := range stmts {
 		if _, err := db.ExecContext(ctx, s); err != nil {

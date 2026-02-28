@@ -240,8 +240,42 @@ Database backups contain encrypted tokens (when encryption enabled), but encrypt
 | RATE_LIMIT_ENABLED         | `1`     | No                         | Enable rate limiting on admin and sensitive endpoints. Set to `0` to disable (not recommended for production).               |
 | RATE_LIMIT_REQUESTS_PER_IP | `10`    | No                         | Maximum requests per IP per time window for rate-limited endpoints.                                                          |
 | RATE_LIMIT_WINDOW_SECONDS  | `60`    | No                         | Time window in seconds for rate limiting.                                                                                    |
+| RATE_LIMIT_BACKEND         | `memory` | No                        | Rate limiter backend: `memory` (single-instance) or `postgres` (distributed for multi-replica deployments).                  |
 
 **Security Notice**: When `ADMIN_USERNAME`/`ADMIN_PASSWORD` or `ADMIN_TOKEN` are not set, admin endpoints are **UNPROTECTED**. This is acceptable for local development but **not recommended for production**.
+
+#### Rate Limiting
+
+Rate limiting protects admin and sensitive endpoints from abuse. Two backends are available:
+
+1. **Memory Backend (Default)**: In-memory sliding window rate limiter. Suitable for single-instance deployments.
+   - Fast and lightweight
+   - State stored in process memory
+   - Each instance maintains independent counters
+   
+2. **Postgres Backend**: Distributed rate limiter using Postgres for shared state. Required for multi-replica deployments.
+   - Coordinates rate limits across multiple API replicas
+   - Prevents clients from bypassing limits by hitting different replicas
+   - Uses database transactions for consistency
+   - Automatically creates `rate_limit_requests` table
+
+**Multi-Replica Configuration**:
+
+```bash
+# For Kubernetes/multi-replica deployments
+RATE_LIMIT_BACKEND=postgres
+RATE_LIMIT_REQUESTS_PER_IP=10
+RATE_LIMIT_WINDOW_SECONDS=60
+```
+
+**Single-Instance Configuration**:
+
+```bash
+# Default - no configuration needed
+RATE_LIMIT_BACKEND=memory  # or omit (defaults to memory)
+```
+
+The Postgres backend automatically falls back to memory if database initialization fails, ensuring the service remains available.
 
 #### Admin Authentication Methods
 

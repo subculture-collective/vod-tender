@@ -102,10 +102,10 @@ describe('VodList', () => {
       expect(screen.queryByText(/loading vods/i)).not.toBeInTheDocument()
     })
 
-    // Table should be rendered but with no rows
-    expect(screen.getByRole('table')).toBeInTheDocument()
-    const tableBody = screen.getByRole('table').querySelector('tbody')
-    expect(tableBody?.children.length).toBe(0)
+    // Should show empty state message instead of empty table
+    expect(screen.getByText(/no vods found/i)).toBeInTheDocument()
+    expect(screen.getByText(/no vods have been archived yet/i)).toBeInTheDocument()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })
 
   it('formats dates correctly', async () => {

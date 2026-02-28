@@ -14,7 +14,7 @@ import (
 
 func TestCORS(t *testing.T) {
 	db := testutil.SetupTestDB(t)
-	handler := NewMux(db) // NewMux now includes CORS config internally
+	handler := NewMux(context.Background(), db) // NewMux now includes CORS config internally
 
 	req := httptest.NewRequest(http.MethodOptions, "/healthz", nil)
 	req.Header.Set("Origin", "http://localhost:3000")
@@ -44,7 +44,7 @@ func TestCORS(t *testing.T) {
 
 func TestHealthzEndpoint(t *testing.T) {
 	db := testutil.SetupTestDB(t)
-	handler := NewMux(db)
+	handler := NewMux(context.Background(), db)
 
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	w := httptest.NewRecorder()
@@ -65,7 +65,7 @@ func TestHealthzEndpoint(t *testing.T) {
 
 func TestMetricsEndpoint(t *testing.T) {
 	db := testutil.SetupTestDB(t)
-	handler := NewMux(db)
+	handler := NewMux(context.Background(), db)
 
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	w := httptest.NewRecorder()
@@ -86,7 +86,7 @@ func TestMetricsEndpoint(t *testing.T) {
 
 func TestConfigEndpoint(t *testing.T) {
 	db := testutil.SetupTestDB(t)
-	handler := NewMux(db)
+	handler := NewMux(context.Background(), db)
 
 	t.Setenv("TWITCH_CHANNEL", "test_channel")
 	t.Setenv("TWITCH_VOD_ID", "test_vod")
@@ -113,7 +113,7 @@ func TestConfigEndpoint(t *testing.T) {
 
 func TestVodsEndpoint(t *testing.T) {
 	db := testutil.SetupTestDB(t)
-	handler := NewMux(db)
+	handler := NewMux(context.Background(), db)
 
 	// Insert test VOD
 	_, err := db.Exec(`INSERT INTO vods (twitch_vod_id, title, date, duration_seconds, created_at)
@@ -155,7 +155,7 @@ func TestVodsEndpoint(t *testing.T) {
 
 func TestStatusEndpoint(t *testing.T) {
 	db := testutil.SetupTestDB(t)
-	handler := NewMux(db)
+	handler := NewMux(context.Background(), db)
 
 	// Insert sample EMA values for backward compatibility test
 	_, _ = db.Exec(`INSERT INTO kv (key, value, updated_at) VALUES 

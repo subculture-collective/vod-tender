@@ -3,10 +3,8 @@ package chat
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"time"
 
@@ -47,6 +45,10 @@ func StartAutoChatRecorder(ctx context.Context, db *sql.DB, channel string) {
 
 	var running bool
 	ts := &twitchapi.TokenSource{ClientID: clientID, ClientSecret: clientSecret}
+	helix := &twitchapi.HelixClient{
+		AppTokenSource: ts,
+		ClientID:       clientID,
+	}
 	var startedAt time.Time
 	var placeholder string
 	var recCancel context.CancelFunc
@@ -60,8 +62,6 @@ func StartAutoChatRecorder(ctx context.Context, db *sql.DB, channel string) {
 	}
 	reconcileWindow := 15 * time.Minute // how long after offline we keep trying
 
-	getAppToken := func(ctx context.Context) (string, error) { return ts.Get(ctx) }
-
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
 	slog.Info("auto chat: started poller", slog.Duration("interval", pollEvery))
@@ -72,38 +72,12 @@ func StartAutoChatRecorder(ctx context.Context, db *sql.DB, channel string) {
 		func() {
 			// If we're running, check if stream still live; if not, stop recorder and reconcile.
 			// (no-op check removed - logic continues to fetch live status)
-			tok, err := getAppToken(ctx)
-			if err != nil {
-				slog.Debug("auto chat: get app token", slog.Any("err", err))
-				return
-			}
-			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.twitch.tv/helix/streams", nil)
-			q := req.URL.Query()
-			q.Set("user_login", channel)
-			req.URL.RawQuery = q.Encode()
-			req.Header.Set("Client-Id", clientID)
-			req.Header.Set("Authorization", "Bearer "+tok)
-			resp, err := http.DefaultClient.Do(req)
+			streams, err := helix.GetStreams(ctx, channel)
 			if err != nil {
 				slog.Debug("auto chat: streams req", slog.Any("err", err))
 				return
 			}
-			defer func() {
-				if err := resp.Body.Close(); err != nil {
-					slog.Warn("failed to close response body", slog.Any("err", err))
-				}
-			}()
-			var body struct {
-				Data []struct {
-					StartedAt time.Time `json:"started_at"`
-					Title     string    `json:"title"`
-				} `json:"data"`
-			}
-			if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-				slog.Debug("auto chat: decode", slog.Any("err", err))
-				return
-			}
-			if len(body.Data) == 0 {
+			if len(streams) == 0 {
 				// Offline
 				if running && !reconciled {
 					// Stop current recorder if not already stopped
@@ -197,10 +171,10 @@ func StartAutoChatRecorder(ctx context.Context, db *sql.DB, channel string) {
 			if running {
 				return
 			} // already recording
-			startedAt = body.Data[0].StartedAt.UTC()
+			startedAt = streams[0].StartedAt.UTC()
 			placeholder = fmt.Sprintf("live-%d", startedAt.Unix())
 			reconciled = false
-			_, _ = db.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at) VALUES ($1,$2,$3,$4,$5,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, channel, placeholder, "LIVE: "+body.Data[0].Title, startedAt, 0)
+			_, _ = db.ExecContext(ctx, `INSERT INTO vods (channel, twitch_vod_id, title, date, duration_seconds, created_at) VALUES ($1,$2,$3,$4,$5,NOW()) ON CONFLICT (twitch_vod_id) DO NOTHING`, channel, placeholder, "LIVE: "+streams[0].Title, startedAt, 0)
 			running = true
 			slog.Info("auto chat: stream live; starting chat recorder", slog.String("vod_id", placeholder), slog.Time("started_at", startedAt), slog.String("channel", channel))
 			recCtx, cancel := context.WithCancel(ctx)

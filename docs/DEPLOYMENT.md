@@ -25,7 +25,6 @@ This guide covers deploying vod-tender in production environments using Kubernet
 - **Twitch OAuth** - Bot account credentials for chat recording
 - **Twitch API** - Client ID/Secret for Helix API access
 - **YouTube OAuth** (optional) - For automatic upload to YouTube
-- **Twitch Cookies** (optional) - For subscriber-only VODs
 
 ### Resource Requirements
 
@@ -308,9 +307,6 @@ spec:
         volumeMounts:
         - name: vod-data
           mountPath: /data
-        - name: cookies
-          mountPath: /run/cookies
-          readOnly: true
         resources:
           requests:
             cpu: 1000m
@@ -334,10 +330,6 @@ spec:
       - name: vod-data
         persistentVolumeClaim:
           claimName: vod-data
-      - name: cookies
-        secret:
-          secretName: vod-cookies
-          optional: true
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -348,7 +340,6 @@ data:
   TWITCH_CHANNEL: "your_channel"
   TWITCH_BOT_USERNAME: "your_bot"
   CHAT_AUTO_START: "1"
-  YTDLP_COOKIES_PATH: "/run/cookies/twitch-cookies.txt"
   CIRCUIT_FAILURE_THRESHOLD: "5"
   CIRCUIT_OPEN_COOLDOWN: "10m"
   VOD_CATALOG_BACKFILL_INTERVAL: "6h"
@@ -624,12 +615,10 @@ services:
       TWITCH_CLIENT_ID_FILE: /run/secrets/twitch_client_id
       TWITCH_CLIENT_SECRET_FILE: /run/secrets/twitch_client_secret
       CHAT_AUTO_START: "1"
-      YTDLP_COOKIES_PATH: /run/secrets/twitch_cookies
     secrets:
       - twitch_oauth
       - twitch_client_id
       - twitch_client_secret
-      - twitch_cookies
     configs:
       - source: vod_config
         target: /etc/vod-tender/config
@@ -735,8 +724,6 @@ secrets:
     external: true
   twitch_client_secret:
     external: true
-  twitch_cookies:
-    external: true
 
 configs:
   vod_config:
@@ -762,7 +749,6 @@ echo "secure_db_password" | docker secret create db_password -
 echo "oauth:your_token" | docker secret create twitch_oauth -
 echo "your_client_id" | docker secret create twitch_client_id -
 echo "your_client_secret" | docker secret create twitch_client_secret -
-docker secret create twitch_cookies ./secrets/twitch-cookies.txt
 
 # Deploy stack
 docker stack deploy -c vod-swarm-stack.yml vod

@@ -34,7 +34,7 @@ func NewMux(ctx context.Context, db *sql.DB) http.Handler {
 	authCfg := loadAuthConfig()
 	rateLimiterCfg := loadRateLimiterConfig()
 	corsCfg := loadCORSConfig()
-	
+
 	// Create rate limiter based on configuration
 	var rateLimiter RateLimiter
 	if rateLimiterCfg.backend == "postgres" {

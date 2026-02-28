@@ -466,8 +466,6 @@ jobs:
                   DB_PASSWORD=vod
                   DB_HOST=postgres
                   BACKEND_ENV_FILE=./backend/.env.example
-                  SECRETS_DIR=./secrets
-                  YTDLP_COOKIES_PATH=/run/cookies/twitch-cookies.txt
                   EOF
 
             - name: Create backend env file
@@ -478,9 +476,6 @@ jobs:
                   LOG_FORMAT=text
                   HTTP_ADDR=:8080
                   EOF
-
-            - name: Create secrets directory
-              run: mkdir -p secrets
 
             - name: Start stack
               run: docker compose up -d --build

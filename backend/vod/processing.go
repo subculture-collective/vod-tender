@@ -48,6 +48,10 @@ func (youtubeUploader) Upload(ctx context.Context, dbc *sql.DB, path, title stri
 // Using a named type prevents collisions with other context keys.
 type vodCustomDescKey struct{}
 
+// context keys for upload metadata
+type vodIDCtxKey struct{}
+type vodChannelCtxKey struct{}
+
 // configurable for tests
 var (
 	downloader Downloader = ytDLPDownloader{}
@@ -247,7 +251,7 @@ func processOnce(ctx context.Context, dbc *sql.DB, channel string) error {
 		}
 	}
 	// Select a small batch of candidates and pick the first eligible.
-	rows, err := dbc.QueryContext(ctx, `SELECT twitch_vod_id, title, date FROM vods
+	rows, err := dbc.QueryContext(ctx, `SELECT twitch_vod_id, title, date, COALESCE(skip_upload,FALSE) FROM vods
 		WHERE channel=$1 AND COALESCE(processed,false)=false AND (
 			processing_error IS NULL OR processing_error='' OR (download_retries < $2 AND EXTRACT(EPOCH FROM (NOW() - COALESCE(updated_at, created_at))) >= $3)
 		)
@@ -262,11 +266,13 @@ func processOnce(ctx context.Context, dbc *sql.DB, channel string) error {
 	}()
 	var id, title string
 	var date time.Time
+	var skipUpload bool
 	picked := false
 	for rows.Next() {
 		var cid, ctitle string
 		var cdate time.Time
-		if err := rows.Scan(&cid, &ctitle, &cdate); err != nil {
+		var cskipUpload bool
+		if err := rows.Scan(&cid, &ctitle, &cdate, &cskipUpload); err != nil {
 			return err
 		}
 		isBackfill := cdate.Before(backfillCutoff)
@@ -274,7 +280,7 @@ func processOnce(ctx context.Context, dbc *sql.DB, channel string) error {
 			// Skip back-catalog while throttled; continue searching for a newer (non-backfill) item.
 			continue
 		}
-		id, title, date = cid, ctitle, cdate
+		id, title, date, skipUpload = cid, ctitle, cdate, cskipUpload
 		picked = true
 		break
 	}
@@ -367,16 +373,27 @@ func processOnce(ctx context.Context, dbc *sql.DB, channel string) error {
 	logger.Info("download complete", slog.String("path", filePath), slog.Duration("download_duration", dlDur))
 	resetCircuit(ctx, dbc, channel)
 	_, _ = dbc.ExecContext(ctx, `UPDATE vods SET downloaded_path=$1, updated_at=NOW() WHERE twitch_vod_id=$2`, filePath, id)
-	// Idempotency: if a YouTube URL already exists, skip upload to prevent duplicates.
+	// Upload policy guardrails + idempotency checks.
 	var preYT string
 	_ = dbc.QueryRowContext(ctx, `SELECT COALESCE(youtube_url,'' ) FROM vods WHERE twitch_vod_id=$1`, id).Scan(&preYT)
+	uplCfg, _ := config.Load()
+	uploadOwnershipValid := uplCfg.YouTubeUploadOwnership == "self" || uplCfg.YouTubeUploadOwnership == "authorized"
 	var ytURL string
 	var upDur time.Duration
 	if preYT != "" {
 		ytURL = preYT
 		slog.Info("skipping upload; youtube_url already present", slog.String("youtube_url", ytURL))
 		// Ensure processed is marked; we'll still perform post-success cleanup below.
-		_, _ = dbc.ExecContext(ctx, `UPDATE vods SET processed=TRUE, updated_at=NOW() WHERE twitch_vod_id=$1`, id)
+		_, _ = dbc.ExecContext(ctx, `UPDATE vods SET processed=TRUE, processing_error=NULL, updated_at=NOW() WHERE twitch_vod_id=$1`, id)
+	} else if skipUpload {
+		logger.Info("skipping upload; skip_upload=true for vod")
+		_, _ = dbc.ExecContext(ctx, `UPDATE vods SET processed=TRUE, processing_error=NULL, updated_at=NOW() WHERE twitch_vod_id=$1`, id)
+	} else if !uplCfg.YouTubeUploadEnabled {
+		logger.Info("skipping upload; YOUTUBE_UPLOAD_ENABLED is not set")
+		_, _ = dbc.ExecContext(ctx, `UPDATE vods SET processed=TRUE, processing_error=NULL, updated_at=NOW() WHERE twitch_vod_id=$1`, id)
+	} else if !uploadOwnershipValid {
+		logger.Warn("skipping upload; YOUTUBE_UPLOAD_OWNERSHIP must be self|authorized when uploads are enabled", slog.String("ownership", uplCfg.YouTubeUploadOwnership))
+		_, _ = dbc.ExecContext(ctx, `UPDATE vods SET processed=TRUE, processing_error=NULL, updated_at=NOW() WHERE twitch_vod_id=$1`, id)
 	} else {
 		// Retry loop with exponential backoff + jitter for uploads
 		maxUp := 5
@@ -402,6 +419,8 @@ func processOnce(ctx context.Context, dbc *sql.DB, channel string) error {
 			attribute.String("vod.title", title),
 			attribute.String("upload.path", filePath),
 		)
+		uploadCtx = context.WithValue(uploadCtx, vodIDCtxKey{}, id)
+		uploadCtx = context.WithValue(uploadCtx, vodChannelCtxKey{}, channel)
 
 		for attempt := 0; attempt < maxUp; attempt++ {
 			if attempt > 0 {
@@ -472,7 +491,7 @@ func processOnce(ctx context.Context, dbc *sql.DB, channel string) error {
 	cutoff := time.Now().Add(-time.Duration(keepDays) * 24 * time.Hour)
 	isBackfill := date.Before(cutoff)
 	// New behavior: always try to remove local file after successful upload to save disk, while keeping legacy backfill flag for logs
-	if filePath != "" {
+	if ytURL != "" && filePath != "" {
 		if err := os.Remove(filePath); err != nil {
 			logger.Warn("delete local file failed", slog.String("path", filePath), slog.Any("err", err))
 		} else {
@@ -486,8 +505,8 @@ func processOnce(ctx context.Context, dbc *sql.DB, channel string) error {
 	}
 	// If we performed an upload in this run, we have upDur set; otherwise it may be zero for idempotent path
 	totalDur := time.Since(procStart)
-	telemetry.UploadsSucceeded.Inc()
 	if upDur > 0 {
+		telemetry.UploadsSucceeded.Inc()
 		telemetry.UploadDuration.Observe(upDur.Seconds())
 		if telemetry.ProcessingStepDuration != nil {
 			telemetry.ProcessingStepDuration.WithLabelValues("upload").Observe(upDur.Seconds())
@@ -572,12 +591,37 @@ func uploadToYouTube(ctx context.Context, dbc *sql.DB, path, title string, date 
 		runes := []rune(finalTitle)
 		finalTitle = string(runes[:97]) + "..."
 	}
-	// Use custom description if provided in context (set by processOnce) else fall back to default
-	description := fmt.Sprintf("Uploaded from Twitch VOD on %s", date.Format(time.RFC3339))
+	vodID := ""
+	if v := ctx.Value(vodIDCtxKey{}); v != nil {
+		if s, ok := v.(string); ok {
+			vodID = strings.TrimSpace(s)
+		}
+	}
+	channel := ""
+	if v := ctx.Value(vodChannelCtxKey{}); v != nil {
+		if s, ok := v.(string); ok {
+			channel = strings.TrimSpace(s)
+		}
+	}
+
+	metaLines := []string{fmt.Sprintf("Original stream date: %s", date.Format(time.RFC3339))}
+	if channel != "" {
+		metaLines = append(metaLines, fmt.Sprintf("Attribution: Original Twitch channel %q", channel))
+	}
+	if vodID != "" {
+		metaLines = append(metaLines,
+			fmt.Sprintf("Original Twitch VOD ID: %s", vodID),
+			fmt.Sprintf("Original Twitch URL: https://www.twitch.tv/videos/%s", vodID),
+		)
+	}
+
+	// Use custom description if provided in context (set by processOnce), while preserving attribution metadata.
+	description := strings.Join(metaLines, "\n")
 	if v := ctx.Value(vodCustomDescKey{}); v != nil {
 		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
-			description = s
+			description = strings.TrimSpace(s) + "\n\n" + strings.Join(metaLines, "\n")
 		}
 	}
 	return youtubeapi.UploadVideo(ctx, svc, path, finalTitle, description, "private")
 }
+

@@ -260,12 +260,7 @@ docker logs vod-api | grep -i error | tail -50
    ```bash
    # Example: Refresh expired OAuth token
    curl -X POST https://vod-api.example.com/auth/twitch/refresh
-   
-   # Example: Update cookies
-   kubectl create secret generic vod-cookies \
-     --from-file=twitch-cookies.txt=./new-cookies.txt \
-     --dry-run=client -o yaml | kubectl apply -f -
-   
+
    # Restart application
    kubectl rollout restart deployment/vod-api -n vod-tender
    ```
@@ -429,7 +424,6 @@ docker logs vod-api | grep yt-dlp | tail -50
 
 # Test yt-dlp manually
 docker exec vod-api yt-dlp \
-  --cookies /run/cookies/twitch-cookies.txt \
   https://www.twitch.tv/videos/<vod-id>
 
 # Check network connectivity
@@ -438,22 +432,9 @@ docker exec vod-api curl -I https://www.twitch.tv
 
 **Resolution**:
 
-1. **Authentication Issues**:
+1. **Restricted Content / Authentication Issues**:
 
-   ```bash
-   # Verify cookies file exists and is valid
-   docker exec vod-api ls -l /run/cookies/
-   
-   # Test with fresh cookies
-   # Export cookies from browser (logged in to Twitch)
-   # Update secret
-   kubectl create secret generic vod-cookies \
-     --from-file=twitch-cookies.txt=./fresh-cookies.txt \
-     --dry-run=client -o yaml | kubectl apply -f -
-   
-   # Restart pod
-   kubectl rollout restart deployment/vod-api -n vod-tender
-   ```
+  Check whether the VOD is public and accessible in a logged-out browser session. Subscriber-only/restricted VODs are intentionally skipped by `vod-tender` and should appear with an auth-required processing error.
 
 2. **Network Issues**:
 
@@ -495,7 +476,6 @@ docker exec vod-api curl -I https://www.twitch.tv
 
 **Prevention**:
 
-- Keep cookies fresh (< 30 days old)
 - Monitor download success rate
 - Implement better error categorization (transient vs permanent)
 - Alert on consecutive download failures
@@ -536,7 +516,7 @@ docker exec vod-postgres psql -U vod -d vod -c "
    ```bash
    # Disable uploads temporarily
    # Update environment variable
-   # YT_ENABLED=0
+   # YOUTUBE_UPLOAD_ENABLED=0
    
    # Or remove YouTube credentials
    # This will skip upload step

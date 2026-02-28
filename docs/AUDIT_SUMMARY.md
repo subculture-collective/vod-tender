@@ -8,7 +8,7 @@
 
 ## 1. Audit Overview
 
-All milestones in issue #38 (M0 Foundation, M1 Production-Ready, M2 Feature Complete) are marked complete. This audit identified **22 findings** across the codebase that were missed or regressed since those milestones were closed.
+All milestones in issue #38 (M0 Foundation, M1 Production-Ready, M2 Feature Complete) are marked complete. This audit identified **28 findings** across the codebase that were missed or regressed since those milestones were closed.
 
 ### Methodology
 

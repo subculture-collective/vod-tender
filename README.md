@@ -6,6 +6,24 @@
 
 Small Go service that discovers Twitch VODs for a channel, downloads them with yt-dlp, records live chat tied to VODs, and optionally uploads to YouTube. It ships with a minimal API and a small frontend for browsing VODs and chat replay.
 
+## ⚠️ Legal Notice & Responsible Use
+
+`vod-tender` is intended for streamers archiving their own content, or operators with explicit permission from the content owner.
+
+What this project is for:
+
+- Archiving your own public Twitch VODs
+- Recording chat for channels you own/moderate and are authorized to archive
+- Uploading content you own (or are authorized to manage) to YouTube
+
+What this project is **not** for:
+
+- Downloading or redistributing content you do not own or have rights to
+- Circumventing subscriber-only or other restricted-access content controls
+- Re-uploading others' content to YouTube without permission
+
+You are responsible for ensuring your use complies with Twitch and YouTube terms, local law, and applicable copyright requirements. The maintainers are not responsible for misuse.
+
 ## Quick start
 
 ### Complete Local Development Setup (Recommended for New Developers)
@@ -251,15 +269,6 @@ All environment variables are documented in `docs/CONFIG.md` with defaults and t
 - DATA_DIR (download storage)
 - LOG_LEVEL, LOG_FORMAT
 
-## Cookies for subscriber-only/private VODs
-
-yt-dlp needs Twitch cookies to authenticate for subscriber-only or otherwise private VODs.
-
-- Export your browser cookies in Netscape format to `./secrets/twitch-cookies.txt`.
-- Mount them in Docker Compose to `/run/cookies/twitch-cookies.txt` and set `YTDLP_COOKIES_PATH=/run/cookies/twitch-cookies.txt`.
-- The downloader copies cookies to a private temp file (0600) before invoking `yt-dlp --cookies <temp>` and avoids verbose logs to protect secrets.
-- Refresh cookies periodically; sessions expire.
-
 ## OAuth and tokens
 
 - Twitch Chat: Provide `TWITCH_OAUTH_TOKEN` (format `oauth:xxxxx`) or obtain/store via `/auth/twitch/start` → `/auth/twitch/callback` endpoints. The token is saved to `oauth_tokens` with expiry and refreshed automatically.
@@ -276,7 +285,7 @@ Docker Compose (bundled) is the simplest path for self-hosting:
 
 Routing: example Caddyfile assumes two hostnames, mapping to the shared `web` network. Ensure your reverse proxy attaches to the `web` network created by `docker network create web`.
 
-For Kubernetes, map the same containers to Deployments and expose `/metrics` to Prometheus. Mount cookies as a Secret to the API pod and set `YTDLP_COOKIES_PATH` accordingly.
+For Kubernetes, map the same containers to Deployments and expose `/metrics` to Prometheus.
 
 - Database: Postgres by default (see DB_DSN). Local docker-compose supplies a `postgres` service; override with your own DSN if needed.
 - VOD processing job runs periodically (see configuration); discovery uses Twitch Helix if client id/secret provided.
@@ -318,6 +327,13 @@ For Kubernetes, map the same containers to Deployments and expose `/metrics` to 
 
 ## YouTube upload configuration
 
+Uploads are disabled by default. To enable YouTube uploads, set both:
+
+- `YOUTUBE_UPLOAD_ENABLED=1`
+- `YOUTUBE_UPLOAD_OWNERSHIP=self` or `YOUTUBE_UPLOAD_OWNERSHIP=authorized`
+
+If uploads are enabled without a valid ownership declaration, upload is skipped.
+
 Set either STAR_FILE with a JSON file path or STAR_JSON with the JSON string for credentials and token (replace STAR with YT_CREDENTIALS or YT_TOKEN):
 
 - YT_CREDENTIALS_FILE or YT_CREDENTIALS_JSON (Google OAuth client secrets JSON)
@@ -353,13 +369,13 @@ Simple CORS is enabled for dev (Access-Control-Allow-Origin: \*). For production
 ## Troubleshooting quick hits
 
 - Chat not recording: ensure `TWITCH_BOT_USERNAME` matches token owner, token has `chat:read chat:edit`, and is prefixed with `oauth:`. Auto mode requires valid Helix app credentials.
-- Downloads failing with auth-required: configure `YTDLP_COOKIES_PATH` and verify the path is mounted inside the container.
+- Downloads failing with auth-required: subscriber-only/restricted VODs are intentionally not downloaded and are marked as skipped.
 - Circuit open and processing paused: check `CIRCUIT_FAILURE_THRESHOLD`, investigate root error in logs, and clear with `DELETE FROM kv WHERE key IN ('circuit_*');` if necessary.
 
 ## Security notes
 
 - OAuth tokens are stored in plaintext in Postgres for convenience. For production, consider encrypting at rest or using a dedicated secret store.
-- Avoid enabling `YTDLP_VERBOSE=1` when passing cookies; secrets may leak in verbose output.
+- `YTDLP_VERBOSE=1` enables verbose downloader output; keep it off in normal operation to reduce log noise.
 - Container images are automatically scanned for vulnerabilities using Trivy in CI. Builds fail on CRITICAL/HIGH severity issues. Scan reports are available as CI artifacts.
 
 ## Contributing

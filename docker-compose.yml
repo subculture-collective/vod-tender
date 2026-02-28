@@ -56,13 +56,10 @@ services:
       # Ensure API uses the postgres service and persists data
       DB_DSN: postgres://vod:vod@postgres:5432/vod?sslmode=disable
       DATA_DIR: /data
-      # Provide cookies to yt-dlp for subscriber-only/authenticated VODs
-      YTDLP_COOKIES_PATH: /run/cookies/twitch-cookies.txt
       # OpenTelemetry tracing endpoint (Jaeger)
       OTEL_EXPORTER_OTLP_ENDPOINT: jaeger:4317
     volumes:
       - vod_data:/data
-      - ./secrets:/run/cookies:ro
     ports:
       - "${API_PORT:-8080}:8080"
     healthcheck:

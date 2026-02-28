@@ -45,9 +45,8 @@ All configuration is via environment variables. When running locally with `make 
 | DATA_DIR                    | `data`  | Directory for downloaded media files.                                                                         |
 | MAX_CONCURRENT_DOWNLOADS    | `1`     | Maximum number of concurrent VOD downloads. Set to higher values for parallel processing (e.g., 3).           |
 | DOWNLOAD_RATE_LIMIT         | (unset) | Global bandwidth limit per download (e.g., `500K`, `2M`, `1.5M`). Passed to yt-dlp `--limit-rate`.            |
-| YTDLP_COOKIES_PATH          | (unset) | Absolute path to a Netscape-format cookies file (inside container) used for Twitch auth.                      |
 | YTDLP_ARGS                  | (unset) | Extra yt-dlp flags injected before the default ones.                                                          |
-| YTDLP_VERBOSE               | `0`     | When `1`, enables yt-dlp `-v` debug output (avoid when passing cookies to prevent secret leakage).            |
+| YTDLP_VERBOSE               | `0`     | When `1`, enables yt-dlp `-v` debug output.                                                                   |
 | DOWNLOAD_MAX_ATTEMPTS       | `5`     | Wrapper attempts around yt-dlp process (each may retry internally).                                           |
 | DOWNLOAD_BACKOFF_BASE       | `2s`    | Base for exponential backoff (2^n scaling + jitter up to base).                                               |
 | CIRCUIT_FAILURE_THRESHOLD   | (unset) | Number of consecutive failures before opening breaker.                                                        |
@@ -83,29 +82,24 @@ Notes:
 
 -   The current downloader stores the original file; post-processing/transcoding is not enabled in this revision. ffmpeg may still be required by yt-dlp for muxing.
 
-#### Twitch authentication (subscriber-only/private VODs)
+#### Restricted Twitch VODs
 
-To download subscriber-only or otherwise private Twitch VODs, provide browser cookies in Netscape format and set `YTDLP_COOKIES_PATH` to that file path (inside the container). The runtime copies the cookies to a private temp file and invokes yt-dlp with `--cookies <temp-file>` so the source file remains untouched. Example with Docker Compose:
-
--   Mount `./secrets/twitch-cookies.txt` to `/run/cookies/twitch-cookies.txt`
--   Set `YTDLP_COOKIES_PATH=/run/cookies/twitch-cookies.txt`
-
-Tips:
-
--   Regenerate the cookies periodically from your browser; Twitch sessions expire. Use the Netscape format.
--   Keep `LOG_LEVEL` at `info` when cookies are configured; `-v` is automatically disabled to avoid echoing sensitive data.
--   Verify in logs that yt-dlp is invoked with `--cookies` (not a raw Cookie header).
+Subscriber-only or otherwise restricted Twitch VODs are not downloaded. When encountered, the processor marks the item with an auth-required error and skips retries.
 
 ### YouTube Upload
 
-| Variable         | Default                                          | Description                          |
-| ---------------- | ------------------------------------------------ | ------------------------------------ |
-| YT_CLIENT_ID     | (none)                                           | OAuth Client ID for YouTube uploads. |
-| YT_CLIENT_SECRET | (none)                                           | OAuth Client Secret.                 |
-| YT_REDIRECT_URI  | (none)                                           | Redirect URI for OAuth dance.        |
-| YT_SCOPES        | `https://www.googleapis.com/auth/youtube.upload` | Space or comma separated scopes.     |
+| Variable                 | Default                                          | Description                                                                 |
+| ------------------------ | ------------------------------------------------ | --------------------------------------------------------------------------- |
+| YOUTUBE_UPLOAD_ENABLED   | `0`                                              | Set to `1`/`true` to allow uploads. Disabled by default (download-only mode). |
+| YOUTUBE_UPLOAD_OWNERSHIP | (none)                                           | Required when uploads are enabled: `self` or `authorized`.                 |
+| YT_CLIENT_ID             | (none)                                           | OAuth Client ID for YouTube uploads.                                       |
+| YT_CLIENT_SECRET         | (none)                                           | OAuth Client Secret.                                                       |
+| YT_REDIRECT_URI          | (none)                                           | Redirect URI for OAuth dance.                                              |
+| YT_SCOPES                | `https://www.googleapis.com/auth/youtube.upload` | Space or comma separated scopes.                                           |
 
 Tokens are stored in the `oauth_tokens` table after you complete the OAuth dance using the built-in endpoints. The refresher renews them automatically ahead of expiry.
+
+When uploads are enabled, `YOUTUBE_UPLOAD_OWNERSHIP` must be explicitly set to `self` or `authorized`; otherwise uploads are skipped.
 
 ### Database
 

@@ -6,7 +6,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"io"
 	"log/slog"
 	"math/rand"
 	"os"
@@ -91,9 +90,6 @@ func DiscoverAndUpsert(ctx context.Context, db *sql.DB, channel string) error {
 // (catalog backfill + duration parsing moved to catalog.go)
 
 // downloadVOD uses yt-dlp to download a Twitch VOD by id.
-// Security: when cookies are provided via YTDLP_COOKIES_PATH this function copies
-// the file to a private temp path (0600) and passes --cookies, avoiding echoing
-// sensitive headers to logs. Avoid enabling verbose yt-dlp logs when secrets are used.
 func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, error) {
 	// Stable output path so yt-dlp can resume (.part file) across restarts
 	out := filepath.Join(dataDir, fmt.Sprintf("twitch_%s.mp4", id))
@@ -125,51 +121,13 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 		url,
 	}
 
-	// Optional Twitch auth via cookies file. Copy to a temp file to avoid writing back to a read-only mount.
-	hasSecrets := false
-	var tmpCookiesPath string
-	// Allow default path when env var is not set
-	cf := strings.TrimSpace(os.Getenv("YTDLP_COOKIES_PATH"))
-	if cf == "" {
-		// Common default mount path in our compose
-		if _, err := os.Stat("/run/cookies/twitch-cookies.txt"); err == nil {
-			cf = "/run/cookies/twitch-cookies.txt"
-		}
-	}
-	if cf != "" {
-		// Create a private temp copy
-		//nolint:gosec // G304: Path is from environment variable TWITCH_COOKIES_FILE, operator-controlled
-		f, err := os.Open(cf)
-		if err == nil {
-			defer func() {
-				if err := f.Close(); err != nil {
-					slog.Warn("failed to close cookies file", slog.Any("err", err))
-				}
-			}()
-			tf, terr := os.CreateTemp("", fmt.Sprintf("yt_cookies_%s_*.txt", id))
-			if terr == nil {
-				tmpCookiesPath = tf.Name()
-				_, _ = io.Copy(tf, f)
-				_ = tf.Chmod(0o600)
-				_ = tf.Close()
-			}
-		}
-		if tmpCookiesPath == "" {
-			// Fallback to using source path directly
-			tmpCookiesPath = cf
-		}
-		logger.Debug("using cookies file for yt-dlp", slog.String("cookies_path", cf))
-		args = append([]string{"--cookies", tmpCookiesPath}, args...)
-		hasSecrets = true
-	}
 	if extra := os.Getenv("YTDLP_ARGS"); strings.TrimSpace(extra) != "" {
 		args = append(strings.Fields(extra), args...)
 	}
-	// Avoid -v when credentials are present to prevent yt-dlp echoing secrets in logs
-	if !hasSecrets && (strings.EqualFold(os.Getenv("LOG_LEVEL"), "DEBUG") || os.Getenv("YTDLP_VERBOSE") == "1") {
+	if strings.EqualFold(os.Getenv("LOG_LEVEL"), "DEBUG") || os.Getenv("YTDLP_VERBOSE") == "1" {
 		args = append([]string{"-v"}, args...)
 	}
-	
+
 	// Bandwidth limit support via --limit-rate flag (e.g., "500K", "2M", "1.5M")
 	if limit := strings.TrimSpace(os.Getenv("DOWNLOAD_RATE_LIMIT")); limit != "" {
 		// yt-dlp expects a number (int or float) followed by K/M/G (optionally B), e.g., 500K, 2M, 1.5M, 1G, 1.5MB
@@ -326,9 +284,6 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 		activeMu.Lock()
 		delete(activeCancels, id)
 		activeMu.Unlock()
-		if tmpCookiesPath != "" && !strings.EqualFold(tmpCookiesPath, os.Getenv("YTDLP_COOKIES_PATH")) {
-			_ = os.Remove(tmpCookiesPath)
-		}
 		if err == nil {
 			// Finalize progress to 100%; determine actual file size if available
 			actual := totalBytes
@@ -353,7 +308,7 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 		detail := strings.Join(lastLines, "\n")
 		lower := strings.ToLower(detail)
 		if strings.Contains(lower, "subscriber-only") || strings.Contains(lower, "only available to subscribers") || strings.Contains(lower, "403") {
-			logger.Warn("twitch indicates auth requirement; consider YTDLP_COOKIES_PATH")
+			logger.Warn("twitch indicates restricted or auth-required vod")
 		}
 		lastErr = fmt.Errorf("yt-dlp: %w\nlast output:\n%s", err, detail)
 		// Increment retry counter
@@ -378,14 +333,14 @@ func updateCircuitOnFailure(ctx context.Context, db *sql.DB, channel string) {
 	if threshold <= 0 {
 		return
 	}
-	
+
 	// Check current state
 	var currentState string
 	_ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE channel=$1 AND key='circuit_state'`, channel).Scan(&currentState)
 	if currentState == "" {
 		currentState = "closed"
 	}
-	
+
 	// If in half-open state, a failure immediately reopens the circuit
 	if currentState == "half-open" {
 		cool := 5 * time.Minute
@@ -395,7 +350,7 @@ func updateCircuitOnFailure(ctx context.Context, db *sql.DB, channel string) {
 			}
 		}
 		until := time.Now().Add(cool).UTC().Format(time.RFC3339)
-		
+
 		_, _ = db.ExecContext(ctx, `INSERT INTO kv (channel,key,value,updated_at) VALUES ($1,'circuit_state','open',NOW())
 			ON CONFLICT(channel,key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, channel)
 		_, _ = db.ExecContext(ctx, `INSERT INTO kv (channel,key,value,updated_at) VALUES ($1,'circuit_open_until',$2,NOW())
@@ -407,7 +362,7 @@ func updateCircuitOnFailure(ctx context.Context, db *sql.DB, channel string) {
 		telemetry.IncrementCircuitFailures()
 		return
 	}
-	
+
 	var fails int
 	row := db.QueryRowContext(ctx, `SELECT value FROM kv WHERE channel=$1 AND key='circuit_failures'`, channel)
 	var val string
@@ -430,7 +385,7 @@ func updateCircuitOnFailure(ctx context.Context, db *sql.DB, channel string) {
 			}
 		}
 		until := time.Now().Add(cool).UTC().Format(time.RFC3339)
-		
+
 		_, _ = db.ExecContext(ctx, `INSERT INTO kv (channel,key,value,updated_at) VALUES ($1,'circuit_state','open',NOW())
 			ON CONFLICT(channel,key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, channel)
 		_, _ = db.ExecContext(ctx, `INSERT INTO kv (channel,key,value,updated_at) VALUES ($1,'circuit_open_until',$2,NOW())
@@ -457,7 +412,7 @@ func resetCircuit(ctx context.Context, db *sql.DB, channel string) {
 			slog.Info("circuit closed after successful probe", slog.String("channel", channel))
 		}
 	}
-	
+
 	_, _ = db.ExecContext(ctx, `INSERT INTO kv (channel,key,value,updated_at) VALUES ($1,'circuit_failures','0',NOW())
 		ON CONFLICT(channel,key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, channel)
 	_, _ = db.ExecContext(ctx, `INSERT INTO kv (channel,key,value,updated_at) VALUES ($1,'circuit_state','closed',NOW())

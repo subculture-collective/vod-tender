@@ -24,6 +24,9 @@ home: https://github.com/subculture-collective/vod-tender
 sources:
   - https://github.com/subculture-collective/vod-tender
 
+annotations:
+  artifacthub.io/license: MIT
+
 maintainers:
   - name: vod-tender team
     url: https://github.com/subculture-collective/vod-tender

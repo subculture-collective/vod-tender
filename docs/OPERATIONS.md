@@ -29,7 +29,6 @@ Compose is parameterized via a root `.env` file. Copy `.env.example` to `.env` a
 - `TWITCH_CHANNEL` – for identification and defaults
 - `API_PORT`, `FRONTEND_PORT` – host ports
 - `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST` – database settings
-- `SECRETS_DIR`, `YTDLP_COOKIES_PATH` – cookies mount for this instance
 
 You can spin up multiple instances by using separate directories each with its own `.env` and backend `.env` files, sharing an external `WEB_NETWORK`:
 

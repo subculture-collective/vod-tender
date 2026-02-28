@@ -82,6 +82,7 @@ func NewMux(ctx context.Context, db *sql.DB) http.Handler {
 	mux.HandleFunc("/admin/vod/catalog", handlers.HandleAdminVodCatalog)
 	mux.HandleFunc("/admin/monitor", handlers.HandleAdminMonitor)
 	mux.HandleFunc("/admin/vod/priority", handlers.HandleAdminVodPriority)
+	mux.HandleFunc("/admin/vod/skip-upload", handlers.HandleAdminVodSkipUpload)
 
 	// Create a selective middleware wrapper that applies auth and rate limiting to admin endpoints
 	selectiveHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -188,4 +189,3 @@ func Start(ctx context.Context, db *sql.DB, addr string) error {
 	}
 	return nil
 }
-

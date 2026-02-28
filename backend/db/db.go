@@ -72,10 +72,10 @@ func Connect() (*sql.DB, error) {
 // versioned migrations in db/migrations/ directory.
 //
 // This function is used as a fallback primarily when:
-// 1. Versioned migrations cannot be applied cleanly against an existing/legacy schema
-//    (for example, when expected columns or indices are missing or the schema has drifted).
-// 2. The versioned migration files cannot be loaded or executed (for example, embed/fs issues
-//    or malformed SQL in a migration).
+//  1. Versioned migrations cannot be applied cleanly against an existing/legacy schema
+//     (for example, when expected columns or indices are missing or the schema has drifted).
+//  2. The versioned migration files cannot be loaded or executed (for example, embed/fs issues
+//     or malformed SQL in a migration).
 //
 // Execution order in main.go:
 // 1. db.RunMigrations() - Try versioned migrations first (canonical)
@@ -104,12 +104,14 @@ func migratePostgres(ctx context.Context, db *sql.DB) error {
 			processed BOOLEAN DEFAULT FALSE,
 			processing_error TEXT,
 			youtube_url TEXT,
+			skip_upload BOOLEAN NOT NULL DEFAULT FALSE,
 			description TEXT,
 			priority INTEGER DEFAULT 0,
 			created_at TIMESTAMPTZ DEFAULT NOW(),
 			updated_at TIMESTAMPTZ
 		)`,
 		`ALTER TABLE vods ADD COLUMN IF NOT EXISTS description TEXT`,
+		`ALTER TABLE vods ADD COLUMN IF NOT EXISTS skip_upload BOOLEAN NOT NULL DEFAULT FALSE`,
 		`ALTER TABLE vods ADD COLUMN IF NOT EXISTS channel TEXT NOT NULL DEFAULT ''`,
 		`CREATE TABLE IF NOT EXISTS chat_messages (
 			id SERIAL PRIMARY KEY,

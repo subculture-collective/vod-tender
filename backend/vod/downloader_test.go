@@ -3,7 +3,6 @@ package vod
 import (
 	"os"
 	"os/exec"
-	"path/filepath"
 	"testing"
 )
 
@@ -11,13 +10,13 @@ import (
 func TestAria2cDetection(t *testing.T) {
 	// Check if aria2c is available in PATH
 	_, err := exec.LookPath("aria2c")
-	
+
 	if err == nil {
 		t.Log("aria2c found in PATH - external downloader will be enabled")
 	} else {
 		t.Log("aria2c not found in PATH - will use yt-dlp's built-in downloader")
 	}
-	
+
 	// This test always passes; it's informational
 	// The actual behavior is tested in integration tests
 }
@@ -26,11 +25,11 @@ func TestAria2cDetection(t *testing.T) {
 func TestAria2cFallbackBehavior(t *testing.T) {
 	// Simulate aria2c not being available by testing the logic
 	// In production, if LookPath fails, aria2c args are simply not added
-	
+
 	testCases := []struct {
-		name           string
-		aria2cExists   bool
-		expectAria2c   bool
+		name         string
+		aria2cExists bool
+		expectAria2c bool
 	}{
 		{
 			name:         "aria2c available",
@@ -43,18 +42,18 @@ func TestAria2cFallbackBehavior(t *testing.T) {
 			expectAria2c: false,
 		},
 	}
-	
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// This tests the logic pattern used in downloadVOD
 			args := []string{"yt-dlp", "--continue"}
-			
+
 			// Simulate the aria2c detection logic
 			if tc.aria2cExists {
 				// In real code: if _, err := exec.LookPath("aria2c"); err == nil
 				args = append([]string{"--external-downloader", "aria2c"}, args...)
 			}
-			
+
 			hasAria2c := false
 			for _, arg := range args {
 				if arg == "aria2c" {
@@ -62,7 +61,7 @@ func TestAria2cFallbackBehavior(t *testing.T) {
 					break
 				}
 			}
-			
+
 			if hasAria2c != tc.expectAria2c {
 				t.Errorf("aria2c in args = %v, want %v", hasAria2c, tc.expectAria2c)
 			}
@@ -132,7 +131,6 @@ func TestDownloadArgsConstruction(t *testing.T) {
 		name            string
 		ytdlpArgs       string
 		ytdlpVerbose    string
-		hasSecrets      bool
 		expectedFlags   []string
 		unexpectedFlags []string
 	}{
@@ -140,22 +138,18 @@ func TestDownloadArgsConstruction(t *testing.T) {
 			name:          "basic args without secrets",
 			ytdlpArgs:     "",
 			ytdlpVerbose:  "0",
-			hasSecrets:    false,
 			expectedFlags: []string{"--continue", "--retries", "infinite", "--no-cache-dir"},
 		},
 		{
-			name:            "verbose disabled with secrets",
-			ytdlpArgs:       "",
-			ytdlpVerbose:    "1",
-			hasSecrets:      true,
-			expectedFlags:   []string{"--continue"},
-			unexpectedFlags: []string{"-v"}, // Should not be present with secrets
+			name:          "verbose enabled",
+			ytdlpArgs:     "",
+			ytdlpVerbose:  "1",
+			expectedFlags: []string{"--continue", "-v"},
 		},
 		{
 			name:          "extra args appended",
 			ytdlpArgs:     "--no-warnings --no-playlist",
 			ytdlpVerbose:  "0",
-			hasSecrets:    false,
 			expectedFlags: []string{"--no-warnings", "--no-playlist", "--continue"},
 		},
 	}
@@ -181,7 +175,7 @@ func TestDownloadArgsConstruction(t *testing.T) {
 			}
 
 			// Check verbose flag logic
-			if !tt.hasSecrets && tt.ytdlpVerbose == "1" {
+			if tt.ytdlpVerbose == "1" {
 				args = append([]string{"-v"}, args...)
 			}
 
@@ -205,64 +199,6 @@ func TestDownloadArgsConstruction(t *testing.T) {
 					if arg == flag {
 						t.Errorf("unexpected flag %q found in args", flag)
 					}
-				}
-			}
-		})
-	}
-}
-
-// TestCookiesFileHandling verifies the cookies file detection and handling.
-func TestCookiesFileHandling(t *testing.T) {
-	tests := []struct {
-		name        string
-		setup       func(t *testing.T) (cookiesPath string, cleanup func())
-		expectFound bool
-	}{
-		{
-			name: "cookies file exists",
-			setup: func(t *testing.T) (string, func()) {
-				// Create a temporary cookies file
-				tmpDir := t.TempDir()
-				cookiesPath := filepath.Join(tmpDir, "cookies.txt")
-				if err := os.WriteFile(cookiesPath, []byte("# Netscape HTTP Cookie File"), 0600); err != nil {
-					t.Fatal(err)
-				}
-				return cookiesPath, func() {}
-			},
-			expectFound: true,
-		},
-		{
-			name: "cookies file does not exist",
-			setup: func(t *testing.T) (string, func()) {
-				return "/nonexistent/cookies.txt", func() {}
-			},
-			expectFound: false,
-		},
-		{
-			name: "default cookies path check",
-			setup: func(t *testing.T) (string, func()) {
-				// Check if default path exists
-				defaultPath := "/run/cookies/twitch-cookies.txt"
-				return defaultPath, func() {}
-			},
-			expectFound: false, // Usually not present in test environment
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cookiesPath, cleanup := tt.setup(t)
-			defer cleanup()
-
-			// Simulate the cookies file detection logic
-			_, err := os.Stat(cookiesPath)
-			found := err == nil
-
-			if found != tt.expectFound {
-				if tt.expectFound {
-					t.Errorf("expected cookies file at %s to exist", cookiesPath)
-				} else {
-					t.Logf("cookies file not found at %s (expected)", cookiesPath)
 				}
 			}
 		})

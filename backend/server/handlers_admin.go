@@ -158,3 +158,46 @@ func (h *Handlers) HandleAdminVodPriority(w http.ResponseWriter, r *http.Request
 		"priority": req.Priority,
 	})
 }
+
+// HandleAdminVodSkipUpload toggles per-VOD upload skipping.
+func (h *Handlers) HandleAdminVodSkipUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodPut {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		VodID      string `json:"vod_id"`
+		SkipUpload bool   `json:"skip_upload"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	if req.VodID == "" {
+		http.Error(w, "vod_id required", http.StatusBadRequest)
+		return
+	}
+
+	result, err := h.db.ExecContext(r.Context(),
+		`UPDATE vods SET skip_upload=$1, updated_at=NOW() WHERE twitch_vod_id=$2`,
+		req.SkipUpload, req.VodID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		http.Error(w, "vod not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":      "ok",
+		"vod_id":      req.VodID,
+		"skip_upload": req.SkipUpload,
+	})
+}

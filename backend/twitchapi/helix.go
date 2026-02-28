@@ -76,6 +76,11 @@ func (hc *HelixClient) requestJSON(ctx context.Context, path string, query url.V
 				return fmt.Errorf("refresh app token after 401: %w", err)
 			}
 			refreshedAfter401 = true
+			// If the 401 occurred on the final attempt, roll back the counter so
+			// the refreshed token still gets at least one more request.
+			if attempt == helixMaxRetries {
+				attempt--
+			}
 			continue
 		}
 

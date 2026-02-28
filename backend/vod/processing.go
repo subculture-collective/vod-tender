@@ -376,9 +376,8 @@ func processOnce(ctx context.Context, dbc *sql.DB, channel string) error {
 	// Upload policy guardrails + idempotency checks.
 	var preYT string
 	_ = dbc.QueryRowContext(ctx, `SELECT COALESCE(youtube_url,'' ) FROM vods WHERE twitch_vod_id=$1`, id).Scan(&preYT)
-	uploadEnabled := isTruthyEnv(os.Getenv("YOUTUBE_UPLOAD_ENABLED"))
-	uploadOwnership := strings.ToLower(strings.TrimSpace(os.Getenv("YOUTUBE_UPLOAD_OWNERSHIP")))
-	uploadOwnershipValid := uploadOwnership == "self" || uploadOwnership == "authorized"
+	uplCfg, _ := config.Load()
+	uploadOwnershipValid := uplCfg.YouTubeUploadOwnership == "self" || uplCfg.YouTubeUploadOwnership == "authorized"
 	var ytURL string
 	var upDur time.Duration
 	if preYT != "" {
@@ -389,11 +388,11 @@ func processOnce(ctx context.Context, dbc *sql.DB, channel string) error {
 	} else if skipUpload {
 		logger.Info("skipping upload; skip_upload=true for vod")
 		_, _ = dbc.ExecContext(ctx, `UPDATE vods SET processed=TRUE, processing_error=NULL, updated_at=NOW() WHERE twitch_vod_id=$1`, id)
-	} else if !uploadEnabled {
+	} else if !uplCfg.YouTubeUploadEnabled {
 		logger.Info("skipping upload; YOUTUBE_UPLOAD_ENABLED is not set")
 		_, _ = dbc.ExecContext(ctx, `UPDATE vods SET processed=TRUE, processing_error=NULL, updated_at=NOW() WHERE twitch_vod_id=$1`, id)
 	} else if !uploadOwnershipValid {
-		logger.Warn("skipping upload; YOUTUBE_UPLOAD_OWNERSHIP must be self|authorized when uploads are enabled", slog.String("ownership", uploadOwnership))
+		logger.Warn("skipping upload; YOUTUBE_UPLOAD_OWNERSHIP must be self|authorized when uploads are enabled", slog.String("ownership", uplCfg.YouTubeUploadOwnership))
 		_, _ = dbc.ExecContext(ctx, `UPDATE vods SET processed=TRUE, processing_error=NULL, updated_at=NOW() WHERE twitch_vod_id=$1`, id)
 	} else {
 		// Retry loop with exponential backoff + jitter for uploads
@@ -564,12 +563,6 @@ func updateMovingAvg(ctx context.Context, db *sql.DB, channel, key string, newVa
 func uploadToYouTube(ctx context.Context, dbc *sql.DB, path, title string, date time.Time) (string, error) {
 	ts := &db.TokenStoreAdapter{DB: dbc}
 	cfg, _ := config.Load()
-	if !cfg.YouTubeUploadEnabled {
-		return "", fmt.Errorf("youtube upload is disabled (set YOUTUBE_UPLOAD_ENABLED=1 to enable)")
-	}
-	if err := cfg.ValidateYouTubeUploadPolicy(); err != nil {
-		return "", err
-	}
 	yts := youtubeapi.New(cfg, ts)
 	svc, err := yts.Client(ctx)
 	if err != nil {
@@ -632,11 +625,3 @@ func uploadToYouTube(ctx context.Context, dbc *sql.DB, path, title string, date 
 	return youtubeapi.UploadVideo(ctx, svc, path, finalTitle, description, "private")
 }
 
-func isTruthyEnv(v string) bool {
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "1", "true", "yes", "on":
-		return true
-	default:
-		return false
-	}
-}

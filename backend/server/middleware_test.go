@@ -250,11 +250,11 @@ func TestRateLimitMiddlewareWithXForwardedFor(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}), limiter)
 
-	// Requests with X-Forwarded-For should use the forwarded IP
+	// Requests with X-Forwarded-For should use the rightmost (proxy-added) IP
 	for i := 0; i < 2; i++ {
 		req := httptest.NewRequest(http.MethodGet, "/test", nil)
-		req.RemoteAddr = "10.0.0.1:12345"                          // Proxy IP
-		req.Header.Set("X-Forwarded-For", "203.0.113.1, 10.0.0.2") // Client IP, other proxies
+		req.RemoteAddr = "10.0.0.1:12345"                          // Direct connection IP
+		req.Header.Set("X-Forwarded-For", "203.0.113.1, 10.0.0.2") // Client IP, closest proxy IP
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
 
@@ -263,10 +263,10 @@ func TestRateLimitMiddlewareWithXForwardedFor(t *testing.T) {
 		}
 	}
 
-	// 3rd request from same client IP should be rate limited
+	// 3rd request from same rightmost IP should be rate limited
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	req.RemoteAddr = "10.0.0.1:12345"
-	req.Header.Set("X-Forwarded-For", "203.0.113.1")
+	req.Header.Set("X-Forwarded-For", "192.168.1.50, 10.0.0.2") // Different client, same proxy
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
@@ -738,7 +738,7 @@ func TestVodSensitiveEndpointPattern(t *testing.T) {
 			path:       "/vods/vod-123-456/reprocess",
 			shouldMatch: true,
 		},
-		
+
 		// Invalid paths that should NOT match
 		{
 			name:       "generic cancel path",

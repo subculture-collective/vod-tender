@@ -307,7 +307,7 @@ func NewMux(db *sql.DB) http.Handler {
 		resp["pending"] = pending
 		resp["errored"] = errored
 		resp["processed"] = processed
-		
+
 		// Queue depth by priority (breakdown)
 		type priorityCount struct {
 			Priority int `json:"priority"`
@@ -315,10 +315,10 @@ func NewMux(db *sql.DB) http.Handler {
 		}
 		var priorityCounts []priorityCount
 		rows, err := db.QueryContext(ctx, `
-			SELECT COALESCE(priority, 0) as priority, COUNT(*) as count 
-			FROM vods 
-			WHERE COALESCE(processed,false)=false 
-			GROUP BY priority 
+			SELECT COALESCE(priority, 0) as priority, COUNT(*) as count
+			FROM vods
+			WHERE COALESCE(processed,false)=false
+			GROUP BY priority
 			ORDER BY priority DESC
 		`)
 		if err == nil {
@@ -337,11 +337,11 @@ func NewMux(db *sql.DB) http.Handler {
 		if len(priorityCounts) > 0 {
 			resp["queue_by_priority"] = priorityCounts
 		}
-		
+
 		// Download concurrency stats
 		resp["active_downloads"] = vodpkg.GetActiveDownloads()
 		resp["max_concurrent_downloads"] = vodpkg.GetMaxConcurrentDownloads()
-		
+
 		// Retry/backoff configuration
 		retryConfig := map[string]any{
 			"download_max_attempts":     getEnvInt("DOWNLOAD_MAX_ATTEMPTS", 5),
@@ -360,12 +360,12 @@ func NewMux(db *sql.DB) http.Handler {
 			retryConfig["processing_retry_cooldown"] = "600s"
 		}
 		resp["retry_config"] = retryConfig
-		
+
 		// Bandwidth limit if configured
 		if limit := os.Getenv("DOWNLOAD_RATE_LIMIT"); limit != "" {
 			resp["download_rate_limit"] = limit
 		}
-		
+
 		// Circuit breaker
 		var cState, cFails, cUntil string
 		_ = db.QueryRowContext(ctx, `SELECT value FROM kv WHERE key='circuit_state'`).Scan(&cState)
@@ -561,7 +561,7 @@ func NewMux(db *sql.DB) http.Handler {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		
+
 		var req struct {
 			VodID    string `json:"vod_id"`
 			Priority int    `json:"priority"`
@@ -570,27 +570,27 @@ func NewMux(db *sql.DB) http.Handler {
 			http.Error(w, "invalid json", http.StatusBadRequest)
 			return
 		}
-		
+
 		if req.VodID == "" {
 			http.Error(w, "vod_id required", http.StatusBadRequest)
 			return
 		}
-		
+
 		// Update priority in database
-		result, err := db.ExecContext(r.Context(), 
+		result, err := db.ExecContext(r.Context(),
 			`UPDATE vods SET priority=$1, updated_at=NOW() WHERE twitch_vod_id=$2`,
 			req.Priority, req.VodID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		
+
 		rowsAffected, _ := result.RowsAffected()
 		if rowsAffected == 0 {
 			http.Error(w, "vod not found", http.StatusNotFound)
 			return
 		}
-		
+
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":   "ok",
@@ -646,7 +646,11 @@ func NewMux(db *sql.DB) http.Handler {
 			http.Error(w, "missing id", 400)
 			return
 		}
-		if err := vodpkg.ImportChat(r.Context(), db, vodID); err != nil {
+		channel := r.URL.Query().Get("channel")
+		if channel == "" {
+			channel = os.Getenv("TWITCH_CHANNEL")
+		}
+		if err := vodpkg.ImportChat(r.Context(), db, vodID, channel); err != nil {
 			http.Error(w, err.Error(), 500)
 			return
 		}
@@ -1017,7 +1021,11 @@ func handleVodChatImport(w http.ResponseWriter, r *http.Request, db *sql.DB, vod
 		http.Error(w, "missing vod id", http.StatusBadRequest)
 		return
 	}
-	if err := vodpkg.ImportChat(r.Context(), db, vodID); err != nil {
+	channel := r.URL.Query().Get("channel")
+	if channel == "" {
+		channel = os.Getenv("TWITCH_CHANNEL")
+	}
+	if err := vodpkg.ImportChat(r.Context(), db, vodID, channel); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1073,7 +1081,7 @@ func handleVodReprocess(w http.ResponseWriter, r *http.Request, db *sql.DB, vodI
 	}
 	_, err := db.ExecContext(r.Context(), `
         UPDATE vods
-        SET processed=0,
+        SET processed=FALSE,
             processing_error=NULL,
             youtube_url=NULL,
             downloaded_path=NULL,

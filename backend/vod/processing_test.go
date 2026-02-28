@@ -137,14 +137,7 @@ func TestCircuitBreakerTransitions(t *testing.T) {
 	if err := dbpkg.Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Setenv("CIRCUIT_FAILURE_THRESHOLD", "2"); err != nil {
-		t.Fatalf("failed to set env: %v", err)
-	}
-	defer func() {
-		if err := os.Unsetenv("CIRCUIT_FAILURE_THRESHOLD"); err != nil {
-			t.Errorf("failed to unset env: %v", err)
-		}
-	}()
+	t.Setenv("CIRCUIT_FAILURE_THRESHOLD", "2")
 	ctx := context.Background()
 	channel := ""
 	updateCircuitOnFailure(ctx, db, channel)
@@ -223,14 +216,7 @@ func TestCircuitBreakerHalfOpenFailure(t *testing.T) {
 	if err := dbpkg.Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Setenv("CIRCUIT_FAILURE_THRESHOLD", "2"); err != nil {
-		t.Fatalf("failed to set env: %v", err)
-	}
-	defer func() {
-		if err := os.Unsetenv("CIRCUIT_FAILURE_THRESHOLD"); err != nil {
-			t.Errorf("failed to unset env: %v", err)
-		}
-	}()
+	t.Setenv("CIRCUIT_FAILURE_THRESHOLD", "2")
 	ctx := context.Background()
 	channel := "test-half-open-failure"
 
@@ -283,14 +269,7 @@ func TestUploadDailyLimitCapStopsProcessing(t *testing.T) {
 		ON CONFLICT (twitch_vod_id) DO NOTHING`, channel)
 
 	// Set global upload cap to 1 so we hit the limit and skip processing
-	if err := os.Setenv("UPLOAD_DAILY_LIMIT", "1"); err != nil {
-		t.Fatalf("failed to set env: %v", err)
-	}
-	defer func() {
-		if err := os.Unsetenv("UPLOAD_DAILY_LIMIT"); err != nil {
-			t.Errorf("failed to unset env: %v", err)
-		}
-	}()
+	t.Setenv("UPLOAD_DAILY_LIMIT", "1")
 
 	// Spy downloader to detect unexpected invocations
 	var called int

@@ -19,7 +19,7 @@ import (
 // them into chat_messages. It is best-effort and tolerant to missing fields.
 // It attempts to iterate over the VOD duration in 30s chunks; if duration is
 // unknown, it will stop after several consecutive empty chunks.
-func ImportChat(ctx context.Context, db *sql.DB, vodID string) error {
+func ImportChat(ctx context.Context, db *sql.DB, vodID string, channel string) error {
 	// Lookup VOD start date and duration, if available
 	var vodDate time.Time
 	var durationSeconds int
@@ -29,7 +29,7 @@ func ImportChat(ctx context.Context, db *sql.DB, vodID string) error {
 	}
 
 	// Prepare insert statement
-	stmt, err := db.PrepareContext(ctx, `INSERT INTO chat_messages (vod_id, username, message, abs_timestamp, rel_timestamp, badges, emotes, color, reply_to_id, reply_to_username, reply_to_message) VALUES ($1,$2,$3,$4,$5,'','','','','','')`)
+	stmt, err := db.PrepareContext(ctx, `INSERT INTO chat_messages (channel, vod_id, username, message, abs_timestamp, rel_timestamp, badges, emotes, color, reply_to_id, reply_to_username, reply_to_message) VALUES ($1,$2,$3,$4,$5,$6,'','','','','','')`)
 	if err != nil {
 		return fmt.Errorf("prepare insert chat: %w", err)
 	}
@@ -94,7 +94,7 @@ func ImportChat(ctx context.Context, db *sql.DB, vodID string) error {
 				// derive from vod start and relative seconds
 				abs = vodDate.Add(time.Duration(m.Rel * float64(time.Second)))
 			}
-			if _, err := stmt.ExecContext(ctx, vodID, m.User, m.Text, abs, m.Rel); err != nil {
+			if _, err := stmt.ExecContext(ctx, channel, vodID, m.User, m.Text, abs, m.Rel); err != nil {
 				// best effort; continue on individual failures
 				logger.Debug("insert chat row failed", slog.Any("err", err))
 			}

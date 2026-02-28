@@ -352,14 +352,13 @@ func (rl *postgresRateLimiter) allow(ctx context.Context, ip string) bool {
 func rateLimitMiddleware(next http.Handler, limiter RateLimiter) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Extract IP from request (handle X-Forwarded-For for proxies)
+		// Use the rightmost IP before our trusted proxy to prevent client spoofing.
+		// The leftmost IP can be set by the client, so it's untrustworthy.
 		ip := r.RemoteAddr
 		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-			// Take the first IP in the list (client IP)
-			if idx := strings.Index(forwarded, ","); idx >= 0 {
-				ip = strings.TrimSpace(forwarded[:idx])
-			} else {
-				ip = strings.TrimSpace(forwarded)
-			}
+			parts := strings.Split(forwarded, ",")
+			// Use the last (rightmost) IP which is the one added by the closest proxy
+			ip = strings.TrimSpace(parts[len(parts)-1])
 		}
 		// Strip port if present using net.SplitHostPort for IPv6 compatibility
 		if host, _, err := net.SplitHostPort(ip); err == nil {

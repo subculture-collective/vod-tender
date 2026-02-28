@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -55,11 +56,20 @@ func InitTracing(serviceName, serviceVersion string) (func(), error) {
 		return nil, fmt.Errorf("failed to create resource: %w", err)
 	}
 
+	// Determine trace sampling rate from environment (default: 100% for dev, set OTEL_TRACE_SAMPLE_RATE=0.1 for production)
+	sampler := sdktrace.AlwaysSample()
+	if rateStr := os.Getenv("OTEL_TRACE_SAMPLE_RATE"); rateStr != "" {
+		if rate, err := strconv.ParseFloat(rateStr, 64); err == nil && rate >= 0 && rate <= 1 {
+			sampler = sdktrace.ParentBased(sdktrace.TraceIDRatioBased(rate))
+			slog.Info("trace sampling configured", slog.Float64("rate", rate))
+		}
+	}
+
 	// Create tracer provider with batch span processor
 	tracerProvider = sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
 		sdktrace.WithResource(res),
-		sdktrace.WithSampler(sdktrace.AlwaysSample()), // Sample all traces; adjust for production
+		sdktrace.WithSampler(sampler),
 	)
 
 	otel.SetTracerProvider(tracerProvider)
@@ -84,12 +94,12 @@ func IsTracingEnabled() bool {
 // StartSpan is a helper to start a span with common attributes and correlation ID.
 func StartSpan(ctx context.Context, tracerName, spanName string, attrs ...attribute.KeyValue) (context.Context, trace.Span) {
 	tracer := otel.Tracer(tracerName)
-	
+
 	// Add correlation ID if present
 	if corr := GetCorrelation(ctx); corr != "" {
 		attrs = append(attrs, attribute.String("correlation_id", corr))
 	}
-	
+
 	ctx, span := tracer.Start(ctx, spanName, trace.WithAttributes(attrs...))
 	return ctx, span
 }

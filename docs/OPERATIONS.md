@@ -25,11 +25,11 @@ Pass environment variables (see CONFIG.md) using an env file or compose `environ
 
 Compose is parameterized via a root `.env` file. Copy `.env.example` to `.env` and set:
 
--   `STACK_NAME` – instance name (used in container names/labels)
--   `TWITCH_CHANNEL` – for identification and defaults
--   `API_PORT`, `FRONTEND_PORT` – host ports
--   `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST` – database settings
--   `SECRETS_DIR`, `YTDLP_COOKIES_PATH` – cookies mount for this instance
+- `STACK_NAME` – instance name (used in container names/labels)
+- `TWITCH_CHANNEL` – for identification and defaults
+- `API_PORT`, `FRONTEND_PORT` – host ports
+- `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST` – database settings
+- `SECRETS_DIR`, `YTDLP_COOKIES_PATH` – cookies mount for this instance
 
 You can spin up multiple instances by using separate directories each with its own `.env` and backend `.env` files, sharing an external `WEB_NETWORK`:
 
@@ -58,36 +58,36 @@ Logging: Uses Go `slog` with configurable level (`LOG_LEVEL`) and format (`LOG_F
 
 Endpoints:
 
--   `/healthz` – liveness (DB ping only). Returns 200 OK or 503.
--   `/status` – lightweight JSON summary: pending / errored / processed counts, circuit breaker state, moving averages, last process run timestamp.
--   `/metrics` – Prometheus exposition format metrics (see Metrics section below).
--   `/admin/monitor` – extended internal stats (job timestamps, circuit).
+- `/healthz` – liveness (DB ping only). Returns 200 OK or 503.
+- `/status` – lightweight JSON summary: pending / errored / processed counts, circuit breaker state, moving averages, last process run timestamp.
+- `/metrics` – Prometheus exposition format metrics (see Metrics section below).
+- `/admin/monitor` – extended internal stats (job timestamps, circuit).
 
 Moving Averages (EMAs) stored in `kv`:
 
--   `avg_download_ms` – recent download duration trend.
--   `avg_upload_ms` – recent upload duration trend.
--   `avg_total_ms` – overall processing time trend.
+- `avg_download_ms` – recent download duration trend.
+- `avg_upload_ms` – recent upload duration trend.
+- `avg_total_ms` – overall processing time trend.
 
 Interpretation: Rising `avg_download_ms` may indicate network or Twitch CDN slowness; rising `avg_upload_ms` could be YouTube API throttling; high `avg_total_ms` vs sum of others suggests local queuing or CPU bottlenecks.
 
 Metrics Exposed (Prometheus):
 
--   `vod_downloads_started_total` / `vod_downloads_succeeded_total` / `vod_downloads_failed_total`
--   `vod_uploads_succeeded_total` / `vod_uploads_failed_total`
--   `vod_processing_cycles_total`
--   `vod_download_duration_seconds` (histogram)
--   `vod_upload_duration_seconds` (histogram)
--   `vod_processing_total_duration_seconds` (histogram)
--   `vod_queue_depth` (gauge) – unprocessed VOD count
--   `vod_circuit_open` (gauge 1/0) – DEPRECATED: use `vod_circuit_breaker_state`
--   `vod_circuit_breaker_state` (gauge) – current circuit breaker state: 0=closed, 1=half-open, 2=open
--   `vod_circuit_breaker_failures_total` (counter) – total number of circuit breaker failures
--   `circuit_breaker_state_changes_total{from,to}` (counter) – tracks state transitions
+- `vod_downloads_started_total` / `vod_downloads_succeeded_total` / `vod_downloads_failed_total`
+- `vod_uploads_succeeded_total` / `vod_uploads_failed_total`
+- `vod_processing_cycles_total`
+- `vod_download_duration_seconds` (histogram)
+- `vod_upload_duration_seconds` (histogram)
+- `vod_processing_total_duration_seconds` (histogram)
+- `vod_queue_depth` (gauge) – unprocessed VOD count
+- `vod_circuit_open` (gauge 1/0) – DEPRECATED: use `vod_circuit_breaker_state`
+- `vod_circuit_breaker_state` (gauge) – current circuit breaker state: 0=closed, 1=half-open, 2=open
+- `vod_circuit_breaker_failures_total` (counter) – total number of circuit breaker failures
+- `circuit_breaker_state_changes_total{from,to}` (counter) – tracks state transitions
 
 Correlation IDs:
 
--   Each HTTP request gets an `X-Correlation-ID` header (reused if supplied) added to logs as `corr`. It is propagated into processing and download logs for traceability.
+- Each HTTP request gets an `X-Correlation-ID` header (reused if supplied) added to logs as `corr`. It is propagated into processing and download logs for traceability.
 
 ### Health & Readiness Checks
 
@@ -107,9 +107,9 @@ vod-tender exposes two health endpoints for monitoring service health:
 
 - **Purpose**: Verifies the application is ready to handle traffic
 - **Checks performed**:
-  1. Database connectivity (ping)
-  2. Circuit breaker state (fails if open)
-  3. OAuth credentials presence (Twitch/YouTube tokens)
+    1. Database connectivity (ping)
+    2. Circuit breaker state (fails if open)
+    3. OAuth credentials presence (Twitch/YouTube tokens)
 - **Use case**: Load balancer health checks, Docker Compose healthchecks, Kubernetes readiness probes
 - **Response**: 200 OK with `{"status":"ready"}` (ready) or 503 with failure details (not ready)
 - **Failure action**: Remove from load balancer rotation, wait for recovery
@@ -133,41 +133,53 @@ vod-tender exposes two health endpoints for monitoring service health:
 The `docker-compose.yml` configures healthchecks for all services:
 
 **API Service**
+
 ```yaml
 healthcheck:
-  test: ["CMD", "/app/healthcheck"]  # Built-in binary checks /healthz
-  interval: 15s
-  timeout: 5s
-  retries: 5
+    test: ['CMD', '/app/healthcheck'] # Built-in binary checks /healthz
+    interval: 15s
+    timeout: 5s
+    retries: 5
 ```
 
 The `/app/healthcheck` binary checks `/healthz` by default (simple DB ping). For stricter checks including circuit breaker state and credentials, set `HEALTHCHECK_ENDPOINT=http://localhost:8080/readyz` in the environment.
 
 **Postgres Service**
+
 ```yaml
 healthcheck:
-  test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
-  interval: 10s
-  timeout: 5s
-  retries: 5
+    test: ['CMD-SHELL', 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB']
+    interval: 10s
+    timeout: 5s
+    retries: 5
 ```
 
 **Frontend Service**
+
 ```yaml
 healthcheck:
-  test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/ >/dev/null 2>&1 || exit 1"]
-  interval: 30s
-  timeout: 5s
-  retries: 5
+    test:
+        [
+            'CMD-SHELL',
+            'wget -q -O - http://127.0.0.1/ >/dev/null 2>&1 || exit 1',
+        ]
+    interval: 30s
+    timeout: 5s
+    retries: 5
 ```
 
 **Jaeger Service**
+
 ```yaml
 healthcheck:
-  test: ["CMD-SHELL", "wget -q -O - http://localhost:14269/ >/dev/null 2>&1 || exit 1"]
-  interval: 30s
-  timeout: 5s
-  retries: 3
+    test:
+        [
+            'CMD-SHELL',
+            'wget -q -O - http://localhost:14269/ >/dev/null 2>&1 || exit 1',
+        ]
+    interval: 30s
+    timeout: 5s
+    retries: 3
 ```
 
 Port 14269 is Jaeger's admin endpoint, which exposes health status and metrics and serves as the standard healthcheck endpoint for Jaeger all-in-one deployments.
@@ -198,57 +210,58 @@ There are two recommended options for configuring the readiness probe:
 
     ```yaml
     readinessProbe:
-      httpGet:
-        path: /healthz
-        port: 8080
-        scheme: HTTP
-      initialDelaySeconds: 10
-      periodSeconds: 5
-      timeoutSeconds: 3
-      successThreshold: 1
-      failureThreshold: 3
+        httpGet:
+            path: /healthz
+            port: 8080
+            scheme: HTTP
+        initialDelaySeconds: 10
+        periodSeconds: 5
+        timeoutSeconds: 3
+        successThreshold: 1
+        failureThreshold: 3
 
     livenessProbe:
-      httpGet:
-        path: /healthz
-        port: 8080
-        scheme: HTTP
-      initialDelaySeconds: 30
-      periodSeconds: 10
-      timeoutSeconds: 5
-      successThreshold: 1
-      failureThreshold: 3
+        httpGet:
+            path: /healthz
+            port: 8080
+            scheme: HTTP
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
     ```
 
 2. **Comprehensive readiness probe**: uses `/readyz`, which performs stricter checks (database connectivity, circuit breaker state, OAuth credentials). This may delay readiness if dependencies are unavailable, but provides stronger guarantees that the service is fully operational before receiving traffic.
 
     ```yaml
     readinessProbe:
-      httpGet:
-        path: /readyz
-        port: 8080
-        scheme: HTTP
-      initialDelaySeconds: 10
-      periodSeconds: 5
-      timeoutSeconds: 3
-      successThreshold: 1
-      failureThreshold: 3
+        httpGet:
+            path: /readyz
+            port: 8080
+            scheme: HTTP
+        initialDelaySeconds: 10
+        periodSeconds: 5
+        timeoutSeconds: 3
+        successThreshold: 1
+        failureThreshold: 3
 
     livenessProbe:
-      httpGet:
-        path: /healthz
-        port: 8080
-        scheme: HTTP
-      initialDelaySeconds: 30
-      periodSeconds: 10
-      timeoutSeconds: 5
-      successThreshold: 1
-      failureThreshold: 3
+        httpGet:
+            path: /healthz
+            port: 8080
+            scheme: HTTP
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
     ```
 
-**Trade-offs:**  
-- `/healthz` is fast and always available, but may not detect deeper issues (e.g., circuit breaker open, missing credentials).  
-- `/readyz` is stricter and may block readiness if circuit breaker is open or credentials are missing, but ensures the service is truly ready to serve requests.  
+**Trade-offs:**
+
+- `/healthz` is fast and always available, but may not detect deeper issues (e.g., circuit breaker open, missing credentials).
+- `/readyz` is stricter and may block readiness if circuit breaker is open or credentials are missing, but ensures the service is truly ready to serve requests.
 
 Choose the probe that best matches your operational requirements.
 
@@ -256,37 +269,37 @@ Choose the probe that best matches your operational requirements.
 
 ```yaml
 readinessProbe:
-  httpGet:
-    path: /
-    port: 80
-    scheme: HTTP
-  initialDelaySeconds: 5
-  periodSeconds: 5
-  timeoutSeconds: 3
-  successThreshold: 1
-  failureThreshold: 3
+    httpGet:
+        path: /
+        port: 80
+        scheme: HTTP
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    successThreshold: 1
+    failureThreshold: 3
 
 livenessProbe:
-  httpGet:
-    path: /
-    port: 80
-    scheme: HTTP
-  initialDelaySeconds: 10
-  periodSeconds: 10
-  timeoutSeconds: 5
-  successThreshold: 1
-  failureThreshold: 3
+    httpGet:
+        path: /
+        port: 80
+        scheme: HTTP
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    successThreshold: 1
+    failureThreshold: 3
 ```
 
 **Probe Parameter Guidance**
 
-| Parameter | Description | API Recommendation | Frontend Recommendation |
-|-----------|-------------|-------------------|------------------------|
-| `initialDelaySeconds` | Wait before first probe | 10-30s (DB migrations) | 5-10s (static files) |
-| `periodSeconds` | Probe frequency | 5-10s | 5-10s |
-| `timeoutSeconds` | Single probe timeout | 3-5s | 3s |
-| `failureThreshold` | Failures before action | 3 (allow transient issues) | 3 |
-| `successThreshold` | Successes to recover | 1 (default) | 1 (default) |
+| Parameter             | Description             | API Recommendation         | Frontend Recommendation |
+| --------------------- | ----------------------- | -------------------------- | ----------------------- |
+| `initialDelaySeconds` | Wait before first probe | 10-30s (DB migrations)     | 5-10s (static files)    |
+| `periodSeconds`       | Probe frequency         | 5-10s                      | 5-10s                   |
+| `timeoutSeconds`      | Single probe timeout    | 3-5s                       | 3s                      |
+| `failureThreshold`    | Failures before action  | 3 (allow transient issues) | 3                       |
+| `successThreshold`    | Successes to recover    | 1 (default)                | 1 (default)             |
 
 **Startup Probes (Optional)**
 
@@ -294,13 +307,13 @@ For slow-starting applications, add a startup probe:
 
 ```yaml
 startupProbe:
-  httpGet:
-    path: /healthz
-    port: 8080
-  initialDelaySeconds: 0
-  periodSeconds: 5
-  timeoutSeconds: 3
-  failureThreshold: 30  # 30 * 5s = 150s max startup time
+    httpGet:
+        path: /healthz
+        port: 8080
+    initialDelaySeconds: 0
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 30 # 30 * 5s = 150s max startup time
 ```
 
 This delays liveness checks until startup completes, preventing premature restarts during migrations or initialization.
@@ -310,57 +323,63 @@ This delays liveness checks until startup completes, preventing premature restar
 **Docker Compose: Service shows "unhealthy"**
 
 1. Check healthcheck logs:
-   ```bash
-   docker inspect vod-api | jq '.[0].State.Health'
-   ```
+
+    ```bash
+    docker inspect vod-api | jq '.[0].State.Health'
+    ```
 
 2. Manually run healthcheck:
-   ```bash
-   docker compose exec api /app/healthcheck
-   ```
+
+    ```bash
+    docker compose exec api /app/healthcheck
+    ```
 
 3. Check endpoint directly:
-   ```bash
-   docker compose exec api curl -v http://localhost:8080/readyz
-   ```
+
+    ```bash
+    docker compose exec api curl -v http://localhost:8080/readyz
+    ```
 
 4. Common causes:
-   - Database not ready: Check `postgres` service health
-   - Circuit breaker open: Check `/status` endpoint for circuit state
-   - Missing credentials: Ensure OAuth tokens configured in `backend/.env`
+    - Database not ready: Check `postgres` service health
+    - Circuit breaker open: Check `/status` endpoint for circuit state
+    - Missing credentials: Ensure OAuth tokens configured in `backend/.env`
 
 **Kubernetes: Pod stuck in "Not Ready" state**
 
 1. Check probe failures:
-   ```bash
-   kubectl describe pod <pod-name> -n vod-tender
-   # Look for "Readiness probe failed" events
-   ```
+
+    ```bash
+    kubectl describe pod <pod-name> -n vod-tender
+    # Look for "Readiness probe failed" events
+    ```
 
 2. Check pod logs:
-   ```bash
-   kubectl logs <pod-name> -n vod-tender
-   ```
+
+    ```bash
+    kubectl logs <pod-name> -n vod-tender
+    ```
 
 3. Test endpoint from within pod:
-   ```bash
-   kubectl exec <pod-name> -n vod-tender -- curl -v http://localhost:8080/readyz
-   ```
+
+    ```bash
+    kubectl exec <pod-name> -n vod-tender -- curl -v http://localhost:8080/readyz
+    ```
 
 4. Common causes:
-   - Database connection failure: Check Postgres pod status
-   - Circuit breaker open: Query database or check logs
-   - Init container failure: Check init container logs
+    - Database connection failure: Check Postgres pod status
+    - Circuit breaker open: Query database or check logs
+    - Init container failure: Check init container logs
 
 **Readiness vs Liveness: Which to Use?**
 
-| Scenario | Probe Type | Endpoint | Rationale |
-|----------|-----------|----------|-----------|
-| K8s liveness probe | Liveness | `/healthz` | Simple check; restart on basic failures |
-| K8s readiness probe | Readiness | `/healthz` or `/readyz` | Use `/healthz` for simpler check; `/readyz` if circuit breaker awareness needed |
-| Docker healthcheck | Readiness | `/readyz` | Comprehensive check; mark unhealthy on circuit breaker open |
-| Load balancer check | Readiness | `/readyz` | Remove from rotation when not ready to serve |
-| Uptime monitor | Liveness | `/healthz` | Basic availability check |
+| Scenario            | Probe Type | Endpoint                | Rationale                                                                       |
+| ------------------- | ---------- | ----------------------- | ------------------------------------------------------------------------------- |
+| K8s liveness probe  | Liveness   | `/healthz`              | Simple check; restart on basic failures                                         |
+| K8s readiness probe | Readiness  | `/healthz` or `/readyz` | Use `/healthz` for simpler check; `/readyz` if circuit breaker awareness needed |
+| Docker healthcheck  | Readiness  | `/readyz`               | Comprehensive check; mark unhealthy on circuit breaker open                     |
+| Load balancer check | Readiness  | `/readyz`               | Remove from rotation when not ready to serve                                    |
+| Uptime monitor      | Liveness   | `/healthz`              | Basic availability check                                                        |
 
 **Note on K8s Probes**: The existing K8s manifests use `/healthz` for both liveness and readiness. This is intentional for simplicity, as circuit breaker state is transient and self-recovers. For stricter readiness requirements, switch readiness probes to `/readyz`.
 
@@ -378,14 +397,14 @@ The circuit breaker prevents hot-looping on systemic failures (e.g., API outages
 
 #### Configuration
 
--   `CIRCUIT_FAILURE_THRESHOLD` – number of consecutive failures before opening (default: disabled). Example: `2`
--   `CIRCUIT_OPEN_COOLDOWN` – duration to keep circuit open before transitioning to half-open (default: `5m`). Example: `10m`
+- `CIRCUIT_FAILURE_THRESHOLD` – number of consecutive failures before opening (default: disabled). Example: `2`
+- `CIRCUIT_OPEN_COOLDOWN` – duration to keep circuit open before transitioning to half-open (default: `5m`). Example: `10m`
 
 #### Monitoring
 
--   Monitor `vod_circuit_breaker_state` gauge: 0=closed (healthy), 1=half-open (probing), 2=open (degraded)
--   Monitor `vod_circuit_breaker_failures_total` counter for failure rate trends
--   Monitor `circuit_breaker_state_changes_total` for transition frequency
+- Monitor `vod_circuit_breaker_state` gauge: 0=closed (healthy), 1=half-open (probing), 2=open (degraded)
+- Monitor `vod_circuit_breaker_failures_total` counter for failure rate trends
+- Monitor `circuit_breaker_state_changes_total` for transition frequency
 
 ### Common Operational Scenarios
 
@@ -399,16 +418,16 @@ The circuit breaker prevents hot-looping on systemic failures (e.g., API outages
 
 ### Data Management
 
--   To reset processing state (force reprocess a VOD): `UPDATE vods SET processed=0, processing_error=NULL, youtube_url=NULL WHERE twitch_vod_id='...'`.
--   To clear circuit breaker: delete its keys: `DELETE FROM kv WHERE key IN ('circuit_state','circuit_failures','circuit_open_until');`.
--   Backup strategy: use `pg_dump` (logical) or base backups (e.g., `pg_basebackup`) plus the `data/` directory (video files). For small hobby deployments a daily `pg_dump > backup.sql` is usually sufficient.
+- To reset processing state (force reprocess a VOD): `UPDATE vods SET processed=FALSE, processing_error=NULL, youtube_url=NULL WHERE twitch_vod_id='...'`.
+- To clear circuit breaker: delete its keys: `DELETE FROM kv WHERE key IN ('circuit_state','circuit_failures','circuit_open_until');`.
+- Backup strategy: use `pg_dump` (logical) or base backups (e.g., `pg_basebackup`) plus the `data/` directory (video files). For small hobby deployments a daily `pg_dump > backup.sql` is usually sufficient.
 
 ### Security Notes
 
--   OAuth tokens are encrypted at rest using AES-256-GCM when `ENCRYPTION_KEY` is set. See "OAuth Token Encryption Migration" section below for migration from plaintext to encrypted storage.
--   Limit scope of Twitch & YouTube tokens to necessary permissions.
--   Avoid mounting the `data/` directory with overly broad permissions (use user-owned paths, not world-writable).
--   Use least‑privilege Postgres role (revoking CREATEDB, SUPERUSER if not needed). Restrict network access (security groups / firewalls).
+- OAuth tokens are encrypted at rest using AES-256-GCM when `ENCRYPTION_KEY` is set. See "OAuth Token Encryption Migration" section below for migration from plaintext to encrypted storage.
+- Limit scope of Twitch & YouTube tokens to necessary permissions.
+- Avoid mounting the `data/` directory with overly broad permissions (use user-owned paths, not world-writable).
+- Use least‑privilege Postgres role (revoking CREATEDB, SUPERUSER if not needed). Restrict network access (security groups / firewalls).
 
 #### OAuth Token Encryption Migration
 
@@ -416,8 +435,8 @@ vod-tender supports encrypted storage of OAuth tokens at rest using AES-256-GCM.
 
 **Encryption Versions**:
 
--   **Version 0**: Plaintext (legacy, not recommended for production)
--   **Version 1**: AES-256-GCM encrypted (current standard)
+- **Version 0**: Plaintext (legacy, not recommended for production)
+- **Version 1**: AES-256-GCM encrypted (current standard)
 
 **Setting Up Encryption for New Deployments**:
 
@@ -434,7 +453,6 @@ vod-tender supports encrypted storage of OAuth tokens at rest using AES-256-GCM.
     ```
 
 3. Store the key securely:
-
     - For production: Use AWS Secrets Manager, HashiCorp Vault, or similar
     - For Docker Compose: Mount as secret or use Docker secrets
     - For Kubernetes: Use Sealed Secrets or external secrets operator
@@ -447,7 +465,6 @@ vod-tender supports encrypted storage of OAuth tokens at rest using AES-256-GCM.
 If you have existing deployments with plaintext tokens (encryption_version=0), use the migration tool to encrypt them:
 
 1. **Prerequisites**:
-
     - Database must be accessible via `DB_DSN`
     - `ENCRYPTION_KEY` must be set and valid
     - Application can remain running during migration (it handles both formats)
@@ -519,19 +536,19 @@ level=INFO msg="migration completed successfully"
 
 **Important Notes**:
 
--   The migration is **idempotent** - safe to run multiple times
--   Each token update is **atomic** (uses database transaction)
--   Tokens are migrated one at a time with progress logging
--   Failed migrations are logged but don't stop the process
--   The application continues to work with mixed encryption versions during migration
--   **After migration**, you can optionally enforce encryption by requiring `ENCRYPTION_KEY` at startup
+- The migration is **idempotent** - safe to run multiple times
+- Each token update is **atomic** (uses database transaction)
+- Tokens are migrated one at a time with progress logging
+- Failed migrations are logged but don't stop the process
+- The application continues to work with mixed encryption versions during migration
+- **After migration**, you can optionally enforce encryption by requiring `ENCRYPTION_KEY` at startup
 
 **Backward Compatibility**:
 
 The system supports reading tokens in any encryption version:
 
--   Version 0 (plaintext): Read directly without decryption
--   Version 1 (encrypted): Automatically decrypt using `ENCRYPTION_KEY`
+- Version 0 (plaintext): Read directly without decryption
+- Version 1 (encrypted): Automatically decrypt using `ENCRYPTION_KEY`
 
 New tokens are always written with the highest supported version when `ENCRYPTION_KEY` is set.
 
@@ -560,9 +577,9 @@ Currently, the system uses a single encryption key identified as "default". For 
 
 For now, protect your encryption key carefully and rotate by:
 
--   Generating new key
--   Running migration with new key to re-encrypt all tokens
--   Update key in all environments
+- Generating new key
+- Running migration with new key to re-encrypt all tokens
+- Update key in all environments
 
 ### Scaling Considerations
 
@@ -585,12 +602,12 @@ For now, protect your encryption key carefully and rotate by:
 
 The CI pipeline includes automated container security scanning using Trivy:
 
--   **Backend image**: Scanned for OS and library vulnerabilities in `vod-tender-backend`
--   **Frontend image**: Scanned for OS and library vulnerabilities in `vod-tender-frontend`
--   **Severity threshold**: Build fails on CRITICAL or HIGH severity vulnerabilities
--   **Reports**: Available as CI artifacts (SARIF and JSON formats) with 30-day retention
--   **GitHub Security**: SARIF results automatically uploaded to GitHub Security tab for tracking
--   **Baseline allowlist**: Optional `.trivyignore` file available for suppressing reviewed/accepted vulnerabilities
+- **Backend image**: Scanned for OS and library vulnerabilities in `vod-tender-backend`
+- **Frontend image**: Scanned for OS and library vulnerabilities in `vod-tender-frontend`
+- **Severity threshold**: Build fails on CRITICAL or HIGH severity vulnerabilities
+- **Reports**: Available as CI artifacts (SARIF and JSON formats) with 30-day retention
+- **GitHub Security**: SARIF results automatically uploaded to GitHub Security tab for tracking
+- **Baseline allowlist**: Optional `.trivyignore` file available for suppressing reviewed/accepted vulnerabilities
 
 To manually scan images locally:
 
@@ -610,9 +627,9 @@ trivy image vod-tender-backend:latest --format json --output backend-scan.json
 
 ### Maintenance Tasks
 
--   Postgres routine maintenance: autovacuum should suffice; consider manual `VACUUM ANALYZE` only if bloat observed.
--   Regular backups (`pg_dump` or WAL archiving) and periodic restore tests.
--   Rotate logs via process manager (if not using Docker log drivers with retention).
+- Postgres routine maintenance: autovacuum should suffice; consider manual `VACUUM ANALYZE` only if bloat observed.
+- Regular backups (`pg_dump` or WAL archiving) and periodic restore tests.
+- Rotate logs via process manager (if not using Docker log drivers with retention).
 
 #### Storage Retention and Cleanup
 
@@ -653,13 +670,13 @@ Before enabling retention cleanup in production, **always test with dry-run mode
 
 **What Gets Deleted**
 
--   **Files deleted**: Local video files (`*.mp4`, `*.mkv`, `*.webm`) in the `DATA_DIR` that exceed retention policy
--   **Database preserved**: VOD metadata, dates, titles, YouTube URLs, and chat logs remain in the database
--   **Protected from deletion**:
-    -   VODs currently being downloaded or processed
-    -   VODs updated within the last hour (may be uploading)
-    -   VODs with active `download_state` (downloading, processing)
-    -   VODs matching retention policies (by date or count)
+- **Files deleted**: Local video files (`*.mp4`, `*.mkv`, `*.webm`) in the `DATA_DIR` that exceed retention policy
+- **Database preserved**: VOD metadata, dates, titles, YouTube URLs, and chat logs remain in the database
+- **Protected from deletion**:
+    - VODs currently being downloaded or processed
+    - VODs updated within the last hour (may be uploading)
+    - VODs with active `download_state` (downloading, processing)
+    - VODs matching retention policies (by date or count)
 
 **Monitoring**
 
@@ -673,10 +690,10 @@ level=INFO msg="deleted old vod file" path=data/vod123.mp4 vod_id=123 title="Old
 
 Key metrics to monitor:
 
--   `cleaned`: Number of files deleted
--   `skipped`: Number of files retained (should match your policy expectations)
--   `errors`: Should typically be 0; investigate if non-zero
--   `bytes_freed`: Total disk space reclaimed
+- `cleaned`: Number of files deleted
+- `skipped`: Number of files retained (should match your policy expectations)
+- `errors`: Should typically be 0; investigate if non-zero
+- `bytes_freed`: Total disk space reclaimed
 
 **Common Retention Strategies**
 
@@ -720,8 +737,8 @@ When running multiple channels, each channel's retention policy runs independent
 
 The CI pipeline includes automated security scans:
 
--   **Gitleaks** – Scans commits and PRs for secrets (API keys, tokens, passwords). Fails on any findings. Use `.gitleaks.toml` to suppress false positives if needed.
--   **govulncheck** – Checks Go dependencies for known vulnerabilities from the official Go vulnerability database. Fails on any exploitable vulnerabilities affecting the codebase.
+- **Gitleaks** – Scans commits and PRs for secrets (API keys, tokens, passwords). Fails on any findings. Use `.gitleaks.toml` to suppress false positives if needed.
+- **govulncheck** – Checks Go dependencies for known vulnerabilities from the official Go vulnerability database. Fails on any exploitable vulnerabilities affecting the codebase.
 
 Both tools run automatically on every push to `main` and on all pull requests. The build will fail if security issues are detected.
 

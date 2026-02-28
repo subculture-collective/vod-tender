@@ -30,9 +30,10 @@ func TestCancelNoActive(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	handlers := NewHandlers(context.Background(), db)
 	req := httptest.NewRequest(http.MethodPost, "/vods/abc/cancel", nil)
 	rr := httptest.NewRecorder()
-	handleVodCancel(rr, req, db, "abc")
+	handlers.handleVodCancel(rr, req, "abc")
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("expected 204 when nothing to cancel, got %d", rr.Code)
 	}

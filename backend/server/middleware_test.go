@@ -7,6 +7,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/onnwee/vod-tender/backend/testutil"
 )
 
 func TestAdminAuthMiddleware(t *testing.T) {
@@ -129,13 +131,13 @@ func TestRateLimiter(t *testing.T) {
 
 	// First 3 requests should succeed
 	for i := 0; i < 3; i++ {
-		if !limiter.allow("192.168.1.1") {
+		if !limiter.allow(context.Background(), "192.168.1.1") {
 			t.Errorf("request %d should be allowed", i+1)
 		}
 	}
 
 	// 4th request should be denied
-	if limiter.allow("192.168.1.1") {
+	if limiter.allow(context.Background(), "192.168.1.1") {
 		t.Error("request 4 should be denied (rate limit exceeded)")
 	}
 
@@ -143,7 +145,7 @@ func TestRateLimiter(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 
 	// Should allow requests again
-	if !limiter.allow("192.168.1.1") {
+	if !limiter.allow(context.Background(), "192.168.1.1") {
 		t.Error("request after window expiry should be allowed")
 	}
 }
@@ -157,26 +159,26 @@ func TestRateLimiterDifferentIPs(t *testing.T) {
 	limiter := newIPRateLimiter(context.Background(), cfg)
 
 	// IP 1 makes 2 requests (should succeed)
-	if !limiter.allow("192.168.1.1") {
+	if !limiter.allow(context.Background(), "192.168.1.1") {
 		t.Error("IP1 request 1 should be allowed")
 	}
-	if !limiter.allow("192.168.1.1") {
+	if !limiter.allow(context.Background(), "192.168.1.1") {
 		t.Error("IP1 request 2 should be allowed")
 	}
 
 	// IP 2 makes 2 requests (should also succeed, different IP)
-	if !limiter.allow("192.168.1.2") {
+	if !limiter.allow(context.Background(), "192.168.1.2") {
 		t.Error("IP2 request 1 should be allowed")
 	}
-	if !limiter.allow("192.168.1.2") {
+	if !limiter.allow(context.Background(), "192.168.1.2") {
 		t.Error("IP2 request 2 should be allowed")
 	}
 
 	// Both IPs are now at limit
-	if limiter.allow("192.168.1.1") {
+	if limiter.allow(context.Background(), "192.168.1.1") {
 		t.Error("IP1 request 3 should be denied")
 	}
-	if limiter.allow("192.168.1.2") {
+	if limiter.allow(context.Background(), "192.168.1.2") {
 		t.Error("IP2 request 3 should be denied")
 	}
 }
@@ -191,7 +193,7 @@ func TestRateLimiterDisabled(t *testing.T) {
 
 	// Should allow unlimited requests when disabled
 	for i := 0; i < 100; i++ {
-		if !limiter.allow("192.168.1.1") {
+		if !limiter.allow(context.Background(), "192.168.1.1") {
 			t.Errorf("request %d should be allowed when rate limiter is disabled", i+1)
 		}
 	}
@@ -713,101 +715,101 @@ func TestParseInt(t *testing.T) {
 
 func TestVodSensitiveEndpointPattern(t *testing.T) {
 	tests := []struct {
-		name       string
-		path       string
+		name        string
+		path        string
 		shouldMatch bool
 	}{
 		// Valid VOD endpoints that should match
 		{
-			name:       "valid cancel endpoint",
-			path:       "/vods/123/cancel",
+			name:        "valid cancel endpoint",
+			path:        "/vods/123/cancel",
 			shouldMatch: true,
 		},
 		{
-			name:       "valid reprocess endpoint",
-			path:       "/vods/abc123/reprocess",
+			name:        "valid reprocess endpoint",
+			path:        "/vods/abc123/reprocess",
 			shouldMatch: true,
 		},
 		{
-			name:       "valid cancel with alphanumeric ID",
-			path:       "/vods/v1234567890/cancel",
+			name:        "valid cancel with alphanumeric ID",
+			path:        "/vods/v1234567890/cancel",
 			shouldMatch: true,
 		},
 		{
-			name:       "valid reprocess with hyphenated ID",
-			path:       "/vods/vod-123-456/reprocess",
+			name:        "valid reprocess with hyphenated ID",
+			path:        "/vods/vod-123-456/reprocess",
 			shouldMatch: true,
 		},
 
 		// Invalid paths that should NOT match
 		{
-			name:       "generic cancel path",
-			path:       "/anything/cancel",
+			name:        "generic cancel path",
+			path:        "/anything/cancel",
 			shouldMatch: false,
 		},
 		{
-			name:       "generic reprocess path",
-			path:       "/custom/reprocess",
+			name:        "generic reprocess path",
+			path:        "/custom/reprocess",
 			shouldMatch: false,
 		},
 		{
-			name:       "cancel without vods prefix",
-			path:       "/api/123/cancel",
+			name:        "cancel without vods prefix",
+			path:        "/api/123/cancel",
 			shouldMatch: false,
 		},
 		{
-			name:       "reprocess without vods prefix",
-			path:       "/admin/123/reprocess",
+			name:        "reprocess without vods prefix",
+			path:        "/admin/123/reprocess",
 			shouldMatch: false,
 		},
 		{
-			name:       "cancel with trailing slash",
-			path:       "/vods/123/cancel/",
+			name:        "cancel with trailing slash",
+			path:        "/vods/123/cancel/",
 			shouldMatch: false,
 		},
 		{
-			name:       "reprocess with additional path segments",
-			path:       "/vods/123/reprocess/extra",
+			name:        "reprocess with additional path segments",
+			path:        "/vods/123/reprocess/extra",
 			shouldMatch: false,
 		},
 		{
-			name:       "cancel with no ID",
-			path:       "/vods/cancel",
+			name:        "cancel with no ID",
+			path:        "/vods/cancel",
 			shouldMatch: false,
 		},
 		{
-			name:       "reprocess with no ID",
-			path:       "/vods/reprocess",
+			name:        "reprocess with no ID",
+			path:        "/vods/reprocess",
 			shouldMatch: false,
 		},
 		{
-			name:       "cancel with empty ID (double slash)",
-			path:       "/vods//cancel",
+			name:        "cancel with empty ID (double slash)",
+			path:        "/vods//cancel",
 			shouldMatch: false,
 		},
 		{
-			name:       "different vod endpoint",
-			path:       "/vods/123/progress",
+			name:        "different vod endpoint",
+			path:        "/vods/123/progress",
 			shouldMatch: false,
 		},
 		{
-			name:       "vods list endpoint",
-			path:       "/vods",
+			name:        "vods list endpoint",
+			path:        "/vods",
 			shouldMatch: false,
 		},
 		{
-			name:       "vods detail endpoint",
-			path:       "/vods/123",
+			name:        "vods detail endpoint",
+			path:        "/vods/123",
 			shouldMatch: false,
 		},
 		{
-			name:       "root cancel",
-			path:       "/cancel",
+			name:        "root cancel",
+			path:        "/cancel",
 			shouldMatch: false,
 		},
 		{
-			name:       "root reprocess",
-			path:       "/reprocess",
+			name:        "root reprocess",
+			path:        "/reprocess",
 			shouldMatch: false,
 		},
 	}
@@ -817,6 +819,288 @@ func TestVodSensitiveEndpointPattern(t *testing.T) {
 			matched := getVodSensitiveEndpointPattern().MatchString(tt.path)
 			if matched != tt.shouldMatch {
 				t.Errorf("getVodSensitiveEndpointPattern().MatchString(%q) = %v, want %v", tt.path, matched, tt.shouldMatch)
+			}
+		})
+	}
+}
+
+func TestPostgresRateLimiter(t *testing.T) {
+	db := testutil.SetupTestDB(t)
+
+	ctx := context.Background()
+	cfg := &rateLimiterConfig{
+		enabled:       true,
+		requestsPerIP: 3,
+		window:        100 * time.Millisecond,
+		backend:       "postgres",
+	}
+
+	limiter, err := newPostgresRateLimiter(ctx, db, cfg)
+	if err != nil {
+		t.Fatalf("failed to create postgres rate limiter: %v", err)
+	}
+
+	// Clean up test data
+	defer func() {
+		_, _ = db.ExecContext(ctx, "DELETE FROM rate_limit_requests WHERE ip LIKE '192.168.%'")
+	}()
+
+	testIP := "192.168.1.100"
+
+	// First 3 requests should succeed
+	for i := 0; i < 3; i++ {
+		if !limiter.allow(context.Background(), testIP) {
+			t.Errorf("request %d should be allowed", i+1)
+		}
+	}
+
+	// 4th request should be denied
+	if limiter.allow(context.Background(), testIP) {
+		t.Error("request 4 should be denied (rate limit exceeded)")
+	}
+
+	// Wait for window to expire
+	time.Sleep(150 * time.Millisecond)
+
+	// Should allow requests again
+	if !limiter.allow(context.Background(), testIP) {
+		t.Error("request after window expiry should be allowed")
+	}
+}
+
+func TestPostgresRateLimiterDifferentIPs(t *testing.T) {
+	db := testutil.SetupTestDB(t)
+
+	ctx := context.Background()
+	cfg := &rateLimiterConfig{
+		enabled:       true,
+		requestsPerIP: 2,
+		window:        1 * time.Second,
+		backend:       "postgres",
+	}
+
+	limiter, err := newPostgresRateLimiter(ctx, db, cfg)
+	if err != nil {
+		t.Fatalf("failed to create postgres rate limiter: %v", err)
+	}
+
+	// Clean up test data
+	defer func() {
+		_, _ = db.ExecContext(ctx, "DELETE FROM rate_limit_requests WHERE ip LIKE '192.168.%'")
+	}()
+
+	ip1 := "192.168.1.101"
+	ip2 := "192.168.1.102"
+
+	// IP 1 makes 2 requests (should succeed)
+	if !limiter.allow(context.Background(), ip1) {
+		t.Error("IP1 request 1 should be allowed")
+	}
+	if !limiter.allow(context.Background(), ip1) {
+		t.Error("IP1 request 2 should be allowed")
+	}
+
+	// IP 2 makes 2 requests (should also succeed, different IP)
+	if !limiter.allow(context.Background(), ip2) {
+		t.Error("IP2 request 1 should be allowed")
+	}
+	if !limiter.allow(context.Background(), ip2) {
+		t.Error("IP2 request 2 should be allowed")
+	}
+
+	// Both IPs are now at limit
+	if limiter.allow(context.Background(), ip1) {
+		t.Error("IP1 request 3 should be denied")
+	}
+	if limiter.allow(context.Background(), ip2) {
+		t.Error("IP2 request 3 should be denied")
+	}
+}
+
+func TestPostgresRateLimiterDisabled(t *testing.T) {
+	db := testutil.SetupTestDB(t)
+
+	ctx := context.Background()
+	cfg := &rateLimiterConfig{
+		enabled:       false,
+		requestsPerIP: 1,
+		window:        1 * time.Second,
+		backend:       "postgres",
+	}
+
+	limiter, err := newPostgresRateLimiter(ctx, db, cfg)
+	if err != nil {
+		t.Fatalf("failed to create postgres rate limiter: %v", err)
+	}
+
+	// Clean up test data
+	defer func() {
+		_, _ = db.ExecContext(ctx, "DELETE FROM rate_limit_requests WHERE ip LIKE '192.168.%'")
+	}()
+
+	testIP := "192.168.1.103"
+
+	// Should allow unlimited requests when disabled
+	for i := 0; i < 20; i++ {
+		if !limiter.allow(context.Background(), testIP) {
+			t.Errorf("request %d should be allowed when rate limiter is disabled", i+1)
+		}
+	}
+}
+
+func TestPostgresRateLimiterConcurrency(t *testing.T) {
+	db := testutil.SetupTestDB(t)
+
+	ctx := context.Background()
+	cfg := &rateLimiterConfig{
+		enabled:       true,
+		requestsPerIP: 10,
+		window:        1 * time.Second,
+		backend:       "postgres",
+	}
+
+	limiter, err := newPostgresRateLimiter(ctx, db, cfg)
+	if err != nil {
+		t.Fatalf("failed to create postgres rate limiter: %v", err)
+	}
+
+	// Clean up test data
+	defer func() {
+		_, _ = db.ExecContext(ctx, "DELETE FROM rate_limit_requests WHERE ip LIKE '192.168.%'")
+	}()
+
+	testIP := "192.168.1.104"
+
+	// Simulate concurrent requests from the same IP
+	// With advisory locks, the limiter should be truly atomic
+	totalRequests := 15
+	results := make(chan bool, totalRequests)
+	for i := 0; i < totalRequests; i++ {
+		go func() {
+			results <- limiter.allow(context.Background(), testIP)
+		}()
+	}
+
+	allowed := 0
+	denied := 0
+	for i := 0; i < totalRequests; i++ {
+		if <-results {
+			allowed++
+		} else {
+			denied++
+		}
+	}
+
+	// With advisory locks ensuring atomicity, we expect exactly requestsPerIP
+	// allowed requests and the remainder denied under concurrent load
+	expectedAllowed := cfg.requestsPerIP
+	expectedDenied := totalRequests - expectedAllowed
+
+	if allowed != expectedAllowed {
+		t.Errorf("expected %d allowed requests, got %d", expectedAllowed, allowed)
+	}
+	if denied != expectedDenied {
+		t.Errorf("expected %d denied requests, got %d", expectedDenied, denied)
+	}
+	if allowed+denied != totalRequests {
+		t.Errorf("expected %d total requests, got %d", totalRequests, allowed+denied)
+	}
+}
+
+func TestPostgresRateLimiterCleanup(t *testing.T) {
+	db := testutil.SetupTestDB(t)
+
+	ctx := context.Background()
+	cfg := &rateLimiterConfig{
+		enabled:       true,
+		requestsPerIP: 5,
+		window:        100 * time.Millisecond,
+		backend:       "postgres",
+	}
+
+	limiter, err := newPostgresRateLimiter(ctx, db, cfg)
+	if err != nil {
+		t.Fatalf("failed to create postgres rate limiter: %v", err)
+	}
+
+	// Clean up test data
+	defer func() {
+		_, _ = db.ExecContext(ctx, "DELETE FROM rate_limit_requests WHERE ip LIKE '192.168.%'")
+	}()
+
+	testIP := "192.168.1.105"
+
+	// Make some requests
+	for i := 0; i < 3; i++ {
+		limiter.allow(context.Background(), testIP)
+	}
+
+	// Check that entries exist
+	var count int
+	err = db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM rate_limit_requests WHERE ip = $1",
+		testIP).Scan(&count)
+	if err != nil {
+		t.Fatalf("failed to count entries: %v", err)
+	}
+	if count != 3 {
+		t.Errorf("expected 3 entries, got %d", count)
+	}
+
+	// Wait for entries to be old enough for cleanup
+	time.Sleep(250 * time.Millisecond)
+
+	// Trigger cleanup
+	limiter.cleanup(ctx)
+
+	// Check that old entries were cleaned up
+	err = db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM rate_limit_requests WHERE ip = $1",
+		testIP).Scan(&count)
+	if err != nil {
+		t.Fatalf("failed to count entries after cleanup: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 entries after cleanup, got %d", count)
+	}
+}
+
+func TestRateLimiterBackendConfiguration(t *testing.T) {
+	tests := []struct {
+		name            string
+		backend         string
+		expectedBackend string
+	}{
+		{
+			name:            "default to memory",
+			backend:         "",
+			expectedBackend: "memory",
+		},
+		{
+			name:            "explicit memory",
+			backend:         "memory",
+			expectedBackend: "memory",
+		},
+		{
+			name:            "postgres backend",
+			backend:         "postgres",
+			expectedBackend: "postgres",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set environment variable
+			if tt.backend != "" {
+				os.Setenv("RATE_LIMIT_BACKEND", tt.backend)
+			} else {
+				os.Unsetenv("RATE_LIMIT_BACKEND")
+			}
+			defer os.Unsetenv("RATE_LIMIT_BACKEND")
+
+			cfg := loadRateLimiterConfig()
+			if cfg.backend != tt.expectedBackend {
+				t.Errorf("expected backend %q, got %q", tt.expectedBackend, cfg.backend)
 			}
 		})
 	}

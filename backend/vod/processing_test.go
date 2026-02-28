@@ -26,7 +26,7 @@ type mockUploader struct {
 	url string
 }
 
-func (m mockUploader) Upload(ctx context.Context, path, title string, date time.Time) (string, error) {
+func (m mockUploader) Upload(ctx context.Context, dbc *sql.DB, path, title string, date time.Time) (string, error) {
 	return m.url, m.err
 }
 

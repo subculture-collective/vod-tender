@@ -34,9 +34,10 @@ func TestReprocess(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	handlers := NewHandlers(context.Background(), db)
 	req := httptest.NewRequest(http.MethodPost, "/vods/123/reprocess", nil)
 	rr := httptest.NewRecorder()
-	handleVodReprocess(rr, req, db, "123")
+	handlers.handleVodReprocess(rr, req, "123")
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", rr.Code)
 	}

@@ -126,6 +126,40 @@ paths:
                   schema: { type: number, format: double, default: 1.0 }
             responses:
                 '200': { description: Stream started }
+    /admin/chat/user/{username}:
+        delete:
+            summary: Purge chat messages for a username
+            description: |
+                Admin endpoint that deletes chat rows in a channel for a given username.
+                Matches plaintext usernames case-insensitively and, when CHAT_ANONYMIZE_SALT
+                is configured, also matches anonymized rows by username_hash.
+            parameters:
+                - in: path
+                  name: username
+                  required: true
+                  schema: { type: string }
+                  description: Username to purge
+                - in: query
+                  name: channel
+                  required: false
+                  schema: { type: string }
+                  description: Optional channel override (defaults to TWITCH_CHANNEL)
+            responses:
+                '200':
+                    description: Purge result
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status: { type: string }
+                                    channel: { type: string }
+                                    username: { type: string }
+                                    deleted_rows: { type: integer }
+                '400': { description: Invalid request }
+                '401': { description: Unauthorized }
+                '405': { description: Method not allowed }
+                '500': { description: Internal server error }
     /vods/{id}/segments:
         get:
             summary: List segments for a VOD

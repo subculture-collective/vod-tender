@@ -24,6 +24,8 @@ What this project is **not** for:
 
 You are responsible for ensuring your use complies with Twitch and YouTube terms, local law, and applicable copyright requirements. The maintainers are not responsible for misuse.
 
+If you record chat, you should provide an explicit viewer-facing notice and configure retention/anonymization (`CHAT_RETENTION_DAYS`, `CHAT_ANONYMIZE_AFTER_DAYS`, `CHAT_ANONYMIZE_SALT`) for your jurisdiction and policy requirements.
+
 ## Quick start
 
 ### Complete Local Development Setup (Recommended for New Developers)
@@ -233,6 +235,10 @@ Environment variables (place in `backend/.env` for local dev):
 - DATA_DIR (optional; default data)
 - LOG_LEVEL (optional; default info)
 - LOG_FORMAT (optional; text|json; default text)
+- CHAT_RETENTION_DAYS (optional; default 0 = disabled)
+- CHAT_RETENTION_INTERVAL (optional; default 6h)
+- CHAT_ANONYMIZE_AFTER_DAYS (optional; default 0 = disabled)
+- CHAT_ANONYMIZE_SALT (required when anonymization is enabled)
 
 Chat recorder starts only when Twitch creds are present. Auto mode can start the recorder when the channel goes live (see `CHAT_AUTO_START`).
 
@@ -350,6 +356,10 @@ Tip: Use Google OAuth 2.0 Playground to authorize the scope above and exchange a
 ## API and frontend client
 
 OpenAPI spec lives at `backend/api/openapi.yaml`.
+
+Admin privacy endpoint:
+
+- `DELETE /admin/chat/user/{username}?channel=<channel>` removes matching chat rows for a user within a channel (admin auth required).
 
 Generate a TypeScript client (example using openapi-typescript):
 

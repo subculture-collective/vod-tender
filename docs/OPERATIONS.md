@@ -716,6 +716,25 @@ psql -U vod -d vod -c "UPDATE vods SET downloaded_path=NULL WHERE twitch_vod_id=
 rm /path/to/data/vod_123456789.mp4
 ```
 
+### Chat Privacy Operations
+
+Use the admin endpoint below to erase chat rows for a specific username within a channel:
+
+- `DELETE /admin/chat/user/{username}?channel=<channel>`
+
+Behavior:
+
+- Matches plaintext usernames case-insensitively.
+- If `CHAT_ANONYMIZE_SALT` is configured, also matches anonymized rows by stored `username_hash`.
+- If `channel` is omitted, the API falls back to `TWITCH_CHANNEL`.
+
+Example:
+
+```bash
+curl -X DELETE "http://localhost:8080/admin/chat/user/someuser?channel=mychannel" \
+    -H "X-Admin-Token: $ADMIN_TOKEN"
+```
+
 **Per-Channel Retention (Multi-Channel Mode)**
 
 When running multiple channels, each channel's retention policy runs independently. The policies apply globally via environment variables, so all channels use the same settings. For per-channel retention policies, consider running separate instances with different configurations.

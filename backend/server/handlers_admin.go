@@ -2,11 +2,15 @@ package server
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
+	chatpkg "github.com/onnwee/vod-tender/backend/chat"
 	vodpkg "github.com/onnwee/vod-tender/backend/vod"
 )
 
@@ -199,5 +203,98 @@ func (h *Handlers) HandleAdminVodSkipUpload(w http.ResponseWriter, r *http.Reque
 		"status":      "ok",
 		"vod_id":      req.VodID,
 		"skip_upload": req.SkipUpload,
+	})
+}
+
+// HandleAdminChatUserPurge deletes chat messages for a username in a specific channel.
+//
+// Route: DELETE /admin/chat/user/{username}?channel=<channel>
+//
+// Channel resolution:
+//  1. query parameter `channel`
+//  2. TWITCH_CHANNEL environment variable
+//
+// Matching behavior:
+//   - Always matches plaintext usernames case-insensitively (LOWER(username)=LOWER(input))
+//   - If CHAT_ANONYMIZE_SALT is configured, also matches username_hash for anonymized rows
+func (h *Handlers) HandleAdminChatUserPurge(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	const routePrefix = "/admin/chat/user/"
+	rawUsername := strings.TrimPrefix(r.URL.Path, routePrefix)
+	if rawUsername == "" {
+		http.Error(w, "username required", http.StatusBadRequest)
+		return
+	}
+
+	decodedUsername, err := url.PathUnescape(rawUsername)
+	if err != nil {
+		http.Error(w, "invalid username path", http.StatusBadRequest)
+		return
+	}
+	username := strings.TrimSpace(decodedUsername)
+	if username == "" {
+		http.Error(w, "username required", http.StatusBadRequest)
+		return
+	}
+
+	channel := strings.TrimSpace(r.URL.Query().Get("channel"))
+	if channel == "" {
+		channel = strings.TrimSpace(os.Getenv("TWITCH_CHANNEL"))
+	}
+
+	salt := strings.TrimSpace(os.Getenv("CHAT_ANONYMIZE_SALT"))
+	hash := chatpkg.UsernameHash(salt, username)
+
+	var resultRowsAffected int64
+	if hash != "" {
+		result, execErr := h.db.ExecContext(r.Context(), `
+			DELETE FROM chat_messages
+			WHERE channel = $1
+			  AND (LOWER(username) = LOWER($2) OR username_hash = $3)
+		`, channel, username, hash)
+		if execErr != nil {
+			http.Error(w, execErr.Error(), http.StatusInternalServerError)
+			return
+		}
+		affected, rowsErr := result.RowsAffected()
+		if rowsErr != nil {
+			http.Error(w, rowsErr.Error(), http.StatusInternalServerError)
+			return
+		}
+		resultRowsAffected = affected
+	} else {
+		result, execErr := h.db.ExecContext(r.Context(), `
+			DELETE FROM chat_messages
+			WHERE channel = $1
+			  AND LOWER(username) = LOWER($2)
+		`, channel, username)
+		if execErr != nil {
+			http.Error(w, execErr.Error(), http.StatusInternalServerError)
+			return
+		}
+		affected, rowsErr := result.RowsAffected()
+		if rowsErr != nil {
+			http.Error(w, rowsErr.Error(), http.StatusInternalServerError)
+			return
+		}
+		resultRowsAffected = affected
+	}
+
+	slog.Info("admin chat user purge completed",
+		slog.String("channel", channel),
+		slog.String("username", username),
+		slog.Int64("deleted_rows", resultRowsAffected),
+	)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":       "ok",
+		"channel":      channel,
+		"username":     username,
+		"deleted_rows": resultRowsAffected,
 	})
 }

@@ -116,6 +116,8 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 		"--retries", "infinite", // retry network errors
 		"--fragment-retries", "infinite", // retry fragment errors (HLS)
 		"--concurrent-fragments", "10", // speed up HLS by parallel fragments
+		"--newline",                                  // emit progress in newline mode for machine parsing
+		"--progress-template", ytDLPProgressTemplate, // structured progress output
 		"--no-cache-dir", // avoid writing caches to disk
 		"-o", out,        // output path
 		url,
@@ -188,35 +190,15 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 		activeMu.Lock()
 		activeCancels[id] = func() { _ = cmd.Process.Kill() }
 		activeMu.Unlock()
-		progressRe := regexp.MustCompile(`(?i)\[download\]\s+([0-9.]+)%.*?of\s+~?([0-9.]+)([KMG]iB).*?at\s+([0-9.]+)([KMG]iB)/s.*?ETA\s+([0-9:]+)`) // best-effort
-		totalBytes := int64(0)
-		var lastPercent float64
-		bytesRe := regexp.MustCompile(`(?i)([0-9.]+)([KMG]iB)`) // for size groups
-		decUnit := func(val string, unit string) int64 {
-			// Convert to bytes
-			f := 0.0
-			for _, c := range val {
-				if c == '.' {
-					continue
-				}
-			}
-			if _, err := fmt.Sscanf(val, "%f", &f); err != nil {
-				slog.Debug("failed to parse download size", slog.String("val", val), slog.Any("err", err))
-			}
-			mult := float64(1)
-			switch strings.ToUpper(unit) {
-			case "KIB":
-				mult = 1024
-			case "MIB":
-				mult = 1024 * 1024
-			case "GIB":
-				mult = 1024 * 1024 * 1024
-			}
-			return int64(f * mult)
-		}
 		// Reader loop; also capture tail of stderr for diagnostics (with secret scrubbing)
 		const maxTail = 100
 		lastLines := make([]string, 0, maxTail)
+		var (
+			progressMu      sync.Mutex
+			totalBytes      int64
+			downloadedBytes int64
+			lastPercent     float64
+		)
 		sanitize := func(s string) string {
 			// Redact explicit Cookie headers and auth-token occurrences if any
 			if i := strings.Index(s, "Cookie:"); i >= 0 {
@@ -233,13 +215,31 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 				return
 			}
 			s = sanitize(s)
+			progressMu.Lock()
+			defer progressMu.Unlock()
 			if len(lastLines) >= maxTail {
 				lastLines = lastLines[1:]
 			}
 			lastLines = append(lastLines, s)
 		}
+		getTail := func() string {
+			progressMu.Lock()
+			defer progressMu.Unlock()
+			if len(lastLines) == 0 {
+				return ""
+			}
+			copyTail := append([]string(nil), lastLines...)
+			return strings.Join(copyTail, "\n")
+		}
+		getProgressSnapshot := func() (int64, int64, float64) {
+			progressMu.Lock()
+			defer progressMu.Unlock()
+			return totalBytes, downloadedBytes, lastPercent
+		}
 		// Reader loop
+		scanDone := make(chan struct{})
 		go func() {
+			defer close(scanDone)
 			buf := make([]byte, 16*1024)
 			var line strings.Builder
 			for {
@@ -250,25 +250,38 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 						if r == '\n' || r == '\r' {
 							s := line.String()
 							line.Reset()
-							if m := progressRe.FindStringSubmatch(s); len(m) > 0 {
-								// m[1]=percent, m[2]=size, m[3]=unit
-								if totalBytes == 0 {
-									if mm := bytesRe.FindStringSubmatch(m[2] + m[3]); len(mm) == 3 {
-										totalBytes = decUnit(mm[1], mm[2])
-									}
+							trimmed := strings.TrimSpace(s)
+							if trimmed == "" {
+								continue
+							}
+							if parsed, ok := parseDownloadProgressLine(trimmed); ok {
+								progressMu.Lock()
+								if parsed.TotalBytes > 0 {
+									totalBytes = parsed.TotalBytes
 								}
-								if p, err := strconv.ParseFloat(m[1], 64); err == nil {
-									lastPercent = p
+								if parsed.Percent != nil {
+									lastPercent = *parsed.Percent
 								}
-								// approximate current bytes
-								curBytes := int64(0)
-								if totalBytes > 0 && lastPercent > 0 {
-									curBytes = int64((lastPercent / 100.0) * float64(totalBytes))
+								if parsed.DownloadedBytes > 0 {
+									downloadedBytes = parsed.DownloadedBytes
 								}
-								// Update DB with approximate progress
-								_, _ = db.ExecContext(ctx, `UPDATE vods SET download_state=$1, download_total=$2, download_bytes=$3, progress_updated_at=NOW() WHERE twitch_vod_id=$4`, s, totalBytes, curBytes, id)
-							} else if strings.TrimSpace(s) != "" {
-								appendLine(strings.TrimSpace(s))
+								if downloadedBytes <= 0 && totalBytes > 0 && lastPercent > 0 {
+									downloadedBytes = int64((lastPercent / 100.0) * float64(totalBytes))
+								}
+								if downloadedBytes > totalBytes && downloadedBytes > 0 {
+									totalBytes = downloadedBytes
+								}
+								stateTotal := totalBytes
+								stateDownloaded := downloadedBytes
+								progressMu.Unlock()
+
+								_, _ = db.ExecContext(ctx, `UPDATE vods SET download_state=$1, download_total=$2, download_bytes=$3, progress_updated_at=NOW() WHERE twitch_vod_id=$4`, parsed.State, stateTotal, stateDownloaded, id)
+							} else {
+								if strings.Contains(strings.ToLower(trimmed), "[download]") {
+									stateTotal, stateDownloaded, _ := getProgressSnapshot()
+									_, _ = db.ExecContext(ctx, `UPDATE vods SET download_state=$1, download_total=$2, download_bytes=$3, progress_updated_at=NOW() WHERE twitch_vod_id=$4`, trimmed, stateTotal, stateDownloaded, id)
+								}
+								appendLine(trimmed)
 							}
 						} else {
 							line.WriteRune(r)
@@ -276,17 +289,25 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 					}
 				}
 				if err != nil {
+					if remaining := strings.TrimSpace(line.String()); remaining != "" {
+						appendLine(remaining)
+					}
 					break
 				}
 			}
 		}()
 		err := cmd.Wait()
+		<-scanDone
 		activeMu.Lock()
 		delete(activeCancels, id)
 		activeMu.Unlock()
 		if err == nil {
 			// Finalize progress to 100%; determine actual file size if available
-			actual := totalBytes
+			observedTotal, observedDownloaded, _ := getProgressSnapshot()
+			actual := observedTotal
+			if actual <= 0 {
+				actual = observedDownloaded
+			}
 			if fi, statErr := os.Stat(out); statErr == nil {
 				actual = fi.Size()
 			}
@@ -305,7 +326,7 @@ func downloadVOD(ctx context.Context, db *sql.DB, id, dataDir string) (string, e
 			return "", ctx.Err()
 		}
 		// Classify error from stderr state we captured last; fallback to err.Error()
-		detail := strings.Join(lastLines, "\n")
+		detail := getTail()
 		lower := strings.ToLower(detail)
 		if strings.Contains(lower, "subscriber-only") || strings.Contains(lower, "only available to subscribers") || strings.Contains(lower, "403") {
 			logger.Warn("twitch indicates restricted or auth-required vod")

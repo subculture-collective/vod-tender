@@ -30,6 +30,21 @@ All configuration is via environment variables. When running locally with `make 
 | VOD_RECONCILE_DELAY          | `1m`    | Wait before starting reconciliation after stream ends.            |
 | (hardcoded) reconcile window | 15m     | Time after offline to keep attempting reconciliation.             |
 
+### Chat Privacy & Retention
+
+| Variable                  | Default | Description                                                                                       |
+| ------------------------- | ------- | ------------------------------------------------------------------------------------------------- |
+| CHAT_RETENTION_DAYS       | `0`     | Delete chat messages older than N days. Set to `0` to disable retention cleanup.                 |
+| CHAT_RETENTION_INTERVAL   | `6h`    | How often the chat privacy cleanup job runs.                                                      |
+| CHAT_ANONYMIZE_AFTER_DAYS | `0`     | Replace usernames with deterministic pseudonyms after N days. Set to `0` to disable anonymizing. |
+| CHAT_ANONYMIZE_SALT       | (unset) | Salt used to hash usernames during anonymization. Required when `CHAT_ANONYMIZE_AFTER_DAYS > 0`. |
+
+**Notes:**
+
+- Chat privacy jobs are channel-scoped in multi-channel mode.
+- If anonymization is enabled without `CHAT_ANONYMIZE_SALT`, anonymization is skipped for safety.
+- Retention and anonymization only consider rows with `abs_timestamp` set.
+
 ### Catalog Backfill
 
 | Variable                      | Default            | Description                                                 |

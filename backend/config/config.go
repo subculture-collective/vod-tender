@@ -6,6 +6,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -24,6 +25,10 @@ type Config struct {
 	TwitchClientSecret string
 	TwitchRedirectURI  string
 	TwitchScopes       string
+	ChatRetentionDays  int
+	ChatAnonymizeAfter int
+	ChatRetentionEvery time.Duration
+	ChatAnonymizeSalt  string
 
 	// Multi-channel support
 	TwitchChannels []string // Parsed from TWITCH_CHANNELS (comma-separated)
@@ -81,6 +86,24 @@ func Load() (*Config, error) {
 		// Backward compatibility: single channel mode
 		cfg.TwitchChannels = []string{cfg.TwitchChannel}
 	}
+
+	cfg.ChatRetentionEvery = 6 * time.Hour
+	if s := os.Getenv("CHAT_RETENTION_DAYS"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n >= 0 {
+			cfg.ChatRetentionDays = n
+		}
+	}
+	if s := os.Getenv("CHAT_ANONYMIZE_AFTER_DAYS"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n >= 0 {
+			cfg.ChatAnonymizeAfter = n
+		}
+	}
+	if s := os.Getenv("CHAT_RETENTION_INTERVAL"); s != "" {
+		if d, err := time.ParseDuration(s); err == nil && d > 0 {
+			cfg.ChatRetentionEvery = d
+		}
+	}
+	cfg.ChatAnonymizeSalt = strings.TrimSpace(os.Getenv("CHAT_ANONYMIZE_SALT"))
 
 	// VOD
 	cfg.TwitchVODID = os.Getenv("TWITCH_VOD_ID")

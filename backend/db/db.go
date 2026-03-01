@@ -126,9 +126,13 @@ func migratePostgres(ctx context.Context, db *sql.DB) error {
 			reply_to_id TEXT,
 			reply_to_username TEXT,
 			reply_to_message TEXT,
+			username_hash TEXT,
+			anonymized_at TIMESTAMPTZ,
 			created_at TIMESTAMPTZ DEFAULT NOW()
 		)`,
 		`ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS channel TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS username_hash TEXT`,
+		`ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS anonymized_at TIMESTAMPTZ`,
 		`CREATE TABLE IF NOT EXISTS oauth_tokens (
 			provider TEXT PRIMARY KEY,
 			access_token TEXT,
@@ -209,6 +213,8 @@ func migratePostgres(ctx context.Context, db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_vods_date ON vods(date)`,
 		`CREATE INDEX IF NOT EXISTS idx_chat_vod_rel ON chat_messages(vod_id, rel_timestamp)`,
 		`CREATE INDEX IF NOT EXISTS idx_chat_vod_abs ON chat_messages(vod_id, abs_timestamp)`,
+		`CREATE INDEX IF NOT EXISTS idx_chat_messages_channel_abs_timestamp ON chat_messages(channel, abs_timestamp)`,
+		`CREATE INDEX IF NOT EXISTS idx_chat_messages_channel_username_hash ON chat_messages(channel, username_hash)`,
 		`CREATE INDEX IF NOT EXISTS idx_vods_proc_pri_date ON vods(processed, priority, date)`,
 		// Multi-channel support indices
 		`CREATE INDEX IF NOT EXISTS idx_vods_channel_date ON vods(channel, date DESC)`,

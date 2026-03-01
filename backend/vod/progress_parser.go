@@ -36,9 +36,9 @@ func parseDownloadProgressLine(line string) (parsedDownloadProgress, bool) {
 		parts := strings.Split(payload, "|")
 		if len(parts) >= 6 {
 			percent := parsePercentString(parts[0])
-			totalBytes, _ := parseOptionalInt64(parts[1])
-			estimatedTotalBytes, _ := parseOptionalInt64(parts[2])
-			downloadedBytes, _ := parseOptionalInt64(parts[3])
+			totalBytes := parseOptionalInt64(parts[1])
+			estimatedTotalBytes := parseOptionalInt64(parts[2])
+			downloadedBytes := parseOptionalInt64(parts[3])
 			if totalBytes <= 0 {
 				totalBytes = estimatedTotalBytes
 			}
@@ -101,7 +101,7 @@ func parseByteQuantity(raw string) (int64, bool) {
 	}
 
 	unit := strings.ToUpper(strings.TrimSpace(m[2]))
-	multiplier := float64(1)
+	var multiplier float64
 	switch unit {
 	case "B":
 		multiplier = 1
@@ -144,16 +144,16 @@ func parsePercentString(raw string) *float64 {
 	return &v
 }
 
-func parseOptionalInt64(raw string) (int64, bool) {
+func parseOptionalInt64(raw string) int64 {
 	s := strings.TrimSpace(raw)
 	if s == "" || strings.EqualFold(s, "na") || strings.EqualFold(s, "n/a") {
-		return 0, false
+		return 0
 	}
 	v, err := strconv.ParseInt(s, 10, 64)
 	if err != nil || v < 0 {
-		return 0, false
+		return 0
 	}
-	return v, true
+	return v
 }
 
 func extractPercentFromText(state string) *float64 {

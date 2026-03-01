@@ -835,10 +835,7 @@ func TestPostgresRateLimiter(t *testing.T) {
 		backend:       "postgres",
 	}
 
-	limiter, err := newPostgresRateLimiter(ctx, db, cfg)
-	if err != nil {
-		t.Fatalf("failed to create postgres rate limiter: %v", err)
-	}
+	limiter := newPostgresRateLimiter(ctx, db, cfg)
 
 	// Clean up test data
 	defer func() {
@@ -879,10 +876,7 @@ func TestPostgresRateLimiterDifferentIPs(t *testing.T) {
 		backend:       "postgres",
 	}
 
-	limiter, err := newPostgresRateLimiter(ctx, db, cfg)
-	if err != nil {
-		t.Fatalf("failed to create postgres rate limiter: %v", err)
-	}
+	limiter := newPostgresRateLimiter(ctx, db, cfg)
 
 	// Clean up test data
 	defer func() {
@@ -928,10 +922,7 @@ func TestPostgresRateLimiterDisabled(t *testing.T) {
 		backend:       "postgres",
 	}
 
-	limiter, err := newPostgresRateLimiter(ctx, db, cfg)
-	if err != nil {
-		t.Fatalf("failed to create postgres rate limiter: %v", err)
-	}
+	limiter := newPostgresRateLimiter(ctx, db, cfg)
 
 	// Clean up test data
 	defer func() {
@@ -959,10 +950,7 @@ func TestPostgresRateLimiterConcurrency(t *testing.T) {
 		backend:       "postgres",
 	}
 
-	limiter, err := newPostgresRateLimiter(ctx, db, cfg)
-	if err != nil {
-		t.Fatalf("failed to create postgres rate limiter: %v", err)
-	}
+	limiter := newPostgresRateLimiter(ctx, db, cfg)
 
 	// Clean up test data
 	defer func() {
@@ -1018,10 +1006,7 @@ func TestPostgresRateLimiterCleanup(t *testing.T) {
 		backend:       "postgres",
 	}
 
-	limiter, err := newPostgresRateLimiter(ctx, db, cfg)
-	if err != nil {
-		t.Fatalf("failed to create postgres rate limiter: %v", err)
-	}
+	limiter := newPostgresRateLimiter(ctx, db, cfg)
 
 	// Clean up test data
 	defer func() {
@@ -1037,7 +1022,7 @@ func TestPostgresRateLimiterCleanup(t *testing.T) {
 
 	// Check that entries exist
 	var count int
-	err = db.QueryRowContext(ctx,
+	err := db.QueryRowContext(ctx,
 		"SELECT COUNT(*) FROM rate_limit_requests WHERE ip = $1",
 		testIP).Scan(&count)
 	if err != nil {

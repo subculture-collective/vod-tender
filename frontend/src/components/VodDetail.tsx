@@ -80,7 +80,7 @@ export default function VodDetail({ vodId, onBack }: VodDetailProps) {
   }, [vodId, retryCount])
 
   if (loading) return <VodDetailSkeleton />
-  
+
   if (error) {
     return (
       <div className="p-4" role="alert">
@@ -127,7 +127,7 @@ export default function VodDetail({ vodId, onBack }: VodDetailProps) {
       </div>
     )
   }
-  
+
   if (!vod) {
     return (
       <div className="p-4">
@@ -163,13 +163,9 @@ export default function VodDetail({ vodId, onBack }: VodDetailProps) {
       </div>
       <div className="mb-4">
         {vod.processed ? (
-          <span className="text-green-600">
-            Processed
-          </span>
+          <span className="text-green-600">Processed</span>
         ) : (
-          <span className="text-yellow-700">
-            Pending
-          </span>
+          <span className="text-yellow-700">Pending</span>
         )}
       </div>
       {progress && (
@@ -198,7 +194,10 @@ export default function VodDetail({ vodId, onBack }: VodDetailProps) {
         </div>
       )}
       {progress?.processing_error && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded" role="alert">
+        <div
+          className="mb-4 p-4 bg-red-50 border border-red-200 rounded"
+          role="alert"
+        >
           <div className="flex items-start">
             <div className="flex-shrink-0">
               <svg

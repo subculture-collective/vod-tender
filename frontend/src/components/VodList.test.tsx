@@ -104,7 +104,9 @@ describe('VodList', () => {
 
     // Should show empty state message instead of empty table
     expect(screen.getByText(/no vods found/i)).toBeInTheDocument()
-    expect(screen.getByText(/no vods have been archived yet/i)).toBeInTheDocument()
+    expect(
+      screen.getByText(/no vods have been archived yet/i)
+    ).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })
 

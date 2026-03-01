@@ -34,7 +34,9 @@ describe('ChatReplay', () => {
     })
 
     // Check for badge images (using querySelector since they have aria-hidden="true")
-    const badges = container.querySelectorAll('img[alt="broadcaster"], img[alt="subscriber"]')
+    const badges = container.querySelectorAll(
+      'img[alt="broadcaster"], img[alt="subscriber"]'
+    )
     expect(badges.length).toBeGreaterThan(0)
   })
 

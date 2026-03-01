@@ -13,7 +13,10 @@ function App() {
       >
         Skip to main content
       </a>
-      <header className="px-6 py-4 text-white bg-indigo-700 shadow" role="banner">
+      <header
+        className="px-6 py-4 text-white bg-indigo-700 shadow"
+        role="banner"
+      >
         <h1 className="text-2xl font-bold tracking-tight">
           VOD Tender Dashboard
         </h1>
@@ -34,7 +37,10 @@ function App() {
           )}
         </div>
       </main>
-      <footer className="py-4 text-xs text-center text-gray-400" role="contentinfo">
+      <footer
+        className="py-4 text-xs text-center text-gray-400"
+        role="contentinfo"
+      >
         &copy; {new Date().getFullYear()} VOD Tender
       </footer>
     </div>

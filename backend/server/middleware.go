@@ -242,7 +242,7 @@ type postgresRateLimiter struct {
 }
 
 // newPostgresRateLimiter creates a new Postgres-backed rate limiter
-func newPostgresRateLimiter(ctx context.Context, db *sql.DB, cfg *rateLimiterConfig) (*postgresRateLimiter, error) {
+func newPostgresRateLimiter(ctx context.Context, db *sql.DB, cfg *rateLimiterConfig) *postgresRateLimiter {
 	limiter := &postgresRateLimiter{
 		db:  db,
 		cfg: cfg,
@@ -252,7 +252,7 @@ func newPostgresRateLimiter(ctx context.Context, db *sql.DB, cfg *rateLimiterCon
 	// Start cleanup goroutine to remove stale entries
 	go limiter.cleanupLoop(ctx)
 
-	return limiter, nil
+	return limiter
 }
 
 // cleanupLoop periodically removes expired entries from the database
@@ -300,7 +300,9 @@ func (rl *postgresRateLimiter) allow(ctx context.Context, ip string) bool {
 		// Fail open - allow request if DB is having issues
 		return true
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	// Acquire advisory lock for this IP to ensure atomicity across concurrent requests
 	// Using hashtext to convert IP string to integer for pg_advisory_xact_lock

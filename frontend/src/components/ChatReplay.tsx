@@ -141,15 +141,23 @@ export default function ChatReplay({ vodId }: ChatReplayProps) {
 
   return (
     <div className="bg-gray-100 rounded p-2 mt-6">
-      <div className="flex items-center gap-2 mb-2" role="toolbar" aria-label="Chat replay controls">
-        <span className="font-semibold" id="chat-replay-title">Chat Replay</span>
+      <div
+        className="flex items-center gap-2 mb-2"
+        role="toolbar"
+        aria-label="Chat replay controls"
+      >
+        <span className="font-semibold" id="chat-replay-title">
+          Chat Replay
+        </span>
         <button
           className={`px-2 py-1 rounded text-xs ${
             replay ? 'bg-indigo-600 text-white' : 'bg-white border'
           }`}
           onClick={() => setReplay((v: boolean) => !v)}
           aria-pressed={replay}
-          aria-label={replay ? 'Switch to static chat view' : 'Switch to live replay mode'}
+          aria-label={
+            replay ? 'Switch to static chat view' : 'Switch to live replay mode'
+          }
         >
           {replay ? 'Live' : 'Static'}
         </button>

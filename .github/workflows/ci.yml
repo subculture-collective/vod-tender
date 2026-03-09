@@ -291,7 +291,7 @@ jobs:
               uses: actions/checkout@v5
 
             - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v3
+              uses: docker/setup-buildx-action@v4
 
             - name: Build backend Docker image
               uses: docker/build-push-action@v6
@@ -385,7 +385,7 @@ jobs:
               uses: actions/checkout@v4
 
             - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v3
+              uses: docker/setup-buildx-action@v4
 
             - name: Build backend multi-arch (verification only)
               uses: docker/build-push-action@v5

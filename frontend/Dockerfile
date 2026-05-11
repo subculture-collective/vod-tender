@@ -3,7 +3,7 @@
 
 # --- Build stage ---
 # Pin node with digest for reproducible builds
-FROM node:25-alpine@sha256:7e467cc5aa91c87e94f93c4608cf234ca24aac3ec941f7f3db207367ccccdd11 AS build
+FROM node:26-alpine@sha256:e71ac5e964b9201072425d59d2e876359efa25dc96bb1768cb73295728d6e4ea AS build
 WORKDIR /app
 ENV NODE_ENV=development
 

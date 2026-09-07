@@ -86,7 +86,7 @@ jobs:
               run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
 
             - name: Upload coverage to Codecov
-              uses: codecov/codecov-action@v5
+              uses: codecov/codecov-action@v7
               with:
                   files: ./backend/coverage.out
                   fail_ci_if_error: false
@@ -160,7 +160,7 @@ jobs:
               run: make test-frontend
 
             - name: Upload coverage to Codecov
-              uses: codecov/codecov-action@v4
+              uses: codecov/codecov-action@v7
               with:
                   files: ./frontend/coverage/lcov.info
                   flags: frontend

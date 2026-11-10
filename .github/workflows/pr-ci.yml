@@ -274,7 +274,6 @@ jobs:
     name: Commitlint
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v5
         with:
@@ -285,10 +284,14 @@ jobs:
       - name: Install commitlint
         run: npm install --save-dev @commitlint/cli@19 @commitlint/config-conventional@19
       - name: Validate pull request commits
+        if: github.event_name == 'pull_request'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: npx commitlint --from "$BASE_SHA" --to "$HEAD_SHA" --verbose
+      - name: Validate the current commit (manual run)
+        if: github.event_name != 'pull_request'
+        run: npx commitlint --from HEAD~1 --to HEAD --verbose
 
   ci-gate:
     name: CI gate

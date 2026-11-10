@@ -1,399 +1,181 @@
 # vod-tender
 
-[CI on Gitea](https://git.subcult.tv/subculture-collective/vod-tender/actions)
+vod-tender is a self-hosted service for streamers who want to keep their own
+Twitch VODs. It finds a channel's past broadcasts, downloads them with yt-dlp,
+records live chat and ties it to the matching VOD, and can upload the videos to
+a YouTube channel you own. A small web app lists the archived VODs and replays
+chat alongside them.
 
-Small Go service that discovers Twitch VODs for a channel, downloads them with yt-dlp, records live chat tied to VODs, and optionally uploads to YouTube. It ships with a minimal API and a small frontend for browsing VODs and chat replay.
+## Responsible use
 
-## ⚠️ Legal Notice & Responsible Use
+vod-tender is for archiving your own content, or content you have explicit
+permission from the owner to archive.
 
-`vod-tender` is intended for streamers archiving their own content, or operators with explicit permission from the content owner.
+- Archive your own public Twitch VODs.
+- Record chat for channels you own or moderate and are authorized to archive.
+- Upload to YouTube only content you own or are authorized to manage.
 
-What this project is for:
+It is not for downloading or redistributing other people's content,
+getting around subscriber-only or other access restrictions, or re-uploading
+someone else's VODs. Subscriber-only and other restricted VODs are skipped. You
+are responsible for following Twitch and YouTube terms, local law and copyright.
 
-- Archiving your own public Twitch VODs
-- Recording chat for channels you own/moderate and are authorized to archive
-- Uploading content you own (or are authorized to manage) to YouTube
+## Features
 
-What this project is **not** for:
+- Catalog backfill: discovers historical VODs through the Twitch Helix API, with
+  limits on how many and how old.
+- Processing queue: resumable yt-dlp downloads with a concurrency limit,
+  retries with backoff, a circuit breaker that pauses work after repeated
+  failures, and per-VOD priority, cancel and reprocess controls.
+- Chat recording: records a VOD's chat when given its ID and start time, or, in
+  auto mode, starts when the channel goes live and reconciles the recording to
+  the real VOD once Twitch publishes it.
+- Chat replay: the API serves chat as JSON and as a server-sent event stream
+  from a chosen offset and speed, and the web app replays it.
+- YouTube upload: off by default; turned on only with an explicit ownership
+  declaration. Daily upload limits and a per-VOD "skip upload" flag.
+- Multiple channels in one deployment, each with its own records, workers and
+  circuit breaker ([multi-channel guide](docs/MULTI_CHANNEL.md)).
+- Retention: removes old downloaded files by age or count while keeping the
+  database records, with a dry-run mode ([retention](docs/RETENTION.md)).
+- Twitch and YouTube OAuth flows that store refresh tokens in PostgreSQL,
+  encrypted with AES-256-GCM when `ENCRYPTION_KEY` is set.
+- Admin endpoints protected by basic auth or a token, with rate limiting.
+- Observability: Prometheus metrics, OpenTelemetry tracing to Jaeger, `/healthz`
+  and `/readyz`, optional pprof, plus Prometheus alert rules and a Grafana
+  dashboard in `prometheus/` and `grafana/`
+  ([observability](docs/OBSERVABILITY.md)).
 
-- Downloading or redistributing content you do not own or have rights to
-- Circumventing subscriber-only or other restricted-access content controls
-- Re-uploading others' content to YouTube without permission
-
-You are responsible for ensuring your use complies with Twitch and YouTube terms, local law, and applicable copyright requirements. The maintainers are not responsible for misuse.
+The `/vods/{id}/segments` endpoint is reserved and returns 501 for now.
 
 ## Quick start
 
-### Complete Local Development Setup (Recommended for New Developers)
-
-Get a fully functional environment with sample data in 5 minutes:
+You need Docker with Compose. For work outside containers you also need Go 1.26,
+Node.js 20 and golangci-lint.
 
 ```bash
-# 1. Clone and enter directory
-git clone https://github.com/PatrickFanella/vod-tender.git
+git clone https://github.com/subculture-collective/vod-tender.git
 cd vod-tender
-
-# 2. Copy environment file
 cp backend/.env.example backend/.env
-
-# 3. Start services and load sample data
 make dev-setup
 ```
 
-**That's it!** You now have:
+`make dev-setup` starts PostgreSQL, the API, the frontend and Jaeger, then loads
+sample VODs and chat. Then open:
 
-- PostgreSQL with 7 sample VODs and chat messages
-- Backend API on <http://localhost:8080>
-- Frontend on <http://localhost:3000>
-- Jaeger tracing on <http://localhost:16686>
+- Frontend: <http://localhost:3000>
+- API: <http://localhost:8080> (metrics at `/metrics`, status at `/status`)
+- Jaeger: <http://localhost:16686>
 
-📖 **New to the project?** See the [Complete Local Development Guide](docs/LOCAL_DEV_GUIDE.md) for a detailed walkthrough.
+The [local development guide](docs/LOCAL_DEV_GUIDE.md) walks through the setup.
 
-### Using Docker Compose
+Common `make` targets (run `make help` for the full list):
 
-```bash
-# Start all services (Postgres, API, Frontend)
-make up
+| Command | What it does |
+| --- | --- |
+| `make up` / `make down` | Start or stop the Compose stack |
+| `make logs` | Follow logs from all services |
+| `make db-seed` / `make db-reset` | Load sample data / reset the database |
+| `make build` | Build the backend and frontend |
+| `make test` | Run backend and frontend tests |
+| `make lint` / `make lint-fix` | Run linters / fix what they can |
+| `make migrate-up` / `make migrate-status` | Apply or inspect migrations |
+| `make helm-validate` | Lint and render the Helm chart |
 
-# Load sample data for development
-make db-seed
+Each of `build`, `test` and `lint` also has `-backend` and `-frontend`
+variants. Frontend end-to-end tests run with `npm run test:e2e` in `frontend/`.
 
-# View logs
-make logs
+## Configuration
 
-# Stop services
-make down
-```
+The API reads environment variables; for Compose, put them in `backend/.env`
+(start from [`backend/.env.example`](backend/.env.example)). The root
+[`.env.example`](.env.example) sets Compose-level values such as `STACK_NAME`
+and host ports (`API_PORT`, `FRONTEND_PORT`, `JAEGER_UI_PORT`).
 
-### For Go/Node.js Development
+Minimum for a single channel:
 
-**Prerequisites:**
+- `TWITCH_CHANNEL` (or `TWITCH_CHANNELS` as a comma-separated list)
+- `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` for Helix discovery and auto chat
+- `TWITCH_BOT_USERNAME` and `TWITCH_OAUTH_TOKEN` for chat, or authorize through
+  `/auth/twitch/start` and let the service store and refresh the token
+- `DB_DSN` and `DATA_DIR`
 
-- Go 1.21+
-- Node.js 18+
-- golangci-lint (for linting)
+For production also set `ENCRYPTION_KEY` (base64, 32 bytes), `ADMIN_USERNAME`
+and `ADMIN_PASSWORD` or `ADMIN_TOKEN`, `ENV=production` (any value other than empty, `dev` or `development` turns off
+permissive CORS) and `CORS_ALLOWED_ORIGINS`.
 
-**Setup:**
+Other groups:
 
-```bash
-# Install frontend dependencies
-cd frontend && npm ci && cd ..
+- Chat: `CHAT_AUTO_START`, `CHAT_AUTO_POLL_INTERVAL`, `TWITCH_VOD_ID`,
+  `TWITCH_VOD_START`, `VOD_RECONCILE_DELAY`.
+- Processing: `VOD_PROCESS_INTERVAL`, `MAX_CONCURRENT_DOWNLOADS`,
+  `DOWNLOAD_MAX_ATTEMPTS`, `DOWNLOAD_RATE_LIMIT`, `CIRCUIT_FAILURE_THRESHOLD`,
+  `CIRCUIT_OPEN_COOLDOWN`, `YTDLP_ARGS`, `YTDLP_VERBOSE`.
+- Catalog: `VOD_CATALOG_BACKFILL_INTERVAL`, `VOD_CATALOG_MAX`,
+  `VOD_CATALOG_MAX_AGE_DAYS`.
+- YouTube: `YOUTUBE_UPLOAD_ENABLED=1` together with
+  `YOUTUBE_UPLOAD_OWNERSHIP=self` or `authorized`; credentials through
+  `YT_CLIENT_ID`, `YT_CLIENT_SECRET`, `YT_REDIRECT_URI` and `/auth/youtube/start`,
+  or `YT_CREDENTIALS_FILE`/`YT_CREDENTIALS_JSON` with
+  `YT_TOKEN_FILE`/`YT_TOKEN_JSON`. The token needs the
+  `https://www.googleapis.com/auth/youtube.upload` scope. Limits:
+  `UPLOAD_DAILY_LIMIT`, `UPLOAD_MAX_ATTEMPTS`.
+- Retention: `RETENTION_KEEP_DAYS`, `RETENTION_KEEP_COUNT`,
+  `RETENTION_INTERVAL`, `RETENTION_DRY_RUN`.
+- Rate limiting: `RATE_LIMIT_ENABLED`, `RATE_LIMIT_REQUESTS_PER_IP`,
+  `RATE_LIMIT_WINDOW_SECONDS`, `RATE_LIMIT_BACKEND`.
+- Logging and tracing: `LOG_LEVEL`, `LOG_FORMAT` (`text` or `json`),
+  `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_TRACE_SAMPLE_RATE`, `ENABLE_PPROF`.
 
-# Copy environment file and fill in credentials
-cp backend/.env.example backend/.env
-```
+[docs/CONFIG.md](docs/CONFIG.md) lists every variable with defaults.
 
-**Common tasks:**
+## Deploy
 
-```bash
-# Build everything (backend + frontend)
-make build
-
-# Run tests (backend + frontend)
-make test
-
-# Run linters (backend + frontend)
-make lint
-
-# Auto-fix linting issues
-make lint-fix
-```
-
-**Component-specific commands:**
-
-```bash
-# Backend only
-make build-backend
-make test-backend
-make lint-backend
-
-# Frontend only
-make build-frontend
-make test-frontend
-make lint-frontend
-```
-
-## Development
-
-### Quick Reference
-
-All common development tasks can be run from the repository root using `make`:
-
-| Command         | Description                 |
-| --------------- | --------------------------- |
-| `make build`    | Build backend and frontend  |
-| `make test`     | Run all tests               |
-| `make lint`     | Run all linters             |
-| `make lint-fix` | Auto-fix linting issues     |
-| `make up`       | Start Docker Compose stack  |
-| `make logs`     | View logs from all services |
-| `make help`     | Show all available targets  |
-
-### Linting
-
-The project uses [golangci-lint](https://golangci-lint.run/) for Go code and ESLint + Prettier for frontend code.
-
-**Installation:**
+The bundled `docker-compose.yml` is the simplest self-hosted setup: PostgreSQL
+16, the Go API (its image includes pinned yt-dlp and ffmpeg), the frontend built
+with Vite and served by nginx, a backup container that runs `pg_dump` daily into
+the `pgbackups` volume, and Jaeger. Put a reverse proxy with TLS in front of the
+frontend and API.
 
 ```bash
-# macOS
-brew install golangci-lint
-
-# Linux
-curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
-
-# Windows
-# See https://golangci-lint.run/welcome/install/
-```
-
-Frontend dependencies are installed via `npm ci` in the frontend directory.
-
-**Usage:**
-
-```bash
-make lint          # Run all linters (backend + frontend)
-make lint-fix      # Auto-fix issues where possible
-
-# Component-specific
-make lint-backend
-make lint-frontend
-```
-
-The linter configuration is in `.golangci.yml` for backend and `eslint.config.js` for frontend.
-
-### Docker Compose (server)
-
-Project ships a `docker-compose.yml` with:
-
-- Postgres (persistent volume)
-- API (Go backend with yt-dlp + ffmpeg)
-- Frontend (Vite build served by nginx)
-- Backup service (daily pg_dump to a backup volume)
-- Jaeger (distributed tracing UI and collector)
-
-Basic ops:
-
-```bash
-# Ensure shared web network exists (used by Caddy too)
-docker network create web 2>/dev/null || true
-
-# Build & start
 docker compose up -d --build
-
-# Status
 docker compose ps
-
-# Tail logs
-docker logs -f vod-api
-
-# Access Jaeger UI (tracing)
-open http://localhost:16686
 ```
 
-## Observability
+For Kubernetes there is a Helm chart in `charts/vod-tender` and Kustomize
+manifests in `k8s/` with dev, staging and production overlays
+([Kubernetes guide](docs/KUBERNETES.md)). [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+covers deployment in more detail, and [docs/OPERATIONS.md](docs/OPERATIONS.md)
+covers backups, restores and troubleshooting.
 
-vod-tender includes production-ready observability features:
+The OpenAPI spec is at [`backend/api/openapi.yaml`](backend/api/openapi.yaml).
 
-- **Distributed Tracing** (OpenTelemetry + Jaeger) - Trace VOD processing pipelines end-to-end
-- **Enhanced Metrics** (Prometheus) - 20+ metrics including step-level durations, chat, OAuth, API calls
-- **Alert Rules** (Prometheus Alertmanager) - 8 production alerts for critical failure scenarios
-- **Grafana Dashboard** - 10-panel dashboard with queue depth, circuit breaker, performance metrics
-- **Performance Profiling** (pprof) - CPU, memory, and goroutine profiling
-- **Health Endpoints** - `/healthz` (liveness) and `/readyz` (readiness with detailed checks)
+## Project layout
 
-See [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) for complete documentation including:
-
-- Setup instructions and configuration
-- Metrics reference with descriptions
-- Alert rules and thresholds
-- Dashboard usage guide
-- Profiling procedures
-- Troubleshooting guides
-
-**Quick links:**
-
-- Jaeger UI: `http://localhost:16686` (traces)
-- Prometheus metrics: `http://localhost:8080/metrics`
-- Readiness check: `http://localhost:8080/readyz`
-
-## Configuration
-
-Environment variables (place in `backend/.env` for local dev):
-
-- TWITCH_CHANNEL
-- TWITCH_BOT_USERNAME
-- TWITCH_OAUTH_TOKEN
-- TWITCH_CLIENT_ID (for Helix API discovery)
-- TWITCH_CLIENT_SECRET (for Helix API discovery)
-- TWITCH_VOD_ID (optional; default demo-vod-id)
-- TWITCH_VOD_START (RFC3339; optional; default now)
-- DB_DSN (optional; default postgres://vod:vod@postgres:5432/vod?sslmode=disable)
-- DATA_DIR (optional; default data)
-- LOG_LEVEL (optional; default info)
-- LOG_FORMAT (optional; text|json; default text)
-
-Chat recorder starts only when Twitch creds are present. Auto mode can start the recorder when the channel goes live (see `CHAT_AUTO_START`).
-
-Full configuration reference and operational guidance:
-
-- **Local Development**: `docs/LOCAL_DEV_GUIDE.md` - Complete setup guide with sample data
-- Architecture: `docs/ARCHITECTURE.md`
-- Configuration: `docs/CONFIG.md`
-- Operations / Runbook: `docs/OPERATIONS.md`
-- Logging / Log Aggregation: `docs/LOGGING.md`
-- Observability: `docs/OBSERVABILITY.md`
-- CI/CD Pipeline: `docs/CICD.md`
-- CI/CD Quick Reference: `docs/CICD-QUICK-REFERENCE.md`
-- **Changelog**: [`CHANGELOG.md`](CHANGELOG.md) - Release history and notable changes
-
-## End-to-end overview
-
-1. Catalog backfill periodically discovers historical VODs using Twitch Helix and fills the `vods` table.
-2. Processing job loops: selects next unprocessed VOD, downloads via `yt-dlp` (resumable), and uploads to YouTube if configured. Progress is written to DB and exposed via the API.
-3. Chat recorder can run in two modes:
-
-- Manual: provide `TWITCH_VOD_ID` and `TWITCH_VOD_START` and it will record chat for that VOD.
-- Auto: set `CHAT_AUTO_START=1` and it will detect when the channel goes live, record under a placeholder id, and reconcile to the real VOD after it’s published.
-
-See `docs/ARCHITECTURE.md` for a deeper flow description and diagrams.
-
-## Configuration
-
-All environment variables are documented in `docs/CONFIG.md` with defaults and tips. Key ones for a minimal run:
-
-- TWITCH_CHANNEL, TWITCH_BOT_USERNAME, TWITCH_OAUTH_TOKEN (or store in DB via OAuth endpoints)
-- TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET (Helix discovery / auto chat)
-- DB_DSN (Postgres)
-- DATA_DIR (download storage)
-- LOG_LEVEL, LOG_FORMAT
-
-## OAuth and tokens
-
-- Twitch Chat: Provide `TWITCH_OAUTH_TOKEN` (format `oauth:xxxxx`) or obtain/store via `/auth/twitch/start` → `/auth/twitch/callback` endpoints. The token is saved to `oauth_tokens` with expiry and refreshed automatically.
-- YouTube Upload: Provide `YT_CLIENT_ID`, `YT_CLIENT_SECRET`, `YT_REDIRECT_URI`, then visit `/auth/youtube/start` to authorize. The refresh token is stored and the uploader uses it automatically.
-
-## Deployment
-
-Docker Compose (bundled) is the simplest path for self-hosting:
-
-- Postgres with a persistent volume
-- API (Go backend) with yt-dlp and ffmpeg in the image
-- Frontend built with Vite and served by nginx
-- Optional daily backups via `pg_dump`
-
-Routing: example Caddyfile assumes two hostnames, mapping to the shared `web` network. Ensure your reverse proxy attaches to the `web` network created by `docker network create web`.
-
-For Kubernetes, map the same containers to Deployments and expose `/metrics` to Prometheus.
-
-- Database: Postgres by default (see DB_DSN). Local docker-compose supplies a `postgres` service; override with your own DSN if needed.
-- VOD processing job runs periodically (see configuration); discovery uses Twitch Helix if client id/secret provided.
-- Downloader requires yt-dlp available in PATH.
-
-  - Resumable downloads are enabled (yt-dlp --continue with infinite retries and fragment retries).
-  - Optional: install aria2c for faster and more robust downloads.
-  - ffmpeg is recommended for muxing and may be required by yt-dlp.
-
-    ### Backups
-
-  - Automatic: `vod-backup` runs `pg_dump` daily into volume `pgbackups`.
-  - Manual one-off:
-
-    ```bash
-    docker compose run --rm backup sh -lc '/scripts/backup.sh /backups'
-    ```
-
-  - Copy backups to host:
-
-    ```bash
-    docker run --rm -v vod-tender_pgbackups:/src -v "$PWD":/dst alpine sh -lc 'cp -av /src/* /dst/'
-    ```
-
-  - Restore into running Postgres:
-
-    ```bash
-    zcat /path/to/vod_YYYYMMDD_HHMMSS.sql.gz | docker exec -i vod-postgres psql -U vod -d vod
-    ```
-
-    ### Caddy routing
-
-    Routes assumed by the compose and Caddyfile:
-
-  - Frontend: <https://vod-tender.onnwee.me> → `vod-frontend:80`
-  - API: <https://vod-api.onnwee.me> → `vod-api:8080`
-
-    Ensure `caddy` container is attached to the shared `web` network.
-
-## YouTube upload configuration
-
-Uploads are disabled by default. To enable YouTube uploads, set both:
-
-- `YOUTUBE_UPLOAD_ENABLED=1`
-- `YOUTUBE_UPLOAD_OWNERSHIP=self` or `YOUTUBE_UPLOAD_OWNERSHIP=authorized`
-
-If uploads are enabled without a valid ownership declaration, upload is skipped.
-
-Set either STAR_FILE with a JSON file path or STAR_JSON with the JSON string for credentials and token (replace STAR with YT_CREDENTIALS or YT_TOKEN):
-
-- YT_CREDENTIALS_FILE or YT_CREDENTIALS_JSON (Google OAuth client secrets JSON)
-- YT_TOKEN_FILE or YT_TOKEN_JSON (OAuth token JSON containing a refresh token)
-
-The token must include scope:
-
-```text
-https://www.googleapis.com/auth/youtube.upload
-```
-
-Tip: Use Google OAuth 2.0 Playground to authorize the scope above and exchange an authorization code for a refresh token; save the resulting token JSON for `YT_TOKEN_*`.
-
-## API and frontend client
-
-OpenAPI spec lives at `backend/api/openapi.yaml`.
-
-Generate a TypeScript client (example using openapi-typescript):
-
-```bash
-npx openapi-typescript backend/api/openapi.yaml -o web/src/api/types.ts
-```
-
-Simple CORS is enabled for dev (Access-Control-Allow-Origin: \*). For production, tighten CORS or place API behind your reverse proxy with appropriate headers.
-
-### Monitoring
-
-- Health: `GET /healthz` (200 OK or 503)
-- Status: `GET /status` (queue counts, circuit state, moving averages, last processing run)
-- Metrics: `GET /metrics` (Prometheus format: download/upload counters, durations, queue depth, circuit gauge)
-- Logs: default human text; switch to JSON with `LOG_FORMAT=json` for ingestion.
-
-## Troubleshooting quick hits
-
-- Chat not recording: ensure `TWITCH_BOT_USERNAME` matches token owner, token has `chat:read chat:edit`, and is prefixed with `oauth:`. Auto mode requires valid Helix app credentials.
-- Downloads failing with auth-required: subscriber-only/restricted VODs are intentionally not downloaded and are marked as skipped.
-- Circuit open and processing paused: check `CIRCUIT_FAILURE_THRESHOLD`, investigate root error in logs, and clear with `DELETE FROM kv WHERE key IN ('circuit_*');` if necessary.
-
-## Security notes
-
-- OAuth tokens are stored in plaintext in Postgres for convenience. For production, consider encrypting at rest or using a dedicated secret store.
-- `YTDLP_VERBOSE=1` enables verbose downloader output; keep it off in normal operation to reduce log noise.
-- Container images are automatically scanned for vulnerabilities using Trivy in CI. Builds fail on CRITICAL/HIGH severity issues. Scan reports are available as CI artifacts.
+| Path | Contents |
+| --- | --- |
+| `backend/` | Go service: API server, VOD processing, chat, OAuth, database and migrations |
+| `frontend/` | React app for browsing VODs and replaying chat, with Vitest and Playwright tests |
+| `charts/`, `k8s/` | Helm chart and Kustomize manifests |
+| `prometheus/`, `grafana/` | Alert rules and dashboard |
+| `scripts/` | Backup, restore, seed and CI helpers |
+| `docs/` | Architecture, configuration, deployment and operations guides |
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on:
+Report bugs and request features in
+[GitHub issues](https://github.com/subculture-collective/vod-tender/issues). Ask
+questions and share ideas in
+[GitHub Discussions](https://github.com/subculture-collective/vod-tender/discussions).
 
-- Setting up your development environment
-- Code style and conventions
-- Testing requirements
-- Commit message format (Conventional Commits)
-- Changelog maintenance (automated via semantic-release)
-- Submitting pull requests
-- Reporting bugs and requesting features
+Send code as a pull request on GitHub against `main`. CI runs on every pull
+request: secret scanning, govulncheck, backend build, tests, vet and lint,
+frontend type check, lint, tests and build, Playwright end-to-end tests,
+migration and integration tests, and Docker image builds. Commit messages follow
+Conventional Commits. See [CONTRIBUTING.md](CONTRIBUTING.md) and the
+[Code of Conduct](CODE_OF_CONDUCT.md); release history is in
+[CHANGELOG.md](CHANGELOG.md).
 
-By participating in this project, you agree to abide by our [Code of Conduct](CODE_OF_CONDUCT.md).
+## License
 
-For release history and notable changes, see [CHANGELOG.md](CHANGELOG.md).
-
-## Feature ideas
-
-- indexed chat
-- on/off switches
-- auto update cookie
+[MIT](LICENSE).

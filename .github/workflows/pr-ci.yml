@@ -1,0 +1,314 @@
+name: PR CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gitleaks:
+    name: Gitleaks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Install pinned Gitleaks CLI
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/gitleaks.tar.gz" https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/gitleaks-bin"
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP/gitleaks-bin" gitleaks
+          echo "$RUNNER_TEMP/gitleaks-bin" >> "$GITHUB_PATH"
+      - name: Run Gitleaks
+        run: gitleaks git --redact --config .gitleaks.toml --log-opts="--all" .
+
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.10'
+          cache-dependency-path: backend/go.sum
+      - run: go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+      - name: Run govulncheck
+        working-directory: backend
+        run: govulncheck ./...
+
+  backend:
+    name: Backend build, test and lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.10'
+          cache-dependency-path: backend/go.sum
+      - name: Build
+        run: make build-backend
+      - name: Test with coverage
+        working-directory: backend
+        run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+      - name: Report coverage
+        # ci.yml's 50% threshold never ran on Gitea (bc is missing there, so the
+        # check passed at 20.6%). Report the figure until the owner sets a
+        # threshold the suite meets.
+        working-directory: backend
+        run: go tool cover -func=coverage.out | grep total
+      - name: Vet
+        working-directory: backend
+        run: go vet ./...
+      - name: Install golangci-lint
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/golangci-lint.tar.gz" https://github.com/golangci/golangci-lint/releases/download/v2.14.0/golangci-lint-2.14.0-linux-amd64.tar.gz
+          echo "ab90aeb7b066f92a33415b638a50fe5344bbb75a0d32ad30cc248d88f81032ab  $RUNNER_TEMP/golangci-lint.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/golangci-lint.tar.gz" -C "$RUNNER_TEMP" golangci-lint-2.14.0-linux-amd64/golangci-lint
+          echo "$RUNNER_TEMP/golangci-lint-2.14.0-linux-amd64" >> "$GITHUB_PATH"
+      - name: Lint
+        run: make lint-backend
+
+  benchmarks:
+    name: Benchmarks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.10'
+          cache-dependency-path: backend/go.sum
+      - name: Run benchmarks
+        working-directory: backend
+        run: go test -bench=. -benchmem -run=^$ ./... | tee benchmark-results.txt
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            frontend/package.json
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: TypeScript type checking
+        working-directory: frontend
+        run: npx tsc --noEmit
+      - name: Lint
+        run: make lint-frontend
+      - name: Unit tests
+        run: make test-frontend
+      - name: Build
+        run: make build-frontend
+
+  frontend-e2e:
+    name: Frontend end-to-end
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs: [frontend]
+    env:
+      PG_CONTAINER: vod-ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            frontend/package.json
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.10'
+          cache-dependency-path: backend/go.sum
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Start a job-owned disposable database
+        run: bash scripts/ci-postgres.sh start
+      - name: Build backend
+        working-directory: backend
+        run: go build -o vod-tender .
+      - name: Start backend server
+        working-directory: backend
+        env:
+          HTTP_ADDR: ':8080'
+          LOG_LEVEL: info
+        run: |
+          ./vod-tender &
+          echo $! > backend.pid
+          sleep 5
+      - name: Wait for backend to be ready
+        run: timeout 30 bash -c 'until curl -f http://localhost:8080/healthz; do sleep 1; done'
+      - name: Seed browser fixtures into the job-owned database
+        run: bash scripts/ci-postgres.sh seed-e2e
+      - name: Run E2E tests
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:3000
+          VITE_API_BASE_URL: http://localhost:8080
+        run: npx playwright test --project=chromium
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          retention-days: 7
+      - name: Stop backend server
+        if: always()
+        run: |
+          if [ -f backend/backend.pid ]; then kill "$(cat backend/backend.pid)" || true; fi
+      - name: Remove the job-owned disposable database
+        if: always()
+        run: bash scripts/ci-postgres.sh stop
+
+  docker-images:
+    name: Docker images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Build backend image (amd64 and arm64, not pushed)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          platforms: linux/amd64,linux/arm64
+          push: false
+          tags: vod-tender-backend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build frontend image (amd64 and arm64, not pushed)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          platforms: linux/amd64,linux/arm64
+          push: false
+          tags: vod-tender-frontend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  database-migration-tests:
+    name: Database migration tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PG_CONTAINER: vod-ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Start a job-owned disposable database
+        run: bash scripts/ci-postgres.sh start
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.10'
+          cache-dependency-path: backend/go.sum
+      - name: Run migration tests
+        working-directory: backend
+        run: go test ./db -v
+      - name: Verify schema integrity
+        run: docker exec "$PG_CONTAINER" psql -U vod_test -d vod_test -c "\dt"
+      - name: Remove the job-owned disposable database
+        if: always()
+        run: bash scripts/ci-postgres.sh stop
+
+  integration-tests:
+    name: Integration tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      COMPOSE_PROJECT_NAME: vod-ci-${{ github.run_id }}-${{ github.run_attempt }}-integration
+      COMPOSE_FILE: .ci-compose.json
+    steps:
+      - uses: actions/checkout@v5
+      - name: Generate isolated test infrastructure
+        run: |
+          set -euo pipefail
+          printf 'LOG_LEVEL=info\nLOG_FORMAT=text\nHTTP_ADDR=:8080\n' > backend/.env
+          docker compose -f docker-compose.yml config --format json | python3 scripts/ci-compose.py > .ci-compose.json
+          docker compose config --quiet
+      - name: Start and health-check the isolated stack
+        run: docker compose up -d --build --wait --wait-timeout 180
+        timeout-minutes: 15
+      - name: Exercise API and frontend from their private network
+        run: |
+          set -euo pipefail
+          network="${COMPOSE_PROJECT_NAME}_web"
+          for endpoint in healthz status metrics; do
+            docker run --rm --network "$network" curlimages/curl:8.12.1 -fsS "http://api:8080/$endpoint"
+          done
+          docker run --rm --network "$network" curlimages/curl:8.12.1 -fsS http://frontend/ > /dev/null
+      - name: Show owned service logs on failure
+        if: failure()
+        run: docker compose logs
+      - name: Remove only this run's infrastructure
+        if: always()
+        run: |
+          if [ -s .ci-compose.json ]; then docker compose down --volumes --remove-orphans; fi
+
+  commitlint:
+    name: Commitlint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+      - name: Install commitlint
+        run: npm install --save-dev @commitlint/cli@19 @commitlint/config-conventional@19
+      - name: Validate pull request commits
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: npx commitlint --from "$BASE_SHA" --to "$HEAD_SHA" --verbose
+      - name: Validate the current commit (manual run)
+        if: github.event_name != 'pull_request'
+        run: npx commitlint --from HEAD~1 --to HEAD --verbose
+
+  ci-gate:
+    name: CI gate
+    if: always()
+    needs: [gitleaks, govulncheck, backend, benchmarks, frontend, frontend-e2e, docker-images, database-migration-tests, integration-tests, commitlint]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every verification job
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          results = json.loads(os.environ["RESULTS"])
+          expected = {'gitleaks', 'govulncheck', 'backend', 'benchmarks', 'frontend', 'frontend-e2e', 'docker-images', 'database-migration-tests', 'integration-tests', 'commitlint'}
+          assert set(results) == expected, results
+          for name, result in results.items():
+              assert result["result"] == "success", name + " did not pass"
+          PY

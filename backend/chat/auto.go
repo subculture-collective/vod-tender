@@ -8,8 +8,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/onnwee/vod-tender/backend/twitchapi"
-	vodpkg "github.com/onnwee/vod-tender/backend/vod"
+	"github.com/subculture-collective/vod-tender/backend/twitchapi"
+	vodpkg "github.com/subculture-collective/vod-tender/backend/vod"
 )
 
 // StartAutoChatRecorder polls Twitch stream status and automatically starts the chat recorder

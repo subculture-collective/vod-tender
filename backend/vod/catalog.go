@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/onnwee/vod-tender/backend/config"
-	"github.com/onnwee/vod-tender/backend/twitchapi"
+	"github.com/subculture-collective/vod-tender/backend/config"
+	"github.com/subculture-collective/vod-tender/backend/twitchapi"
 )
 
 // BackfillMetadata fetches channel VOD list and updates rows that lack title or duration.

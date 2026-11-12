@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/onnwee/vod-tender/backend/config"
-	dbpkg "github.com/onnwee/vod-tender/backend/db"
-	"github.com/onnwee/vod-tender/backend/twitchapi"
-	"github.com/onnwee/vod-tender/backend/youtubeapi"
+	"github.com/subculture-collective/vod-tender/backend/config"
+	dbpkg "github.com/subculture-collective/vod-tender/backend/db"
+	"github.com/subculture-collective/vod-tender/backend/twitchapi"
+	"github.com/subculture-collective/vod-tender/backend/youtubeapi"
 )
 
 // oauthTokenStore adapts the DB to youtubeapi.TokenStore interface

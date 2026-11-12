@@ -11,8 +11,8 @@ import (
 
 	twitch "github.com/gempir/go-twitch-irc/v4"
 
-	"github.com/onnwee/vod-tender/backend/config"
-	"github.com/onnwee/vod-tender/backend/db"
+	"github.com/subculture-collective/vod-tender/backend/config"
+	"github.com/subculture-collective/vod-tender/backend/db"
 )
 
 // StartTwitchChatRecorder records chat for a given VOD, with VOD ID and VOD start time for replay accuracy.

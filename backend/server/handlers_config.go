@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	vodpkg "github.com/onnwee/vod-tender/backend/vod"
+	vodpkg "github.com/subculture-collective/vod-tender/backend/vod"
 )
 
 // HandleConfig handles GET and PUT requests for safe configuration keys.

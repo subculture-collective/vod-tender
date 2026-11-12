@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/onnwee/vod-tender/backend/db"
+	"github.com/subculture-collective/vod-tender/backend/db"
 )
 
 // RefreshFunc performs provider-specific refresh and returns (access, refresh, expiry, scope)

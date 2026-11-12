@@ -9,7 +9,7 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	dbpkg "github.com/onnwee/vod-tender/backend/db"
+	dbpkg "github.com/subculture-collective/vod-tender/backend/db"
 )
 
 // TestCancelIntegrationWithDB tests the full cancel workflow including DB updates

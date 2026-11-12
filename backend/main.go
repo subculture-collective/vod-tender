@@ -24,14 +24,14 @@ import (
 	"golang.org/x/oauth2/google"
 
 	"github.com/joho/godotenv"
-	"github.com/onnwee/vod-tender/backend/chat"
-	"github.com/onnwee/vod-tender/backend/config"
-	"github.com/onnwee/vod-tender/backend/db"
-	"github.com/onnwee/vod-tender/backend/oauth"
-	"github.com/onnwee/vod-tender/backend/server"
-	"github.com/onnwee/vod-tender/backend/telemetry"
-	"github.com/onnwee/vod-tender/backend/twitchapi"
-	"github.com/onnwee/vod-tender/backend/vod"
+	"github.com/subculture-collective/vod-tender/backend/chat"
+	"github.com/subculture-collective/vod-tender/backend/config"
+	"github.com/subculture-collective/vod-tender/backend/db"
+	"github.com/subculture-collective/vod-tender/backend/oauth"
+	"github.com/subculture-collective/vod-tender/backend/server"
+	"github.com/subculture-collective/vod-tender/backend/telemetry"
+	"github.com/subculture-collective/vod-tender/backend/twitchapi"
+	"github.com/subculture-collective/vod-tender/backend/vod"
 )
 
 func main() {

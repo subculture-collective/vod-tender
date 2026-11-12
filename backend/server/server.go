@@ -17,7 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/onnwee/vod-tender/backend/telemetry"
+	"github.com/subculture-collective/vod-tender/backend/telemetry"
 )
 
 // getVodSensitiveEndpointPattern returns a compiled regex pattern to match VOD-specific endpoints requiring rate limiting.

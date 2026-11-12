@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onnwee/vod-tender/backend/config"
+	"github.com/subculture-collective/vod-tender/backend/config"
 )
 
 func TestParseTwitchDurationEdgeCases(t *testing.T) {

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	dbpkg "github.com/onnwee/vod-tender/backend/db"
+	dbpkg "github.com/subculture-collective/vod-tender/backend/db"
 )
 
 // mockDownloaderWithCancel simulates a long-running download that can be canceled

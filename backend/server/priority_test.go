@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	dbpkg "github.com/onnwee/vod-tender/backend/db"
+	dbpkg "github.com/subculture-collective/vod-tender/backend/db"
 )
 
 func TestAdminVodPriorityEndpoint(t *testing.T) {

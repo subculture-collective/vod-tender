@@ -12,7 +12,7 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib" // pgx postgres driver registered as 'pgx'
 
-	"github.com/onnwee/vod-tender/backend/crypto"
+	"github.com/subculture-collective/vod-tender/backend/crypto"
 )
 
 var (

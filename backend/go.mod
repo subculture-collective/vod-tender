@@ -1,4 +1,4 @@
-module github.com/onnwee/vod-tender/backend
+module github.com/subculture-collective/vod-tender/backend
 
 go 1.26.0
 

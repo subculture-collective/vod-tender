@@ -17,9 +17,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/onnwee/vod-tender/backend/config"
-	"github.com/onnwee/vod-tender/backend/telemetry"
-	"github.com/onnwee/vod-tender/backend/twitchapi"
+	"github.com/subculture-collective/vod-tender/backend/config"
+	"github.com/subculture-collective/vod-tender/backend/telemetry"
+	"github.com/subculture-collective/vod-tender/backend/twitchapi"
 )
 
 // VOD is the core model (DB schema defined in db.migrate). It mirrors a subset of Twitch video metadata.

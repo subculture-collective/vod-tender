@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/onnwee/vod-tender/backend/db"
+	"github.com/subculture-collective/vod-tender/backend/db"
 )
 
 // SetupTestDB creates a test database connection and runs migrations.

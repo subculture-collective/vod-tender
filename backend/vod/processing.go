@@ -15,10 +15,10 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"go.opentelemetry.io/otel/attribute"
 
-	"github.com/onnwee/vod-tender/backend/config"
-	"github.com/onnwee/vod-tender/backend/db"
-	"github.com/onnwee/vod-tender/backend/telemetry"
-	youtubeapi "github.com/onnwee/vod-tender/backend/youtubeapi"
+	"github.com/subculture-collective/vod-tender/backend/config"
+	"github.com/subculture-collective/vod-tender/backend/db"
+	"github.com/subculture-collective/vod-tender/backend/telemetry"
+	youtubeapi "github.com/subculture-collective/vod-tender/backend/youtubeapi"
 )
 
 // Downloader abstracts video retrieval (for tests/mocks).

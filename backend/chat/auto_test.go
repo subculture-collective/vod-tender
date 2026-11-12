@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onnwee/vod-tender/backend/testutil"
-	vodpkg "github.com/onnwee/vod-tender/backend/vod"
+	"github.com/subculture-collective/vod-tender/backend/testutil"
+	vodpkg "github.com/subculture-collective/vod-tender/backend/vod"
 )
 
 // Auto chat reconciliation tests

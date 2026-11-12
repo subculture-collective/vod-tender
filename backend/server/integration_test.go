@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/onnwee/vod-tender/backend/testutil"
+	"github.com/subculture-collective/vod-tender/backend/testutil"
 )
 
 // TestAdminEndpointsProtection validates that admin endpoints are protected when auth is configured

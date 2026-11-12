@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onnwee/vod-tender/backend/testutil"
+	"github.com/subculture-collective/vod-tender/backend/testutil"
 )
 
 func TestCORS(t *testing.T) {

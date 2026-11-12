@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	vodpkg "github.com/onnwee/vod-tender/backend/vod"
+	vodpkg "github.com/subculture-collective/vod-tender/backend/vod"
 )
 
 // HandleVodsList returns a paginated list of VODs.

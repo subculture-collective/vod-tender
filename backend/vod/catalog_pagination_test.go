@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	dbpkg "github.com/onnwee/vod-tender/backend/db"
+	dbpkg "github.com/subculture-collective/vod-tender/backend/db"
 )
 
 // Test helper functions for catalog pagination tests

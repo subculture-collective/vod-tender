@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	vodpkg "github.com/onnwee/vod-tender/backend/vod"
+	vodpkg "github.com/subculture-collective/vod-tender/backend/vod"
 )
 
 // HandleAdminVodScan handles manual VOD discovery for a specific channel.

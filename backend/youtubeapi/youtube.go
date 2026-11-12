@@ -18,7 +18,7 @@ import (
 	"google.golang.org/api/option"
 	yt "google.golang.org/api/youtube/v3"
 
-	"github.com/onnwee/vod-tender/backend/config"
+	"github.com/subculture-collective/vod-tender/backend/config"
 )
 
 const provider = "youtube"

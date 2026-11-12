@@ -9,7 +9,7 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/onnwee/vod-tender/backend/crypto"
+	"github.com/subculture-collective/vod-tender/backend/crypto"
 )
 
 // setupTestDB creates a test database connection for migration tests

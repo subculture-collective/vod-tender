@@ -267,8 +267,8 @@ describe('VodList', () => {
       expect(screen.getByText('Page 2')).toBeInTheDocument()
     })
 
-    // Verify new data is shown
-    expect(screen.getByText('Test VOD 51')).toBeInTheDocument()
+    // Verify new data is shown (the page label updates before the fetch resolves)
+    expect(await screen.findByText('Test VOD 51')).toBeInTheDocument()
   })
 
   it('navigates to previous page when Previous button is clicked', async () => {
@@ -326,6 +326,6 @@ describe('VodList', () => {
       expect(screen.getByText('Page 1')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('Test VOD 1')).toBeInTheDocument()
+    expect(await screen.findByText('Test VOD 1')).toBeInTheDocument()
   })
 })

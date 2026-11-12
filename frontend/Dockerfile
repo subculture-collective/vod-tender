@@ -24,7 +24,7 @@ RUN --mount=type=cache,target=/app/node_modules/.vite \
 
 # --- Runtime stage ---
 # Pin nginx with digest for reproducible builds
-FROM nginx:1.29-alpine@sha256:b3c656d55d7ad751196f21b7fd2e8d4da9cb430e32f646adcf92441b72f82b14 AS runtime
+FROM nginx:1.31-alpine@sha256:713fc2ebfd92e8217db451477182ee91944b123d2b1ee9fd5a8c6e91ca6c3a11 AS runtime
 # Apply available Alpine runtime security updates.
 RUN apk upgrade --no-cache
 COPY --from=build /app/dist /usr/share/nginx/html

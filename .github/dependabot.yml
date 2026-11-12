@@ -36,6 +36,10 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # axe-core 4.14 enables label-content-name-mismatch, which the detail page
+      # fails. Remove these two entries once the aria-labels are fixed.
+      - dependency-name: "axe-core"
+      - dependency-name: "@axe-core/playwright"
 
   - package-ecosystem: "npm"
     directory: "/"

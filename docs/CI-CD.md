@@ -13,6 +13,14 @@ The CI/CD pipeline consists of multiple workflows that automate:
 - Deployments (staging, production)
 - Dependency management (automated updates)
 
+## Current state
+
+Pull request checks on GitHub run from `.github/workflows/pr-ci.yml`; its `CI gate`
+job is the required check on `main`. The other workflow files are described below as
+designed. Whether each one runs depends on the host that executes it, and the two
+deployment workflows are placeholders that fail on purpose. See
+[ci-configuration.md](./ci-configuration.md) for how the jobs are isolated.
+
 ## Workflows
 
 ### 1. CI Workflow (`.github/workflows/ci.yml`)
@@ -181,7 +189,7 @@ The CI/CD pipeline consists of multiple workflows that automate:
 
 **Configuration:** `.github/dependabot.yml`
 
-**Update schedule:** Weekly for:
+**Update schedule:** Monthly, one grouped minor/patch pull request per ecosystem (major updates are ignored), for:
 
 - Go modules
 - npm packages
@@ -190,40 +198,17 @@ The CI/CD pipeline consists of multiple workflows that automate:
 
 ### 6. Staging Deployment (`.github/workflows/deploy-staging.yml`)
 
-**Trigger:**
+**Trigger:** Manual trigger via `workflow_dispatch`
 
-- Push to `main` (automatic)
-- Manual trigger via `workflow_dispatch`
-
-**Process:**
-
-1. Deploys latest main branch to staging environment
-2. Waits for services to be healthy
-3. Runs health checks
-4. Runs smoke tests
-5. Rolls back on failure
-
-**Status:** Placeholder - requires actual deployment infrastructure
+**Status:** Placeholder. The workflow prints an error and exits; no staging
+deployment, health check, smoke test or rollback is implemented.
 
 ### 7. Production Deployment (`.github/workflows/deploy-production.yml`)
 
-**Trigger:** Manual trigger via `workflow_dispatch` (requires version tag input)
+**Trigger:** Manual trigger via `workflow_dispatch`
 
-**Strategy:** Blue-green deployment
-
-**Process:**
-
-1. Validates version tag format (vX.Y.Z)
-2. Verifies release exists
-3. Deploys to green environment
-4. Runs health checks on green
-5. Runs production smoke tests
-6. Switches traffic to green
-7. Monitors metrics for 5 minutes
-8. Keeps blue environment as backup
-9. Rolls back to blue on failure
-
-**Status:** Placeholder - requires actual deployment infrastructure
+**Status:** Placeholder. The workflow prints an error and exits; no production
+deployment is implemented.
 
 ## Performance Regression Detection
 

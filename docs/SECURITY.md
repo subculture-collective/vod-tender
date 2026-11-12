@@ -156,7 +156,7 @@ We deeply appreciate security researchers who report vulnerabilities responsibly
 
 ### For Users
 
-See [SECURITY_HARDENING.md](./docs/SECURITY_HARDENING.md) for comprehensive guidance. Key practices:
+See [SECURITY_HARDENING.md](./SECURITY_HARDENING.md) for comprehensive guidance. Key practices:
 
 - **Keep updated**: Run the latest version
 - **Secure secrets**: Never commit credentials; use secret managers
@@ -842,7 +842,7 @@ If a security incident is confirmed:
 5. **Notification**: Inform affected users if data was compromised
 6. **Post-mortem**: Document lessons learned and improve defenses
 
-See [RUNBOOKS.md](./docs/RUNBOOKS.md) for detailed incident response procedures.
+See [RUNBOOKS.md](./RUNBOOKS.md) for detailed incident response procedures.
 
 ## Security Contacts
 
@@ -863,4 +863,4 @@ We thank the following security researchers for responsible disclosure:
 **Last Updated**: 2025-10-20
 **Next Review**: 2026-04-20
 
-For operational security hardening, see [docs/SECURITY_HARDENING.md](./docs/SECURITY_HARDENING.md).
+For operational security hardening, see [docs/SECURITY_HARDENING.md](./SECURITY_HARDENING.md).

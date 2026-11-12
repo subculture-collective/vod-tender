@@ -1494,4 +1494,3 @@ curl http://localhost:8080/healthz
 - Configure monitoring: See [RUNBOOKS.md](./RUNBOOKS.md#monitoring-setup-guide)
 - Set up alerting: See [RUNBOOKS.md](./RUNBOOKS.md#alert-rule-examples)
 - Review security hardening: See [SECURITY_HARDENING.md](./SECURITY_HARDENING.md)
-- Performance tuning: See [PERFORMANCE.md](./PERFORMANCE.md)

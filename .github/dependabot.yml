@@ -1,43 +1,110 @@
+# Quiet by design: ready pull requests merge themselves once checks pass, so each
+# ecosystem opens at most one grouped minor/patch pull request a month. Major
+# updates are ignored and done by hand.
 version: 2
 updates:
   - package-ecosystem: "gomod"
     directory: "/backend"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     labels:
       - "dependencies"
       - "go"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 1
+    groups:
+      go-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     labels:
       - "dependencies"
       - "javascript"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 1
+    groups:
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "dependencies"
+      - "javascript"
+    open-pull-requests-limit: 1
+    groups:
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "docker"
     directory: "/backend"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     labels:
       - "dependencies"
       - "docker"
+    open-pull-requests-limit: 1
+    groups:
+      docker-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      # Go minor releases are a toolchain change made by hand across go.mod,
+      # the Dockerfile and the workflows.
+      - dependency-name: "golang"
+        update-types: ["version-update:semver-minor"]
 
   - package-ecosystem: "docker"
     directory: "/frontend"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     labels:
       - "dependencies"
       - "docker"
+    open-pull-requests-limit: 1
+    groups:
+      docker-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     labels:
       - "dependencies"
       - "github-actions"
+    open-pull-requests-limit: 1
+    groups:
+      actions-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]

@@ -3,7 +3,7 @@
 
 # --- Build stage ---
 # Pin golang with digest for reproducible builds
-FROM golang:1.26.10@sha256:24a707af49702fa44f02785475d02fb752f6982d3e9c0afb7696e1f0204e7ce9 AS builder
+FROM golang:1.26.11@sha256:957952ae74dc010608717144399a59a2c6e82ea03d63be1c7ff6577c5a135f93 AS builder
 WORKDIR /app
 
 # No native deps needed (pure Go build with pgx)
